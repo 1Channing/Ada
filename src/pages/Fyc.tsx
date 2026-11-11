@@ -12,7 +12,7 @@
  * Export PDF à la charte (src/lib/fycPdf.ts).
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ClipboardList, ExternalLink, FileDown, FileUp, Loader2, RefreshCw, Trash2, Search, AlertTriangle, Check, Archive, ArchiveRestore, Images, Send, X } from 'lucide-react';
+import { ClipboardList, ExternalLink, FileDown, FileUp, Loader2, RefreshCw, Trash2, Search, AlertTriangle, Check, Archive, ArchiveRestore, Images, Send, X, Pencil } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { listInspections, addInspections, addInspectionFile, updateInspection, deleteInspection, retryInspection, rereadInspection, readInspection, filtersFromInspection, fuelTokenOf, type FycInspection } from '../services/fyc';
 import { useSignedUrls } from '../services/storageAccess';
@@ -110,6 +110,9 @@ export function FycView({ onOpenMarket, active = true }: { onOpenMarket: (f: Mar
   const checkedRows = shown.filter((r) => checked.has(r.id));
   const transferable = checkedRows.filter((r) => r.status === 'read');
   const [transferOpen, setTransferOpen] = useState(false);
+  // CRAYON SUR LA LIGNE (11/11, Channing : « ajuster les infos de la voiture si l'inspection est inexacte ») : ouvre le
+  // dossier avec la correction champ par champ dépliée.
+  const [editRequest, setEditRequest] = useState(0);
   // TRANSFERT EN ARRIÈRE-PLAN (11/11, Channing : « cette page est très longue, il faudrait pouvoir la quitter sans
   // interrompre ») : le travail est porté par la vue (gardée montée), pas par la fenêtre — on peut la fermer, changer
   // d'onglet ; une bannière suit l'avancement et ouvre la liste à la fin.
@@ -228,6 +231,7 @@ export function FycView({ onOpenMarket, active = true }: { onOpenMarket: (f: Mar
                       <td className="py-2 text-right whitespace-nowrap">
                         {/^https?:/.test(r.source_url) && <a href={r.source_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title="Ouvrir le rapport" className="inline-flex p-1 text-slate-400 hover:text-brand-ocean"><ExternalLink className="w-4 h-4" /></a>}
                         {r.status === 'failed' && <button onClick={async (e) => { e.stopPropagation(); await retryInspection(r.id); await reload(); }} title="Réessayer" className="inline-flex p-1 text-slate-400 hover:text-brand-ocean"><RefreshCw className="w-4 h-4" /></button>}
+                        {r.status === 'read' && <button onClick={(e) => { e.stopPropagation(); setSelectedId(r.id); setEditRequest((n) => n + 1); }} title="Corriger les données de la voiture (marque, modèle, immat., km, énergie, boîte, puissance…)" className="inline-flex p-1 text-slate-400 hover:text-brand-ocean"><Pencil className="w-4 h-4" /></button>}
                         {r.status === 'read' && r.pdf_path && <button onClick={async (e) => { e.stopPropagation(); const err = await rereadInspection(r); setNotice(err ?? 'Rapport relu dans quelques secondes (champs et photos).'); await reload(); }} title={r.photos.length ? `Relire le rapport (champs et ${r.photos.length} photos)` : 'Relire le rapport : champs et photos (dossier lu avant les photos)'} className={`inline-flex p-1 ${r.photos.length ? 'text-slate-400' : 'text-amber-500'} hover:text-brand-ocean`}><Images className="w-4 h-4" /></button>}
                         <button onClick={(e) => { e.stopPropagation(); void archive(r, !r.archived_at); }} title={r.archived_at ? 'Remettre en cours' : 'Archiver'} className="inline-flex p-1 text-slate-400 hover:text-brand-ocean">{r.archived_at ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}</button>
                         <button onClick={async (e) => { e.stopPropagation(); if (!confirm('Supprimer cette inspection de FYC ?')) return; await deleteInspection(r.id); if (selectedId === r.id) setSelectedId(null); await reload(); }} title="Supprimer" className="inline-flex p-1 text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
@@ -261,13 +265,13 @@ export function FycView({ onOpenMarket, active = true }: { onOpenMarket: (f: Mar
       )}
       {transferOpen && (job?.running || transferable.length > 0) && <TransferModal rows={job?.running ? job.rows : transferable} contacts={contacts} job={job} onStart={(title, prices) => { startTransfer(transferable, title, prices); }} onClose={() => setTransferOpen(false)} />}
 
-      {selected && selected.status === 'read' && <InspectionPanel key={selected.id} insp={selected} contacts={contacts} refreshTick={refreshTick} onChanged={reload} onOpenMarket={onOpenMarket} author={displayName || email || ''} authorEmail={email ?? null} />}
+      {selected && selected.status === 'read' && <InspectionPanel key={selected.id} insp={selected} contacts={contacts} refreshTick={refreshTick} editRequest={editRequest} onChanged={reload} onOpenMarket={onOpenMarket} author={displayName || email || ''} authorEmail={email ?? null} />}
       {selected && selected.status === 'failed' && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2"><AlertTriangle className="w-4 h-4 inline mr-1" /> Rapport non lu : {selected.error ?? 'sans détail'}. Vérifie le lien (il doit ouvrir le rapport sans mot de passe), puis « Réessayer ».</p>}
     </div>
   );
 }
 
-function InspectionPanel({ insp, contacts, refreshTick, onChanged, onOpenMarket, author, authorEmail }: { insp: FycInspection; contacts: NetworkContact[]; refreshTick: number; onChanged: () => Promise<void>; onOpenMarket: (f: MarketFilters) => void; author: string; authorEmail: string | null }) {
+function InspectionPanel({ insp, contacts, refreshTick, editRequest, onChanged, onOpenMarket, author, authorEmail }: { insp: FycInspection; contacts: NetworkContact[]; refreshTick: number; editRequest: number; onChanged: () => Promise<void>; onOpenMarket: (f: MarketFilters) => void; author: string; authorEmail: string | null }) {
   const [purchase, setPurchase] = useState(insp.purchase_price != null ? String(insp.purchase_price) : '');
   const [attack, setAttack] = useState(insp.attack_price != null ? String(insp.attack_price) : '');
   const [notes, setNotes] = useState(insp.notes);
@@ -397,6 +401,8 @@ function InspectionPanel({ insp, contacts, refreshTick, onChanged, onOpenMarket,
   // ligne, critère par critère ») : chaque champ du rapport se corrige ici, enregistré à la sortie du champ ; ouvert
   // d'office quand le modèle manque (3 Bigster DEKRA sans titre).
   const [editData, setEditData] = useState(!insp.model);
+  const editRequestSeen = useRef(editRequest);
+  useEffect(() => { if (editRequest !== editRequestSeen.current) { editRequestSeen.current = editRequest; setEditData(true); } }, [editRequest]);
   return (
     <div className="space-y-5">
       {/* Voiture + nos prix */}
@@ -462,16 +468,7 @@ function InspectionPanel({ insp, contacts, refreshTick, onChanged, onOpenMarket,
               <Tile label={`Annonces · ${COUNTRY_NAMES[filters.country ?? ''] ?? filters.country} · mêmes filtres que le MI`} value={String(market.latest.length)} hint={market.stats.count ? `de ${fmtEur(market.stats.min)} à ${fmtEur(market.stats.max)} · P25–P75 ${fmtEur(market.stats.p25)} – ${fmtEur(market.stats.p75)}${market.lastScan ? ` · scan ${fmtDate(market.lastScan)}` : ''}` : 'aucune annonce avec prix'} />
               <Tile label={attackFromMi ? 'Prix d\'attaque proposé par le MI' : 'Notre prix d\'attaque'} value={fmtEur(attackPrice)} hint={`${market.position}${attackFromMi && market.mi ? ` · règle MI sur les ${market.mi.window} moins chères — saisis le tien pour le remplacer` : !attackFromMi && market.mi ? ` · le MI proposerait ${fmtEur(market.mi.price)}` : ''}`} strong />
             </div>
-            {attackPrice != null && market.stats.count > 0 && (
-              <div className="relative h-12 rounded-lg bg-slate-50 border border-slate-200" title="Les annonces filtrées, du moins cher au plus cher">
-                {(() => { const lo = market.stats.min, hi = market.stats.max, span = Math.max(1, hi - lo); const x = (v: number) => `${Math.min(98, Math.max(1, ((v - lo) / span) * 100))}%`; return (<>
-                  <div className="absolute top-5 h-3 rounded bg-blue-100" style={{ left: x(market.stats.p25), width: `calc(${x(market.stats.p75)} - ${x(market.stats.p25)})` }} />
-                  <div className="absolute top-2 w-1 h-9 bg-emerald-600 rounded" style={{ left: x(attackPrice) }} title={`notre prix ${fmtEur(attackPrice)}`} />
-                  <span className="absolute left-1 bottom-0.5 text-[10px] text-slate-500">{fmtEur(lo)}</span>
-                  <span className="absolute right-1 bottom-0.5 text-[10px] text-slate-500">{fmtEur(hi)}</span>
-                </>); })()}
-              </div>
-            )}
+            {market.stats.count > 0 && <PriceStrip stats={market.stats} prices={market.latest.map((o) => o.price).filter((p): p is number => typeof p === 'number' && p > 0)} ours={attackPrice} mi={market.mi?.price ?? null} typed={typedAttack != null} />}
             <p className="text-xs text-slate-500">Les 5 moins chères (mêmes annonces que le MI) : {market.cheapest.map((o, i) => <span key={i}>{i ? ' · ' : ''}{o.listing_url ? <a href={o.listing_url} target="_blank" rel="noreferrer" className="text-brand-ocean hover:underline">{fmtEur(o.price)}</a> : fmtEur(o.price)} ({o.year ?? '—'}, {fmtNum(o.mileage)} km)</span>)}</p>
           </>
         ) : market ? <p className="text-sm text-slate-500">{market.inBase > 0 ? `${market.inBase} annonces en base pour ${filters.brand} ${filters.model ?? ''} (${COUNTRY_NAMES[filters.country ?? ''] ?? filters.country}), aucune ne passe les filtres (énergie, boîte, carrosserie, années, km, puissance) : assouplis-les, ou lance la recherche dans le MI.` : 'Aucune annonce en base pour ce modèle dans ce pays : clique « Voir dans le MI (lance la recherche) », puis reviens ici (les annonces sont relues au retour).'}</p> : <p className="text-sm text-slate-500">Choisis un pays et une marque.</p>}
@@ -624,6 +621,50 @@ function TransferModal({ rows, contacts, job, onStart, onClose }: { rows: FycIns
           <button onClick={run} disabled={running || missing.length > 0 || !title.trim()} className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white disabled:opacity-50">{running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} {running ? `Fiches en cours… ${job!.done} / ${rows.length}` : `Créer la liste (${rows.length})`}</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** LE MARCHÉ EN UNE BANDE (11/11, Channing : « améliorer le visuel, couleurs d'Ada, plus clair, plus lisible ») : chaque
+ *  annonce est un trait fin, la bande P25–P75 en océan clair avec min / P25 / médiane / P75 / max écrits, notre prix en
+ *  repère encre avec son étiquette, la proposition du MI en pointillé quand elle diffère. Rien n'est porté par la
+ *  couleur seule : tout est écrit. */
+export function PriceStrip({ stats, prices, ours, mi, typed }: { stats: { min: number; max: number; p25: number; p75: number; median: number; count: number }; prices: number[]; ours: number | null; mi: number | null; typed: boolean }) {
+  const lo = Math.min(stats.min, ours ?? stats.min), hi = Math.max(stats.max, ours ?? stats.max), span = Math.max(1, hi - lo);
+  const x = (v: number) => Math.min(100, Math.max(0, ((v - lo) / span) * 100));
+  const ourX = ours != null ? x(ours) : null;
+  const labelAlign = (px: number) => (px < 12 ? 'translate-x-0' : px > 88 ? '-translate-x-full' : '-translate-x-1/2');
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-4 pt-11 pb-7">
+      <div className="relative h-16">
+        {/* Rangée haute : min, médiane (centrée sur son trait), max */}
+        <div className="absolute -top-9 left-0 text-[10px] text-slate-500 whitespace-nowrap">min <span className="text-slate-700">{fmtEur(stats.min)}</span></div>
+        <div className="absolute -top-9 right-0 text-[10px] text-slate-500 whitespace-nowrap">max <span className="text-slate-700">{fmtEur(stats.max)}</span></div>
+        <div className={`absolute -top-9 text-[10px] text-brand-ocean font-semibold whitespace-nowrap ${labelAlign(x(stats.median))}`} style={{ left: `${x(stats.median)}%` }}>médiane {fmtEur(stats.median)}</div>
+        {/* Rangée basse : P25 à gauche de la bande, P75 à sa droite (jamais l'un sur l'autre) */}
+        <div className="absolute -top-5 text-[10px] text-brand-ocean whitespace-nowrap -translate-x-full pr-1" style={{ left: `${x(stats.p25)}%` }}><span className="text-slate-500">P25</span> {fmtEur(stats.p25)}</div>
+        <div className="absolute -top-5 text-[10px] text-brand-ocean whitespace-nowrap pl-1" style={{ left: `${x(stats.p75)}%` }}><span className="text-slate-500">P75</span> {fmtEur(stats.p75)}</div>
+        {/* Bande P25–P75 */}
+        <div className="absolute top-5 h-7 rounded-md bg-brand-ocean/15 border border-brand-ocean/30" style={{ left: `${x(stats.p25)}%`, width: `${Math.max(0.6, x(stats.p75) - x(stats.p25))}%` }} />
+        {/* Médiane */}
+        <div className="absolute top-4 h-9 w-px bg-brand-ocean" style={{ left: `${x(stats.median)}%` }} />
+        {/* Une annonce = un trait */}
+        {prices.map((p, i) => <div key={i} className="absolute top-7 h-3 w-px bg-brand-encre/40" style={{ left: `${x(p)}%` }} />)}
+        {/* Axe */}
+        <div className="absolute top-[3.25rem] left-0 right-0 h-px bg-slate-300" />
+        {/* Proposition du MI (quand un prix saisi en diffère) */}
+        {typed && mi != null && ours !== mi && (
+          <div className="absolute top-2 h-11 border-l border-dashed border-brand-ocean" style={{ left: `${x(mi)}%` }} title={`Proposition du MI : ${fmtEur(mi)}`} />
+        )}
+        {/* Notre prix */}
+        {ourX != null && (
+          <>
+            <div className="absolute top-1 h-12 w-0.5 bg-brand-encre rounded" style={{ left: `${ourX}%` }} />
+            <div className={`absolute top-[3.6rem] text-[11px] font-semibold text-white bg-brand-encre rounded px-1.5 py-0.5 whitespace-nowrap ${labelAlign(ourX)}`} style={{ left: `${ourX}%` }}>{typed ? 'Notre prix' : 'Prix d\'attaque MI'} {fmtEur(ours)}</div>
+          </>
+        )}
+      </div>
+      {typed && mi != null && ours !== mi && <p className="text-[10px] text-slate-500 text-right mt-1">pointillé : proposition du MI {fmtEur(mi)}</p>}
     </div>
   );
 }
