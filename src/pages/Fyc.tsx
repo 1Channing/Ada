@@ -14,11 +14,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ClipboardList, ExternalLink, FileDown, FileUp, Loader2, RefreshCw, Trash2, Search, AlertTriangle, Check, Archive, ArchiveRestore, Images } from 'lucide-react';
 import { useAuth } from '../services/auth';
-import { listInspections, addInspections, addInspectionFile, updateInspection, deleteInspection, retryInspection, rereadInspection, readInspection, requestTranslation, getInspection, filtersFromInspection, type FycInspection } from '../services/fyc';
+import { listInspections, addInspections, addInspectionFile, updateInspection, deleteInspection, retryInspection, rereadInspection, readInspection, requestTranslation, getInspection, filtersFromInspection, fuelTokenOf, type FycInspection } from '../services/fyc';
 import { translationSource, translationFits } from '../lib/fycTranslation';
 import { signedUrl, useSignedUrls } from '../services/storageAccess';
 import { damageSummary } from '../lib/fycReport';
-import { loadObservationsForStudy, latestPerListing, filterObservations, priceStats, attackPrice as miAttackPrice, canonKey, FUEL_TOKEN_TO_CRITERIA, GEARBOX_LABELS, type MarketFilters, type Observation, type GearboxToken } from '../services/marketData';
+import { loadObservationsForStudy, latestPerListing, filterObservations, priceStats, attackPrice as miAttackPrice, canonKey, canonicalizeGearbox, fuelFilterMatches, FUEL_TOKEN_TO_CRITERIA, GEARBOX_LABELS, type MarketFilters, type Observation, type GearboxToken } from '../services/marketData';
+import { canonicalizeBody } from '../lib/study-core/bodyTypes';
 import { BODY_TYPES } from '../lib/study-core/bodyTypes';
 import { allSiteAdapters } from '../lib/study-core/marketplaces';
 import { loadNetwork, type NetworkContact } from '../services/network';
@@ -271,11 +272,32 @@ function InspectionPanel({ insp, contacts, refreshTick, onChanged, onOpenMarket,
     if (!clientId) { setStock(null); return; }
     void listStockVehicles(clientId).then((r) => setStock(r.vehicles));
   }, [clientId]);
-  const clientRows = useMemo(() => {
+  // STOCK DU CLIENT AUX MÊMES CRITÈRES QUE LE MARCHÉ (11/11, Channing : « il ne faut pas comparer un 2015 avec un
+  // 2026 : prendre en compte au moins le kilométrage et l'année, plus si on peut ») : années, km max, énergie, boîte,
+  // carrosserie, puissance et finition des filtres MI, appliqués au stock relevé (valeurs canonisées, une donnée
+  // absente sur la voiture du client ne l'écarte pas). Désactivable d'un clic pour revoir tout son stock du modèle.
+  const [sameCriteria, setSameCriteria] = useState(true);
+  const clientAll = useMemo(() => {
     if (!stock) return [];
     const b = canonKey(insp.brand ?? ''); const m = canonKey(insp.model ?? '');
     return stock.filter((v) => !v.gone_at && canonKey(v.brand ?? '') === b && (!m || canonKey(v.model ?? '').includes(m) || m.includes(canonKey(v.model ?? '')))).sort((a, c) => (a.price ?? 1e12) - (c.price ?? 1e12));
   }, [stock, insp.brand, insp.model]);
+  const clientRows = useMemo(() => {
+    if (!sameCriteria) return clientAll;
+    const gb = filters.gearbox ? canonicalizeGearbox(filters.gearbox) : '';
+    const body = filters.vehicleType ? canonicalizeBody(filters.vehicleType) : '';
+    const trim = (filters.trim ?? '').trim().toLowerCase();
+    return clientAll.filter((v) =>
+      (filters.yearMin == null || v.year == null || v.year >= filters.yearMin)
+      && (filters.yearMax == null || v.year == null || v.year <= filters.yearMax)
+      && (filters.mileageMax == null || v.km == null || v.km <= filters.mileageMax)
+      && (!filters.fuel || !v.fuel || !fuelTokenOf(v.fuel) || fuelFilterMatches(fuelTokenOf(v.fuel) ?? '', filters.fuel))
+      && (!gb || !canonicalizeGearbox(v.gearbox) || canonicalizeGearbox(v.gearbox) === gb)
+      && (!body || !canonicalizeBody(v.body) || canonicalizeBody(v.body) === body)
+      && (filters.powerMin == null || v.power_ch == null || v.power_ch >= filters.powerMin)
+      && (!trim || `${v.title ?? ''}`.toLowerCase().includes(trim)));
+  }, [clientAll, sameCriteria, filtersKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const criteriaLabel = [filters.yearMin != null || filters.yearMax != null ? `${filters.yearMin ?? '…'}–${filters.yearMax ?? '…'}` : null, filters.mileageMax != null ? `≤ ${fmtNum(filters.mileageMax)} km` : null, filters.fuel ? FUEL_LABEL[filters.fuel] ?? filters.fuel : null, filters.gearbox ? GEARBOX_LABELS[filters.gearbox as GearboxToken] ?? filters.gearbox : null, filters.vehicleType || null, filters.powerMin != null ? `≥ ${filters.powerMin} ch` : null, filters.trim || null].filter(Boolean).join(' · ');
   const clientPrices = clientRows.map((v) => v.price).filter((p): p is number => typeof p === 'number' && p > 0);
   const clientMin = clientPrices.length ? clientPrices[0] : null;
   const clientMedian = clientPrices.length ? clientPrices[Math.floor(clientPrices.length / 2)] : null;
@@ -431,20 +453,25 @@ function InspectionPanel({ insp, contacts, refreshTick, onChanged, onOpenMarket,
             <>
               <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <Tile label={`${client.name} · stock relevé`} value={fmtNum(runs.get(client.id)?.total)} hint={`le ${fmtDate(runs.get(client.id)?.at)}`} />
-                <Tile label={`${car} en stock`} value={String(clientRows.length)} hint={clientRows.length ? `de ${fmtEur(clientMin)} à ${fmtEur(clientPrices[clientPrices.length - 1])}` : 'aucun exemplaire'} />
+                <Tile label={sameCriteria ? `${car} comparables (critères du marché)` : `${car} en stock`} value={String(clientRows.length)} hint={clientRows.length ? `de ${fmtEur(clientMin)} à ${fmtEur(clientPrices[clientPrices.length - 1])}${sameCriteria ? ` · ${clientAll.length} ${car} au total` : ''}` : sameCriteria ? `aucun aux critères du marché · ${clientAll.length} ${car} au total` : 'aucun exemplaire'} />
                 <Tile label="Leur prix le plus bas / médiane" value={fmtEur(clientMin)} hint={`médiane ${fmtEur(clientMedian)}`} />
                 <Tile label={attackFromMi ? 'Prix d\'attaque proposé par le MI' : 'Notre prix d\'attaque'} value={fmtEur(attackPrice)} hint={attackPrice != null && clientMin != null ? (attackPrice < clientMin ? `${Math.round(((clientMin - attackPrice) / clientMin) * 100)} % sous leur prix le plus bas` : `${Math.round(((attackPrice - clientMin) / clientMin) * 100)} % au-dessus de leur prix le plus bas`) : attackPrice == null ? 'ni saisi, ni calculable (pas d\'annonce en base)' : 'pas de comparable chez lui'} strong />
               </div>
+              <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+                <input type="checkbox" checked={sameCriteria} onChange={(e) => setSameCriteria(e.target.checked)} className="rounded border-slate-300" />
+                Mêmes critères que le marché cible{criteriaLabel ? ` (${criteriaLabel})` : ' (aucun critère saisi : tout le stock du modèle)'} — une voiture du client sans la donnée n'est pas écartée
+              </label>
               {clientRows.length > 0 && (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
-                    <thead><tr className="text-left text-xs text-slate-400"><th className="py-1.5 pr-3">Chez le client</th><th className="py-1.5 pr-3">Année</th><th className="py-1.5 pr-3 text-right">Km</th><th className="py-1.5 pr-3">Énergie · boîte</th><th className="py-1.5 pr-3 text-right">Prix affiché</th><th className="py-1.5 pr-3 text-right">Écart vs notre attaque</th></tr></thead>
+                    <thead><tr className="text-left text-xs text-slate-400"><th className="py-1.5 pr-3">Chez le client</th><th className="py-1.5 pr-3">Année</th><th className="py-1.5 pr-3 text-right">Km</th><th className="py-1.5 pr-3 text-right">Ch</th><th className="py-1.5 pr-3">Énergie · boîte</th><th className="py-1.5 pr-3 text-right">Prix affiché</th><th className="py-1.5 pr-3 text-right">Écart vs notre attaque</th></tr></thead>
                     <tbody className="divide-y divide-slate-100">
                       {clientRows.slice(0, 25).map((v) => (
                         <tr key={v.id}>
                           <td className="py-1.5 pr-3">{v.url ? <a href={v.url} target="_blank" rel="noreferrer" className="text-slate-800 hover:text-brand-ocean hover:underline">{v.title ?? [v.brand, v.model].filter(Boolean).join(' ')}</a> : v.title}</td>
                           <td className="py-1.5 pr-3">{v.year ?? '—'}</td>
                           <td className="py-1.5 pr-3 text-right tabular-nums">{fmtNum(v.km)}</td>
+                          <td className="py-1.5 pr-3 text-right tabular-nums">{v.power_ch ?? '—'}</td>
                           <td className="py-1.5 pr-3">{[v.fuel, v.gearbox].filter(Boolean).join(' · ') || '—'}</td>
                           <td className="py-1.5 pr-3 text-right tabular-nums font-medium">{fmtEur(v.price)}</td>
                           <td className={`py-1.5 pr-3 text-right tabular-nums ${attackPrice != null && v.price != null ? (v.price > attackPrice ? 'text-emerald-700' : 'text-red-700') : 'text-slate-400'}`}>{attackPrice != null && v.price != null ? `${v.price > attackPrice ? '+' : ''}${fmtEur(v.price - attackPrice)}` : '—'}</td>
@@ -456,6 +483,9 @@ function InspectionPanel({ insp, contacts, refreshTick, onChanged, onOpenMarket,
               )}
             </>
           )
+        )}
+        {client && stock && clientRows.length === 0 && clientAll.length > 0 && sameCriteria && (
+          <p className="text-sm text-slate-600">Aucun {car} de son stock ne répond aux critères du marché ({criteriaLabel || 'aucun'}) : élargis les filtres ci-dessus, ou décoche pour voir ses {clientAll.length} {car}.</p>
         )}
         {client && stock && clientRows.length > 0 && attackPrice != null && clientMin != null && (
           <p className="text-sm"><span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 border text-xs font-medium ${attackPrice < clientMin ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-orange-50 text-orange-800 border-orange-200'}`}>{attackPrice < clientMin ? <Check className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />} {attackPrice < clientMin ? 'Notre prix passe sous tout son stock comparable' : 'Notre prix est au-dessus de son exemplaire le moins cher'}</span></p>
