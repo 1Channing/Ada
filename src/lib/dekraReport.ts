@@ -45,6 +45,15 @@ const L = {
   displacement: ['Cylindrée', 'Engine displacement', 'Displacement', 'Desplazamiento de motor', 'Cilindrada', 'Hubraum', 'Cilinderinhoud', 'Cilindrata'],
   upholstery: ['Sellerie', 'Upholstery', 'Tapicería', 'Polsterung', 'Bekleding', 'Tappezzeria', 'Estofos', 'Capitonnage'],
 };
+/** ORDRE DES CHAMPS du bloc « description » de DEKRA, le même dans toutes les langues et tous les rapports vus (fr : les
+ *  9 premiers ; es : les 15). Sert de REPLI quand un libellé n'est pas reconnu : certains rapports es-ES sortent avec des
+ *  libellés faux (« SOH (%) » devant la sellerie, « Descargar fotografías » devant l'énergie, « Informe de inspección de
+ *  campo firmado » devant la carrosserie — bug du gabarit DEKRA, constaté le 11/11 sur 4 Bigster) : la valeur est alors
+ *  prise par sa position. */
+const FIELD_ORDER = ['plate', 'firstReg', 'km', 'color', 'modelYear', 'upholstery', 'doors', 'seats', 'generation', 'body', 'displacement', 'gearbox', 'fuel', 'gears', 'power'] as const;
+type FieldKey = typeof FIELD_ORDER[number];
+const LABELS_BY_FIELD: Partial<Record<FieldKey, string[]>> = { plate: L.plate, firstReg: L.firstReg, km: L.km, color: L.color, modelYear: L.modelYear, upholstery: L.upholstery, doors: L.doors, seats: L.seats, body: L.body, displacement: L.displacement, gearbox: L.gearbox, fuel: L.fuel, power: L.power, generation: ['Generation', 'Génération', 'Generación', 'Generazione', 'Generatie'], gears: ['Nombre de rapports', 'Number of gears', 'Número de marchas', 'Anzahl Gänge', 'Aantal versnellingen', 'Numero di marce'] };
+
 /** « 115 KW » → 156 ch ; « 150 CV / ch / PS / hp » → 150. */
 function powerCh(raw: string | null): number | null {
   const m = (raw ?? '').match(/(\d+(?:[.,]\d+)?)\s*(kw|cv|ch|ps|hp|pk)?/i);
@@ -101,10 +110,22 @@ export function dekraTranslationFrom(src: DekraParsed, tr: DekraParsed): FycTran
 
 export function parseDekraReport(html: string): DekraParsed {
   const h = html.replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<svg[\s\S]*?<\/svg>/gi, '');
-  // Libellés « <span class="label">X</span><span>Y</span> ».
+  // Libellés « <span class="label">X</span><span>Y</span> » : reconnus par leur texte, sinon par leur POSITION dans le
+  // bloc description (voir FIELD_ORDER) ; les libellés des autres blocs (inspection, contrôles) par leur texte seulement.
   const labels: Record<string, string> = {};
-  for (const m of h.matchAll(/<span class="label">([\s\S]*?)<\/span>\s*<span[^>]*>([\s\S]*?)<\/span>/gi)) labels[norm(strip(m[1]))] = strip(m[2]);
-  const lab = (keys: string[]) => { for (const k of keys) { const v = labels[norm(k)]; if (v != null) return dash(v); } return null; };
+  const pairs = [...h.matchAll(/<span class="label">([\s\S]*?)<\/span>\s*<span[^>]*>([\s\S]*?)<\/span>/gi)].map((m) => ({ label: norm(strip(m[1])), value: strip(m[2]) }));
+  for (const p of pairs) labels[p.label] = p.value;
+  const byField: Partial<Record<FieldKey, string>> = {};
+  const known = new Map<string, FieldKey>();
+  for (const [f, ks] of Object.entries(LABELS_BY_FIELD) as Array<[FieldKey, string[]]>) for (const k of ks) known.set(norm(k), f);
+  const descr = (h.match(/<ul class="[^"]*ul-labels[^"]*">([\s\S]*?)<\/ul>/i)?.[1] ?? '');
+  const descrPairs = [...descr.matchAll(/<span class="label">([\s\S]*?)<\/span>\s*<span[^>]*>([\s\S]*?)<\/span>/gi)].map((m) => ({ label: norm(strip(m[1])), value: strip(m[2]) }));
+  descrPairs.forEach((p, i) => { const f = known.get(p.label) ?? (i < FIELD_ORDER.length ? FIELD_ORDER[i] : undefined); if (f && byField[f] == null) byField[f] = p.value; });
+  const lab = (keys: string[]) => {
+    for (const k of keys) { const v = labels[norm(k)]; if (v != null) return dash(v); }
+    const f = known.get(norm(keys[0]));
+    return f && byField[f] != null ? dash(byField[f]) : null;
+  };
   const brand = dash(strip(h.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ?? ''));
   const fullModel = dash(strip(h.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i)?.[1] ?? ''));
   const model = cutModel(fullModel, brand);

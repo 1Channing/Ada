@@ -347,12 +347,24 @@ function InspectionPanel({ insp, contacts, refreshTick, onChanged, onOpenMarket,
   };
 
   const car = [insp.brand, insp.model].filter(Boolean).join(' ');
+  // MARQUE / MODÈLE CORRIGEABLES (11/11) : certains rapports DEKRA sortent sans modèle (titre vide, 3 Bigster) —
+  // saisis ici, ils partent dans la fiche, les filtres MI et le transfert vers Offres.
+  const [editCar, setEditCar] = useState(!insp.model);
+  const [carBrand, setCarBrand] = useState(insp.brand ?? '');
+  const [carModel, setCarModel] = useState(insp.model ?? '');
+  const saveCar = async () => { await updateInspection(insp.id, { brand: carBrand.trim() || null, model: carModel.trim() || null }); setEditCar(false); await onChanged(); };
   return (
     <div className="space-y-5">
       {/* Voiture + nos prix */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
         <div className="flex items-center gap-2 flex-wrap">
-          <h2 className="text-base font-semibold text-slate-900">{car} — nos prix</h2>
+          {editCar ? (
+            <span className="flex items-center gap-1.5">
+              <input value={carBrand} onChange={(e) => setCarBrand(e.target.value)} placeholder="Marque" className={`${inp} w-32`} />
+              <input value={carModel} onChange={(e) => setCarModel(e.target.value)} placeholder="Modèle (absent du rapport)" className={`${inp} w-48 ${!carModel.trim() ? 'border-amber-400' : ''}`} onKeyDown={(e) => { if (e.key === 'Enter') void saveCar(); }} />
+              <button onClick={() => void saveCar()} className="text-xs px-2 py-2 rounded-lg bg-brand-ocean text-white hover:bg-brand-encre">OK</button>
+            </span>
+          ) : <h2 className="text-base font-semibold text-slate-900 cursor-text" title="Cliquer pour corriger la marque ou le modèle" onClick={() => setEditCar(true)}>{car || 'Modèle absent du rapport'} — nos prix</h2>}
           {insp.archived_at && <span className="text-[11px] rounded-full px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-200">archivée le {fmtDate(insp.archived_at)}</span>}
           <span className="text-xs text-slate-500">{insp.year ?? '—'} · {fmtNum(insp.km)} km · {insp.fuel ?? '—'} · {insp.gearbox ?? '—'}{insp.power_ch ? ` · ${insp.power_ch} ch` : ''}{insp.color ? ` · ${insp.color}` : ''}</span>
           <button onClick={() => void exportPdf()} disabled={!!exporting} title={`Fiche véhicule à la charte MC Export, dans la langue du pays cible (${pdfLang.toUpperCase()}) : photos, données, équipements, pneus, état (valeurs traduites), notre prix d'attaque, nos coordonnées — jamais le prix d'achat ni les notes`} className="ml-auto flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50">{exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />} {exporting ?? `Fiche PDF client (${pdfLang.toUpperCase()})`}</button>
