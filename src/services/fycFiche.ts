@@ -32,7 +32,10 @@ export async function photoData(path: string): Promise<string | null> {
 export async function translationFor(insp: FycInspection, lang: FycLang, onStatus?: (s: string) => void): Promise<{ translation: FycTranslation | null; note: string | null }> {
   const src = translationSource(insp);
   if (translationFits(src, insp.translations[lang])) return { translation: insp.translations[lang], note: null };
-  const err = await requestTranslation(insp.id, lang);
+  // Relue fraîche : une traduction demandée d'avance (transfert groupé) est peut-être déjà là, ou en cours.
+  const fresh0 = await getInspection(insp.id);
+  if (fresh0 && translationFits(src, fresh0.translations[lang])) return { translation: fresh0.translations[lang], note: null };
+  const err = fresh0?.translate_to === lang ? null : await requestTranslation(insp.id, lang);
   if (err) return { translation: null, note: `Traduction non demandée (${err}) : fiche avec les valeurs du rapport.` };
   const until = Date.now() + 90_000;
   while (Date.now() < until) {
@@ -43,6 +46,17 @@ export async function translationFor(insp: FycInspection, lang: FycLang, onStatu
     if (fresh && fresh.translate_to == null) return { translation: null, note: `Traduction ${lang.toUpperCase()} refusée par le worker${fresh.error ? ` (${fresh.error})` : ''} : fiche avec les valeurs du rapport.` };
   }
   return { translation: null, note: `Traduction ${lang.toUpperCase()} non reçue (worker arrêté ?) : fiche avec les valeurs du rapport. Réessaie dans une minute.` };
+}
+
+/** Demande d'avance les traductions manquantes de plusieurs inspections (le worker en traite 3 par 20 s) : un transfert
+ *  de 10 véhicules n'attend plus 10 fois de suite. */
+export async function prefetchTranslations(items: Array<{ insp: FycInspection; lang: FycLang }>): Promise<void> {
+  await Promise.all(items.map(async ({ insp, lang }) => {
+    if (translationFits(translationSource(insp), insp.translations[lang])) return;
+    const fresh = await getInspection(insp.id);
+    if (!fresh || translationFits(translationSource(fresh), fresh.translations[lang]) || fresh.translate_to) return;
+    await requestTranslation(insp.id, lang);
+  }));
 }
 
 /** Langue de la fiche d'une inspection : celle du pays cible de son marché, sinon le français. */

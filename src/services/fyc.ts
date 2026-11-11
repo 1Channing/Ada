@@ -83,7 +83,9 @@ export async function addInspections(text: string): Promise<{ added: number; exi
   return { added: fresh.length, existing: urls.length - fresh.length, error: null };
 }
 
-export async function updateInspection(id: string, patch: Partial<Pick<FycInspection, 'purchase_price' | 'attack_price' | 'notes' | 'market_filters' | 'client_contact_id' | 'brand' | 'model' | 'year' | 'km' | 'fuel' | 'gearbox' | 'archived_at' | 'translate_to'>>): Promise<string | null> {
+/** Champs du rapport corrigeables à la main (11/11, Channing : « modifier les infos dans le FYC, ligne par ligne, critère par critère »). */
+export type FycEditableField = 'brand' | 'model' | 'version' | 'vin' | 'first_registration' | 'year' | 'km' | 'fuel' | 'gearbox' | 'power_ch' | 'body' | 'color' | 'doors' | 'seats' | 'repair_cost' | 'asking_price' | 'report_number' | 'report_date';
+export async function updateInspection(id: string, patch: Partial<Pick<FycInspection, 'purchase_price' | 'attack_price' | 'notes' | 'market_filters' | 'client_contact_id' | 'archived_at' | 'translate_to' | FycEditableField>>): Promise<string | null> {
   const { error } = await untyped.from('fyc_inspections').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id);
   return error ? error.message : null;
 }

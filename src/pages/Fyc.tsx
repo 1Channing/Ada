@@ -16,7 +16,8 @@ import { ClipboardList, ExternalLink, FileDown, FileUp, Loader2, RefreshCw, Tras
 import { useAuth } from '../services/auth';
 import { listInspections, addInspections, addInspectionFile, updateInspection, deleteInspection, retryInspection, rereadInspection, readInspection, filtersFromInspection, fuelTokenOf, type FycInspection } from '../services/fyc';
 import { useSignedUrls } from '../services/storageAccess';
-import { buildFiche, publishFiche, ficheLangOf, ficheFileName } from '../services/fycFiche';
+import { buildFiche, publishFiche, prefetchTranslations, ficheLangOf, ficheFileName } from '../services/fycFiche';
+import type { FycEditableField } from '../services/fyc';
 import { saveOffer } from '../services/offers';
 import { BUILTIN_COLUMNS, type ExportColumn } from '../lib/offers/exportColumns';
 import type { OfferVehicle } from '../lib/offers/parseSupplierFile';
@@ -107,6 +108,42 @@ export function FycView({ onOpenMarket, active = true }: { onOpenMarket: (f: Mar
   const checkedRows = shown.filter((r) => checked.has(r.id));
   const transferable = checkedRows.filter((r) => r.status === 'read');
   const [transferOpen, setTransferOpen] = useState(false);
+  // TRANSFERT EN ARRIÈRE-PLAN (11/11, Channing : « cette page est très longue, il faudrait pouvoir la quitter sans
+  // interrompre ») : le travail est porté par la vue (gardée montée), pas par la fenêtre — on peut la fermer, changer
+  // d'onglet ; une bannière suit l'avancement et ouvre la liste à la fin.
+  const [job, setJob] = useState<TransferJob | null>(null);
+  const startTransfer = (rows: FycInspection[], title: string, prices: Record<string, number | null>) => {
+    const init: TransferJob = { title, rows, prices, progress: {}, done: 0, running: true, offerId: null, error: null, notes: [] };
+    setJob(init);
+    const set = (patch: Partial<TransferJob> | ((j: TransferJob) => TransferJob)) => setJob((j) => (j ? (typeof patch === 'function' ? patch(j) : { ...j, ...patch }) : j));
+    void (async () => {
+      try {
+        await prefetchTranslations(rows.map((r) => ({ insp: r, lang: ficheLangOf(r) })));
+        const vehicles: OfferVehicle[] = [];
+        for (const r of rows) {
+          const lang = ficheLangOf(r);
+          const { blob, note } = await buildFiche(r, lang, { name: displayName || email || '', email: email ?? null }, (s) => set((j) => ({ ...j, progress: { ...j.progress, [r.id]: s } })));
+          if (note) set((j) => ({ ...j, notes: [...j.notes, `${[r.brand, r.model].filter(Boolean).join(' ')} : ${note}`] }));
+          set((j) => ({ ...j, progress: { ...j.progress, [r.id]: 'publication…' } }));
+          const pub = await publishFiche(r, lang, blob);
+          if (pub.error) throw new Error(pub.error);
+          set((j) => ({ ...j, done: j.done + 1, progress: { ...j.progress, [r.id]: `fiche ${lang.toUpperCase()} publiée` } }));
+          vehicles.push({
+            id: r.vin ?? r.id, vin: r.vin, brand: (r.brand ?? '').toUpperCase(), model: r.model ?? '', version: r.version ?? '', reg_date: r.first_registration, year: r.year, km: r.km,
+            color: r.color, fuel: r.fuel, engine: null, power_ch: r.power_ch, gearbox: r.gearbox, co2: null, damages: r.repair_cost ?? null, report_url: pub.url, location: null,
+            price_ht: null, price_ttc: null, vat_recoverable: null, imported: null, extras: {}, selected: true, sale_price: prices[r.id] ?? null, quantity: 1,
+          });
+        }
+        const today = new Date().toLocaleDateString('fr-FR');
+        const cols: ExportColumn[] = (['vehicle', 'reg', 'km', 'damages', 'vin', 'price', 'report'] as const).map((k) => ({ id: k, builtin: k, label: BUILTIN_COLUMNS[k].label }));
+        const saved = await saveOffer({ title, supplier: 'FYC — inspections', source_filename: '', layout: 'flat', mappings: [], vehicles, price_rule: { mode: 'margin', margin: 0 }, countries: [], notes: `Créée depuis le FYC le ${today} (${rows.length} inspection${rows.length > 1 ? 's' : ''}). Prix de revente saisis au transfert ; fiche PDF MC Export de chaque véhicule en dernière colonne.`, status: 'draft', export_columns: cols });
+        if (saved.error || !saved.id) throw new Error(saved.error ?? 'offre non créée');
+        set({ running: false, offerId: saved.id });
+        setChecked(new Set());
+      } catch (e) { set({ running: false, error: e instanceof Error ? e.message : String(e) }); }
+    })();
+  };
+  const openOffer = (id: string) => window.history.pushState({}, '', `/offres?offer=${id}&view=export`);
   const rereadChecked = async () => {
     let n = 0;
     for (const r of checkedRows) if (r.status === 'read' && r.pdf_path) { const err = await rereadInspection(r); if (!err) n++; }
@@ -210,7 +247,17 @@ export function FycView({ onOpenMarket, active = true }: { onOpenMarket: (f: Mar
         )}
       </div>
 
-      {transferOpen && transferable.length > 0 && <TransferModal rows={transferable} contacts={contacts} author={displayName || email || ''} authorEmail={email ?? null} onClose={() => setTransferOpen(false)} onDone={() => { setTransferOpen(false); setChecked(new Set()); }} />}
+      {job && (
+        <div className={`rounded-xl border px-4 py-3 text-sm flex items-center gap-3 flex-wrap ${job.error ? 'bg-red-50 border-red-200 text-red-800' : job.offerId ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-sky-50 border-sky-200 text-sky-900'}`}>
+          {job.running ? <Loader2 className="w-4 h-4 animate-spin" /> : job.error ? <AlertTriangle className="w-4 h-4" /> : <Check className="w-4 h-4" />}
+          <span className="font-medium">Transfert vers Offres « {job.title} »</span>
+          <span>{job.running ? `${job.done} / ${job.rows.length} fiches publiées — ${Object.values(job.progress).slice(-1)[0] ?? 'préparation…'} — tu peux changer de page, ça continue.` : job.error ? `échec : ${job.error}` : `${job.done} fiches publiées, liste créée.`}</span>
+          {job.offerId && <button onClick={() => openOffer(job.offerId!)} className="text-sm px-3 py-1.5 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white">Ouvrir la liste</button>}
+          {job.running && <button onClick={() => setTransferOpen(true)} className="text-xs underline">détail</button>}
+          {!job.running && <button onClick={() => setJob(null)} className="ml-auto text-xs text-slate-500 hover:underline">Fermer</button>}
+        </div>
+      )}
+      {transferOpen && (job?.running || transferable.length > 0) && <TransferModal rows={job?.running ? job.rows : transferable} contacts={contacts} job={job} onStart={(title, prices) => { startTransfer(transferable, title, prices); }} onClose={() => setTransferOpen(false)} />}
 
       {selected && selected.status === 'read' && <InspectionPanel key={selected.id} insp={selected} contacts={contacts} refreshTick={refreshTick} onChanged={reload} onOpenMarket={onOpenMarket} author={displayName || email || ''} authorEmail={email ?? null} />}
       {selected && selected.status === 'failed' && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2"><AlertTriangle className="w-4 h-4 inline mr-1" /> Rapport non lu : {selected.error ?? 'sans détail'}. Vérifie le lien (il doit ouvrir le rapport sans mot de passe), puis « Réessayer ».</p>}
@@ -347,28 +394,22 @@ function InspectionPanel({ insp, contacts, refreshTick, onChanged, onOpenMarket,
   };
 
   const car = [insp.brand, insp.model].filter(Boolean).join(' ');
-  // MARQUE / MODÈLE CORRIGEABLES (11/11) : certains rapports DEKRA sortent sans modèle (titre vide, 3 Bigster) —
-  // saisis ici, ils partent dans la fiche, les filtres MI et le transfert vers Offres.
-  const [editCar, setEditCar] = useState(!insp.model);
-  const [carBrand, setCarBrand] = useState(insp.brand ?? '');
-  const [carModel, setCarModel] = useState(insp.model ?? '');
-  const saveCar = async () => { await updateInspection(insp.id, { brand: carBrand.trim() || null, model: carModel.trim() || null }); setEditCar(false); await onChanged(); };
+  // DONNÉES CORRIGEABLES (11/11, Channing : « certaines inspections sont incomplètes, modifier les infos ligne par
+  // ligne, critère par critère ») : chaque champ du rapport se corrige ici, enregistré à la sortie du champ ; ouvert
+  // d'office quand le modèle manque (3 Bigster DEKRA sans titre).
+  const [editData, setEditData] = useState(!insp.model);
   return (
     <div className="space-y-5">
       {/* Voiture + nos prix */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
         <div className="flex items-center gap-2 flex-wrap">
-          {editCar ? (
-            <span className="flex items-center gap-1.5">
-              <input value={carBrand} onChange={(e) => setCarBrand(e.target.value)} placeholder="Marque" className={`${inp} w-32`} />
-              <input value={carModel} onChange={(e) => setCarModel(e.target.value)} placeholder="Modèle (absent du rapport)" className={`${inp} w-48 ${!carModel.trim() ? 'border-amber-400' : ''}`} onKeyDown={(e) => { if (e.key === 'Enter') void saveCar(); }} />
-              <button onClick={() => void saveCar()} className="text-xs px-2 py-2 rounded-lg bg-brand-ocean text-white hover:bg-brand-encre">OK</button>
-            </span>
-          ) : <h2 className="text-base font-semibold text-slate-900 cursor-text" title="Cliquer pour corriger la marque ou le modèle" onClick={() => setEditCar(true)}>{car || 'Modèle absent du rapport'} — nos prix</h2>}
+          <h2 className="text-base font-semibold text-slate-900">{car || 'Modèle absent du rapport'} — nos prix</h2>
+          <button onClick={() => setEditData((v) => !v)} className={`text-xs px-2 py-1 rounded-lg border ${editData ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'}`} title="Corriger les données lues dans le rapport, champ par champ">{editData ? 'Fermer la correction' : 'Corriger les données'}</button>
           {insp.archived_at && <span className="text-[11px] rounded-full px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-200">archivée le {fmtDate(insp.archived_at)}</span>}
           <span className="text-xs text-slate-500">{insp.year ?? '—'} · {fmtNum(insp.km)} km · {insp.fuel ?? '—'} · {insp.gearbox ?? '—'}{insp.power_ch ? ` · ${insp.power_ch} ch` : ''}{insp.color ? ` · ${insp.color}` : ''}</span>
           <button onClick={() => void exportPdf()} disabled={!!exporting} title={`Fiche véhicule à la charte MC Export, dans la langue du pays cible (${pdfLang.toUpperCase()}) : photos, données, équipements, pneus, état (valeurs traduites), notre prix d'attaque, nos coordonnées — jamais le prix d'achat ni les notes`} className="ml-auto flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50">{exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />} {exporting ?? `Fiche PDF client (${pdfLang.toUpperCase()})`}</button>
         </div>
+        {editData && <FieldEditor insp={insp} onChanged={onChanged} />}
         {exportNote && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{exportNote}</p>}
         {(photoUrls.length > 0 || defectUrls.length > 0) && <div className="flex gap-2 overflow-x-auto">
           {photoUrls.map((u, i) => <a key={`p${i}`} href={u} target="_blank" rel="noreferrer" className="shrink-0"><img src={u} alt="" className="h-20 w-auto rounded-md border border-slate-200 object-cover" /></a>)}
@@ -503,53 +544,64 @@ function InspectionPanel({ insp, contacts, refreshTick, onChanged, onOpenMarket,
  *  puis le lien de la fiche PDF MC Export ; chaque envoi = une nouvelle liste, avec un titre »). La fiche de chaque
  *  véhicule est construite ici (photos, dommages, traduction dans la langue de son pays cible), publiée dans le
  *  bucket public fyc-fiches, et l'offre créée s'ouvre dans l'onglet Offres. */
-function TransferModal({ rows, contacts, author, authorEmail, onClose, onDone }: { rows: FycInspection[]; contacts: NetworkContact[]; author: string; authorEmail: string | null; onClose: () => void; onDone: () => void }) {
-  const today = new Date().toLocaleDateString('fr-FR');
-  const [title, setTitle] = useState(() => { const cl = rows.map((r) => contacts.find((c) => c.id === r.client_contact_id)?.name).filter(Boolean); return cl.length ? `${cl[0]} — ${today}` : `Inspections FYC — ${today}`; });
-  const [prices, setPrices] = useState<Record<string, string>>(() => Object.fromEntries(rows.map((r) => [r.id, r.attack_price != null ? String(r.attack_price) : ''])));
-  const [progress, setProgress] = useState<Record<string, string>>({});
-  const [running, setRunning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [notes, setNotes] = useState<string[]>([]);
-  const num = (s: string) => { const n = Number((s ?? '').replace(/[^\d.]/g, '')); return Number.isFinite(n) && n > 0 ? Math.round(n) : null; };
-  const missing = rows.filter((r) => num(prices[r.id]) == null);
-  const run = async () => {
-    setRunning(true); setError(null); setNotes([]);
-    try {
-      const vehicles: OfferVehicle[] = [];
-      const warn: string[] = [];
-      for (const r of rows) {
-        const lang = ficheLangOf(r);
-        const { blob, note } = await buildFiche(r, lang, { name: author, email: authorEmail }, (s) => setProgress((p) => ({ ...p, [r.id]: s })));
-        if (note) warn.push(`${[r.brand, r.model].filter(Boolean).join(' ')} : ${note}`);
-        setProgress((p) => ({ ...p, [r.id]: 'publication…' }));
-        const pub = await publishFiche(r, lang, blob);
-        if (pub.error) throw new Error(pub.error);
-        setProgress((p) => ({ ...p, [r.id]: `fiche ${lang.toUpperCase()} publiée` }));
-        vehicles.push({
-          id: r.vin ?? r.id, vin: r.vin, brand: (r.brand ?? '').toUpperCase(), model: r.model ?? '', version: r.version ?? '', reg_date: r.first_registration, year: r.year, km: r.km,
-          color: r.color, fuel: r.fuel, engine: null, power_ch: r.power_ch, gearbox: r.gearbox, co2: null, damages: r.repair_cost ?? null, report_url: pub.url, location: null,
-          price_ht: null, price_ttc: null, vat_recoverable: null, imported: null, extras: {}, selected: true, sale_price: num(prices[r.id]), quantity: 1,
-        });
-      }
-      const cols: ExportColumn[] = (['vehicle', 'reg', 'km', 'damages', 'vin', 'price', 'report'] as const).map((k) => ({ id: k, builtin: k, label: BUILTIN_COLUMNS[k].label }));
-      const saved = await saveOffer({ title: title.trim() || `Inspections FYC — ${today}`, supplier: 'FYC — inspections', source_filename: '', layout: 'flat', mappings: [], vehicles, price_rule: { mode: 'margin', margin: 0 }, countries: [], notes: `Créée depuis le FYC le ${today} (${rows.length} inspection${rows.length > 1 ? 's' : ''}). Prix de revente saisis au transfert ; fiche PDF MC Export de chaque véhicule en dernière colonne.`, status: 'draft', export_columns: cols });
-      if (saved.error || !saved.id) throw new Error(saved.error ?? 'offre non créée');
-      setNotes(warn);
-      onDone();
-      window.history.pushState({}, '', `/offres?offer=${saved.id}&view=export`);
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-    finally { setRunning(false); }
+/** Les champs du rapport, un par un : texte, nombre ou date ; enregistré à la sortie du champ (vide = inconnu). */
+const EDIT_FIELDS: Array<{ key: FycEditableField; label: string; kind: 'text' | 'number' | 'date' }> = [
+  { key: 'brand', label: 'Marque', kind: 'text' }, { key: 'model', label: 'Modèle', kind: 'text' }, { key: 'version', label: 'Version', kind: 'text' }, { key: 'vin', label: 'VIN', kind: 'text' },
+  { key: 'first_registration', label: '1re immatriculation', kind: 'date' }, { key: 'year', label: 'Année', kind: 'number' }, { key: 'km', label: 'Kilométrage', kind: 'number' },
+  { key: 'fuel', label: 'Énergie', kind: 'text' }, { key: 'gearbox', label: 'Boîte', kind: 'text' }, { key: 'power_ch', label: 'Puissance (ch)', kind: 'number' },
+  { key: 'body', label: 'Carrosserie', kind: 'text' }, { key: 'color', label: 'Couleur', kind: 'text' }, { key: 'doors', label: 'Portes', kind: 'number' }, { key: 'seats', label: 'Places', kind: 'number' },
+  { key: 'repair_cost', label: 'Dommages estimés (€)', kind: 'number' }, { key: 'asking_price', label: 'Prix demandé (€)', kind: 'number' },
+  { key: 'report_number', label: 'N° de rapport', kind: 'text' }, { key: 'report_date', label: 'Date du rapport', kind: 'date' },
+];
+function FieldEditor({ insp, onChanged }: { insp: FycInspection; onChanged: () => Promise<void> }) {
+  const [vals, setVals] = useState<Record<string, string>>(() => Object.fromEntries(EDIT_FIELDS.map((f) => [f.key, insp[f.key] == null ? '' : String(insp[f.key])])));
+  const [saved, setSaved] = useState<string | null>(null);
+  const save = async (f: typeof EDIT_FIELDS[number]) => {
+    const raw = (vals[f.key] ?? '').trim();
+    const cur = insp[f.key] == null ? '' : String(insp[f.key]);
+    if (raw === cur) return;
+    let v: string | number | null = raw === '' ? null : raw;
+    if (f.kind === 'number' && v != null) { const n = Number(String(v).replace(/[^\d.]/g, '')); if (!Number.isFinite(n)) return; v = n; }
+    const err = await updateInspection(insp.id, { [f.key]: v } as Partial<Pick<FycInspection, FycEditableField>>);
+    setSaved(err ? `${f.label} : ${err}` : `${f.label} enregistré`);
+    if (!err) await onChanged();
   };
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4" onClick={running ? undefined : onClose}>
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+      <p className="text-xs text-slate-600">Corrige ce qui manque ou qui est faux ; chaque champ s'enregistre quand tu le quittes et part dans la fiche, les filtres MI et le transfert vers Offres. Vide = inconnu.</p>
+      <div className="grid sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs text-slate-600">
+        {EDIT_FIELDS.map((f) => (
+          <label key={f.key}>{f.label}<input type={f.kind === 'date' ? 'date' : 'text'} value={vals[f.key] ?? ''} onChange={(e) => setVals((v) => ({ ...v, [f.key]: e.target.value }))} onBlur={() => void save(f)} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} className={`${inp} mt-1 ${f.kind === 'number' ? 'text-right' : ''} ${!(vals[f.key] ?? '').trim() ? 'border-amber-300' : ''}`} /></label>
+        ))}
+      </div>
+      {saved && <p className="text-[11px] text-slate-500">{saved}</p>}
+    </div>
+  );
+}
+
+interface TransferJob { title: string; rows: FycInspection[]; prices: Record<string, number | null>; progress: Record<string, string>; done: number; running: boolean; offerId: string | null; error: string | null; notes: string[] }
+
+function TransferModal({ rows, contacts, job, onStart, onClose }: { rows: FycInspection[]; contacts: NetworkContact[]; job: TransferJob | null; onStart: (title: string, prices: Record<string, number | null>) => void; onClose: () => void }) {
+  const today = new Date().toLocaleDateString('fr-FR');
+  const running = !!job?.running;
+  const [title, setTitle] = useState(() => { const cl = rows.map((r) => contacts.find((c) => c.id === r.client_contact_id)?.name).filter(Boolean); return cl.length ? `${cl[0]} — ${today}` : `Inspections FYC — ${today}`; });
+  const [prices, setPrices] = useState<Record<string, string>>(() => Object.fromEntries(rows.map((r) => [r.id, r.attack_price != null ? String(r.attack_price) : ''])));
+  const progress = job?.progress ?? {};
+  const error = job?.error ?? null;
+  const notes = job?.notes ?? [];
+  const num = (s: string) => { const n = Number((s ?? '').replace(/[^\d.]/g, '')); return Number.isFinite(n) && n > 0 ? Math.round(n) : null; };
+  const missing = rows.filter((r) => num(prices[r.id]) == null);
+  const run = () => { onStart(title.trim() || `Inspections FYC — ${today}`, Object.fromEntries(rows.map((r) => [r.id, num(prices[r.id])]))); };
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2">
           <h2 className="text-base font-semibold text-slate-900">Transférer dans Offres — nouvelle liste</h2>
-          <button onClick={onClose} disabled={running} className="ml-auto p-1 text-slate-400 hover:text-slate-700 disabled:opacity-50"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} className="ml-auto p-1 text-slate-400 hover:text-slate-700" title={running ? 'Fermer : le transfert continue en arrière-plan' : 'Fermer'}><X className="w-4 h-4" /></button>
         </div>
+        {running && <p className="text-xs text-sky-900 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2">{job!.done} / {rows.length} fiches publiées. Tu peux fermer cette fenêtre ou changer de page : le transfert continue, la bannière du FYC ouvrira la liste à la fin.</p>}
         <p className="text-xs text-slate-500">Chaque envoi crée une nouvelle liste dans Offres : marque, modèle, 1re immatriculation, kilométrage, dommages estimés (vide si le rapport n'en chiffre pas), VIN, prix de revente, puis le lien de la fiche PDF MC Export de chaque véhicule (publiée, ouvrable par le client sans compte, dans la langue de son pays cible).</p>
-        <label className="block text-xs text-slate-600">Titre de la liste<input value={title} onChange={(e) => setTitle(e.target.value)} className={`${inp} mt-1`} /></label>
+        <label className="block text-xs text-slate-600">Titre de la liste<input value={running ? job!.title : title} onChange={(e) => setTitle(e.target.value)} disabled={running} className={`${inp} mt-1`} /></label>
         <table className="w-full text-sm">
           <thead><tr className="text-left text-xs text-slate-400"><th className="py-1.5 pr-3">Véhicule</th><th className="py-1.5 pr-3">1re immat. · km</th><th className="py-1.5 pr-3">VIN</th><th className="py-1.5 pr-3 text-right">Dommages (€)</th><th className="py-1.5 pr-3 text-right">Prix de revente (€)</th><th className="py-1.5 pr-3">Fiche</th></tr></thead>
           <tbody className="divide-y divide-slate-100">
@@ -559,18 +611,18 @@ function TransferModal({ rows, contacts, author, authorEmail, onClose, onDone }:
                 <td className="py-1.5 pr-3 whitespace-nowrap">{fmtDate(r.first_registration)} · {fmtNum(r.km)}</td>
                 <td className="py-1.5 pr-3 text-xs text-slate-500">{r.vin ?? '—'}</td>
                 <td className="py-1.5 pr-3 text-right tabular-nums">{r.repair_cost != null ? fmtNum(r.repair_cost) : ''}</td>
-                <td className="py-1.5 pr-3 text-right"><input value={prices[r.id] ?? ''} onChange={(e) => setPrices((p) => ({ ...p, [r.id]: e.target.value }))} placeholder={r.attack_price != null ? String(r.attack_price) : 'à saisir'} disabled={running} className={`${inp} text-right w-32 inline-block ${num(prices[r.id]) == null ? 'border-amber-400' : ''}`} /></td>
+                <td className="py-1.5 pr-3 text-right"><input value={running ? String(job!.prices[r.id] ?? '') : (prices[r.id] ?? '')} onChange={(e) => setPrices((p) => ({ ...p, [r.id]: e.target.value }))} placeholder={r.attack_price != null ? String(r.attack_price) : 'à saisir'} disabled={running} className={`${inp} text-right w-32 inline-block ${!running && num(prices[r.id]) == null ? 'border-amber-400' : ''}`} /></td>
                 <td className="py-1.5 pr-3 text-xs text-slate-500 whitespace-nowrap">{progress[r.id] ?? `PDF ${ficheLangOf(r).toUpperCase()}`}</td>
               </tr>
             ))}
           </tbody>
         </table>
-        {missing.length > 0 && <p className="text-xs text-amber-800">{missing.length} prix de revente manquant{missing.length > 1 ? 's' : ''} : le prix d'attaque est proposé quand il existe, sinon saisis-le.</p>}
+        {!running && missing.length > 0 && <p className="text-xs text-amber-800">{missing.length} prix de revente manquant{missing.length > 1 ? 's' : ''} : le prix d'attaque est proposé quand il existe, sinon saisis-le.</p>}
         {error && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
         {notes.map((n, i) => <p key={i} className="text-xs text-amber-800">{n}</p>)}
         <div className="flex items-center gap-2 justify-end">
-          <button onClick={onClose} disabled={running} className="text-sm px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50">Annuler</button>
-          <button onClick={() => void run()} disabled={running || missing.length > 0 || !title.trim()} className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white disabled:opacity-50">{running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} {running ? 'Fiches en cours…' : `Créer la liste (${rows.length})`}</button>
+          <button onClick={onClose} className="text-sm px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50">{running ? 'Fermer (continue en arrière-plan)' : 'Annuler'}</button>
+          <button onClick={run} disabled={running || missing.length > 0 || !title.trim()} className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white disabled:opacity-50">{running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} {running ? `Fiches en cours… ${job!.done} / ${rows.length}` : `Créer la liste (${rows.length})`}</button>
         </div>
       </div>
     </div>
