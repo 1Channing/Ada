@@ -59,6 +59,19 @@ export async function prefetchTranslations(items: Array<{ insp: FycInspection; l
   }));
 }
 
+/** MOTORISATION pour l'offre (11/11, Channing : « ajouter les motorisations sur le PDF de l'offre ») : la ligne du
+ *  rapport s'il en a une, sinon composée de ce qu'il donne — cylindrée (1793 cm³ → 1.8), énergie, puissance :
+ *  « 1.8 Gasolina hybrid 156 ch ». Null quand le rapport ne dit rien (la colonne reste vide, jamais inventée). */
+export function engineOfInspection(r: FycInspection): string | null {
+  const raw = r.raw_fields ?? {};
+  const explicit = (raw.engine ?? raw.motorisation ?? raw.moteur ?? '').trim();
+  if (explicit) return explicit;
+  const cc = Number(String(raw.displacement ?? '').replace(/\D/g, ''));
+  const litres = cc > 500 && cc < 9000 ? (cc / 1000).toFixed(1) : null;
+  const parts = [litres, r.fuel, r.power_ch ? `${r.power_ch} ch` : null].filter((x): x is string => !!x);
+  return parts.length ? parts.join(' ') : null;
+}
+
 /** Langue de la fiche d'une inspection : celle du pays cible de son marché, sinon le français. */
 export const ficheLangOf = (insp: FycInspection): FycLang => langOfCountry(insp.market_filters?.country);
 

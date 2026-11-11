@@ -16,7 +16,7 @@ import { ClipboardList, ExternalLink, FileDown, FileUp, Loader2, RefreshCw, Tras
 import { useAuth } from '../services/auth';
 import { listInspections, addInspections, addInspectionFile, updateInspection, deleteInspection, retryInspection, rereadInspection, readInspection, filtersFromInspection, fuelTokenOf, type FycInspection } from '../services/fyc';
 import { useSignedUrls } from '../services/storageAccess';
-import { buildFiche, publishFiche, prefetchTranslations, ficheLangOf, ficheFileName } from '../services/fycFiche';
+import { buildFiche, publishFiche, prefetchTranslations, engineOfInspection, ficheLangOf, ficheFileName } from '../services/fycFiche';
 import type { FycEditableField } from '../services/fyc';
 import { saveOffer } from '../services/offers';
 import { BUILTIN_COLUMNS, type ExportColumn } from '../lib/offers/exportColumns';
@@ -130,7 +130,7 @@ export function FycView({ onOpenMarket, active = true }: { onOpenMarket: (f: Mar
           set((j) => ({ ...j, done: j.done + 1, progress: { ...j.progress, [r.id]: `fiche ${lang.toUpperCase()} publiée` } }));
           vehicles.push({
             id: r.vin ?? r.id, vin: r.vin, brand: (r.brand ?? '').toUpperCase(), model: r.model ?? '', version: r.version ?? '', reg_date: r.first_registration, year: r.year, km: r.km,
-            color: r.color, fuel: r.fuel, engine: null, power_ch: r.power_ch, gearbox: r.gearbox, co2: null, damages: r.repair_cost ?? null, report_url: pub.url, location: null,
+            color: r.color, fuel: r.fuel, engine: engineOfInspection(r), power_ch: r.power_ch, gearbox: r.gearbox, co2: null, damages: r.repair_cost ?? null, report_url: pub.url, location: null,
             price_ht: null, price_ttc: null, vat_recoverable: null, imported: null, extras: {}, selected: true, sale_price: prices[r.id] ?? null, quantity: 1,
           });
         }
