@@ -106,11 +106,11 @@ export function FycView({ onOpenMarket, active = true }: { onOpenMarket: (f: Mar
             <button onClick={() => setTab('current')} className={`px-2.5 py-1 rounded-md ${tab === 'current' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>Inspections en cours · {rows.filter((r) => !r.archived_at).length}</button>
             <button onClick={() => setTab('archives')} className={`px-2.5 py-1 rounded-md flex items-center gap-1 ${tab === 'archives' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}><Archive className="w-3.5 h-3.5" /> Archives · {rows.filter((r) => !!r.archived_at).length}</button>
           </div>
-          <span className="text-xs text-slate-500">{tab === 'current' ? 'Colle un lien de rapport (VTI / Macadam), un par ligne, ou dépose le fichier du rapport (PDF, export .docx de VWFS). Ada en sort la voiture.' : 'Les dossiers archivés : un clic sur une ligne rouvre tout le FYC (prix, marché, client).'}</span>
+          <span className="text-xs text-slate-500">{tab === 'current' ? 'Colle un lien de rapport (VTI / Macadam, page DEKRA partagée), un par ligne, ou dépose le fichier du rapport (PDF, export .docx de VWFS). Ada en sort la voiture, les photos et les défauts.' : 'Les dossiers archivés : un clic sur une ligne rouvre tout le FYC (prix, marché, client).'}</span>
           <button onClick={() => void reload()} className="ml-auto text-xs text-brand-ocean hover:underline flex items-center gap-1"><RefreshCw className="w-3.5 h-3.5" /> Actualiser</button>
         </div>
         {tab === 'current' && <div className="flex gap-2 items-start flex-wrap">
-          <textarea value={addText} onChange={(e) => setAddText(e.target.value)} rows={2} placeholder="https://admin.vti-easi.eu/reportviewer/…" className={`${inp} flex-1 min-w-[320px] font-mono text-xs`} />
+          <textarea value={addText} onChange={(e) => setAddText(e.target.value)} rows={2} placeholder="https://admin.vti-easi.eu/reportviewer/… ou https://cdn-prod.dekra-starfleet.com/secure/…" className={`${inp} flex-1 min-w-[320px] font-mono text-xs`} />
           <button onClick={() => void add()} disabled={adding || !addText.trim()} className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white disabled:opacity-50">{adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardList className="w-4 h-4" />} Lire les rapports</button>
           <input ref={fileInput} type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple className="hidden" onChange={(e) => { void addFiles(e.target.files); e.target.value = ''; }} />
           <button onClick={() => fileInput.current?.click()} disabled={adding} title="Un rapport exporté en fichier : PDF, ou .docx (export GIS@WEB de VWFS)" className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"><FileUp className="w-4 h-4" /> Déposer un fichier (PDF, DOCX)</button>
@@ -285,6 +285,20 @@ function InspectionPanel({ insp, contacts, refreshTick, onChanged, onOpenMarket,
   const [exportNote, setExportNote] = useState<string | null>(null);
   const pdfLang = langOfCountry(filters.country);
   const photoUrls = useSignedUrls(insp.photos);
+  const defectUrls = useSignedUrls(insp.defect_photos.map((d) => d.path));
+  /** Une photo du storage en data URL : JPEG tel quel ; PNG/WebP (DEKRA, 400 Ko) ré-encodés en JPEG pour une fiche légère. */
+  const photoData = async (path: string): Promise<string | null> => {
+    try {
+      const r = await fetch(await signedUrl(path)); if (!r.ok) return null;
+      const b = await r.blob();
+      if (b.type === 'image/jpeg') return await new Promise<string>((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result)); fr.onerror = rej; fr.readAsDataURL(b); });
+      const bmp = await createImageBitmap(b);
+      const canvas = document.createElement('canvas'); canvas.width = bmp.width; canvas.height = bmp.height;
+      canvas.getContext('2d')?.drawImage(bmp, 0, 0); bmp.close();
+      const out = canvas.toDataURL('image/jpeg', 0.85); canvas.width = 0; canvas.height = 0;
+      return out;
+    } catch { return null; }
+  };
   /** Fiche PDF : photos du storage, valeurs traduites (demandées au worker si la langue n'est pas encore faite :
    *  moins d'une minute ; sans réponse, la fiche part avec les valeurs d'origine et le dit). */
   const exportPdf = async () => {
@@ -292,9 +306,9 @@ function InspectionPanel({ insp, contacts, refreshTick, onChanged, onOpenMarket,
     try {
       setExporting('photos…');
       const photos: string[] = [];
-      for (const p of insp.photos.slice(0, 8)) {
-        try { const r = await fetch(await signedUrl(p)); if (r.ok) photos.push(await new Promise<string>((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result)); fr.onerror = rej; r.blob().then((b) => fr.readAsDataURL(b)).catch(rej); })); } catch { /* photo illisible : fiche sans elle */ }
-      }
+      for (const p of insp.photos.slice(0, 40)) { const d = await photoData(p); if (d) photos.push(d); }
+      const defects: Array<{ data: string; caption: string; list: 'devaluation' | 'usage' | null; idx: number | null }> = [];
+      for (const d of insp.defect_photos.slice(0, 40)) { const data = await photoData(d.path); if (data) defects.push({ data, caption: d.caption, list: d.list, idx: d.idx }); }
       const src = translationSource(insp);
       let translation = translationFits(src, insp.translations[pdfLang]) ? insp.translations[pdfLang] : null;
       if (!translation) {
@@ -314,7 +328,7 @@ function InspectionPanel({ insp, contacts, refreshTick, onChanged, onOpenMarket,
         }
       }
       setExporting('mise en page…');
-      const blob = await buildFycPdf(insp, pdfLang, { name: author, email: authorEmail }, { photos, translation });
+      const blob = await buildFycPdf(insp, pdfLang, { name: author, email: authorEmail }, { photos, defects, translation });
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `MC-Export-${[insp.brand, insp.model].filter(Boolean).join('-') || 'vehicule'}-${pdfLang.toUpperCase()}-${new Date().toISOString().slice(0, 10)}.pdf`; a.click(); URL.revokeObjectURL(a.href);
     } finally { setExporting(null); }
   };
@@ -331,7 +345,10 @@ function InspectionPanel({ insp, contacts, refreshTick, onChanged, onOpenMarket,
           <button onClick={() => void exportPdf()} disabled={!!exporting} title={`Fiche véhicule à la charte MC Export, dans la langue du pays cible (${pdfLang.toUpperCase()}) : photos, données, équipements, pneus, état (valeurs traduites), notre prix d'attaque, nos coordonnées — jamais le prix d'achat ni les notes`} className="ml-auto flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50">{exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />} {exporting ?? `Fiche PDF client (${pdfLang.toUpperCase()})`}</button>
         </div>
         {exportNote && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{exportNote}</p>}
-        {photoUrls.length > 0 && <div className="flex gap-2 overflow-x-auto">{photoUrls.map((u, i) => <a key={i} href={u} target="_blank" rel="noreferrer" className="shrink-0"><img src={u} alt="" className="h-20 w-auto rounded-md border border-slate-200 object-cover" /></a>)}</div>}
+        {(photoUrls.length > 0 || defectUrls.length > 0) && <div className="flex gap-2 overflow-x-auto">
+          {photoUrls.map((u, i) => <a key={`p${i}`} href={u} target="_blank" rel="noreferrer" className="shrink-0"><img src={u} alt="" className="h-20 w-auto rounded-md border border-slate-200 object-cover" /></a>)}
+          {defectUrls.map((u, i) => <a key={`d${i}`} href={u} target="_blank" rel="noreferrer" title={insp.defect_photos[i]?.caption ?? ''} className="shrink-0 relative"><img src={u} alt="" className="h-20 w-auto rounded-md border-2 border-orange-300 object-cover" /><span className="absolute bottom-0 left-0 right-0 text-[9px] leading-tight bg-orange-50/90 text-orange-900 px-1 truncate rounded-b-md">{insp.defect_photos[i]?.caption ?? ''}</span></a>)}
+        </div>}
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
           <label className="block text-xs text-slate-600">Prix d'achat (€)<input value={purchase} onChange={(e) => setPurchase(e.target.value)} onBlur={() => void saveNum('purchase_price', purchase)} placeholder="ex. 17 500" className={`${inp} mt-1 text-right`} /></label>
           <label className="block text-xs text-slate-600">Prix d'attaque (€) <span className="text-slate-400">— notre prix face au marché</span>

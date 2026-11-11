@@ -8,7 +8,9 @@
  * enregistre. Chaque 20 s : les lignes « queued ».
  *
  * Liens compris : la visionneuse VTI / Macadam (admin.vti-easi.eu/reportviewer/<type>/<id>/<langue>, dont
- * l'API est /api/reportviewer?reportType=&reportId=) et tout lien qui répond directement un PDF.
+ * l'API est /api/reportviewer?reportType=&reportId=), tout lien qui répond directement un PDF, et les rapports
+ * DEKRA en page HTML partagée (cdn-prod.dekra-starfleet.com, 11/11) : la page est rangée telle quelle et ses
+ * photos (voiture et dommages, hébergeur sans CORS : le navigateur ne peut pas les lire) téléchargées ici.
  *
  * TRADUCTIONS (11/11, Channing : « sur les PDF il y a beaucoup de français, pas de possibilité de traduire ? ») :
  * une ligne lue dont translate_to est posé → les valeurs du rapport (énergie, boîte, carrosserie, couleur,
@@ -19,6 +21,7 @@ import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
 import { callClaude, AiUnavailable, BudgetReached } from './agents/claude';
 import { HAIKU } from '../src/lib/agents/aiCost';
 import { translationSource, translationSystem, translationFits, FYC_TRANSLATION_SCHEMA, FYC_LANG_NAMES, type FycTranslation, type FycTranslatable } from '../src/lib/fycTranslation';
+import { isDekraReport, parseDekraReport, type DekraPhoto, type FycDefectPhoto } from '../src/lib/dekraReport';
 
 const POLL_MS = 20_000;
 const BUCKET = 'admin-documents';
@@ -48,18 +51,47 @@ export function pdfCandidates(sourceUrl: string): string[] {
   return out;
 }
 
-async function fetchPdf(sourceUrl: string): Promise<{ buf: Buffer; from: string }> {
+type Fetched = { buf: Buffer; from: string; kind: 'pdf' | 'html' };
+async function fetchReport(sourceUrl: string): Promise<Fetched> {
   const errors: string[] = [];
   for (const cu of pdfCandidates(sourceUrl)) {
     try {
-      const r = await fetch(cu, { headers: { 'User-Agent': UA, 'Accept': 'application/pdf,*/*', 'Accept-Language': 'fr-FR,fr;q=0.9' } });
+      const r = await fetch(cu, { headers: { 'User-Agent': UA, 'Accept': 'application/pdf,text/html,*/*', 'Accept-Language': 'fr-FR,fr;q=0.9' } });
       if (!r.ok) { errors.push(`${cu.slice(0, 80)} : HTTP ${r.status}`); continue; }
       const buf = Buffer.from(await r.arrayBuffer());
-      if (buf.subarray(0, 5).toString('latin1') === '%PDF-') return { buf, from: cu };
-      errors.push(`${cu.slice(0, 80)} : pas un PDF (${r.headers.get('content-type') ?? 'type inconnu'})`);
+      if (buf.subarray(0, 5).toString('latin1') === '%PDF-') return { buf, from: cu, kind: 'pdf' };
+      const ct = r.headers.get('content-type') ?? '';
+      if (/html/i.test(ct) || /^\s*<(!doctype|html)/i.test(buf.subarray(0, 200).toString('utf8'))) {
+        const html = buf.toString('utf8');
+        if (isDekraReport(html)) return { buf, from: cu, kind: 'html' };
+        errors.push(`${cu.slice(0, 80)} : page HTML sans rapport reconnu (seul DEKRA est lu en HTML ; la visionneuse VTI passe par son API)`);
+        continue;
+      }
+      errors.push(`${cu.slice(0, 80)} : ni PDF ni page de rapport (${ct || 'type inconnu'})`);
     } catch (e) { errors.push(`${cu.slice(0, 80)} : ${e instanceof Error ? e.message : String(e)}`); }
   }
   throw new Error(`rapport introuvable — ${errors.join(' ; ')}`);
+}
+
+/** Photos d'un rapport HTML rangées dans le storage : voiture (photos) et dommages (defect_photos). Fail-open par photo. */
+async function downloadPhotos(id: string, list: DekraPhoto[]): Promise<{ photos: string[]; defect_photos: FycDefectPhoto[] }> {
+  const photos: string[] = []; const defect_photos: FycDefectPhoto[] = [];
+  let n = 0;
+  for (const p of list.slice(0, 40)) {
+    try {
+      const r = await fetch(p.url, { headers: { 'User-Agent': UA, 'Accept': 'image/*,*/*' } });
+      if (!r.ok) { console.warn(`[FYC] photo HTTP ${r.status} : ${p.url.slice(0, 80)}`); continue; }
+      const ct = (r.headers.get('content-type') ?? '').toLowerCase();
+      const buf = Buffer.from(await r.arrayBuffer());
+      if (buf.length < 2_000 || buf.length > 15_000_000) continue;
+      const ext = /png/.test(ct) ? 'png' : /webp/.test(ct) ? 'webp' : 'jpg';
+      const path = `fyc/${id}/photo_${++n}.${ext}`;
+      const up = await supabase.storage.from(BUCKET).upload(path, buf, { contentType: ct.split(';')[0] || 'image/jpeg', upsert: true });
+      if (up.error) { console.warn(`[FYC] photo non rangée : ${up.error.message}`); continue; }
+      if (p.list) defect_photos.push({ path, caption: p.caption, list: p.list, idx: p.idx }); else photos.push(path);
+    } catch (e) { console.warn(`[FYC] photo en échec : ${e instanceof Error ? e.message : String(e)}`); }
+  }
+  return { photos, defect_photos };
 }
 
 /** Plafond du jour pour les traductions FYC (quelques centimes par fiche) — compté avec les appels de l'agente Ada. */
@@ -102,12 +134,19 @@ async function tick(): Promise<void> {
     if (error) { if (!warned && !/does not exist|schema cache/i.test(error.message)) console.warn(`[FYC] file illisible : ${error.message}`); warned = true; return; }
     for (const row of (data ?? []) as Array<{ id: string; source_url: string }>) {
       try {
-        const { buf, from } = await fetchPdf(row.source_url);
-        const path = `fyc/${row.id}.pdf`;
-        const up = await supabase.storage.from(BUCKET).upload(path, buf, { contentType: 'application/pdf', upsert: true });
+        const { buf, from, kind } = await fetchReport(row.source_url);
+        const path = `fyc/${row.id}.${kind}`;
+        const up = await supabase.storage.from(BUCKET).upload(path, buf, { contentType: kind === 'pdf' ? 'application/pdf' : 'text/html; charset=utf-8', upsert: true });
         if (up.error) throw new Error(`storage : ${up.error.message}`);
-        await sb.from('fyc_inspections').update({ status: 'fetched', pdf_path: path, error: null, updated_at: new Date().toISOString() }).eq('id', row.id);
-        console.warn(`[FYC] rapport téléchargé (${Math.round(buf.length / 1024)} Ko) depuis ${from.slice(0, 60)}…`);
+        // Page HTML (DEKRA) : ses photos sont téléchargées ici, le navigateur ne lira que les champs.
+        const extra: Record<string, unknown> = {};
+        if (kind === 'html') {
+          const got = await downloadPhotos(row.id, parseDekraReport(buf.toString('utf8')).photos);
+          extra.photos = got.photos; extra.defect_photos = got.defect_photos;
+          console.warn(`[FYC] rapport DEKRA : ${got.photos.length} photos, ${got.defect_photos.length} photos de dommages`);
+        }
+        await sb.from('fyc_inspections').update({ status: 'fetched', pdf_path: path, error: null, updated_at: new Date().toISOString(), ...extra }).eq('id', row.id);
+        console.warn(`[FYC] rapport téléchargé (${Math.round(buf.length / 1024)} Ko, ${kind}) depuis ${from.slice(0, 60)}…`);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         await sb.from('fyc_inspections').update({ status: 'failed', error: msg.slice(0, 800), updated_at: new Date().toISOString() }).eq('id', row.id);

@@ -55,8 +55,9 @@ async function loadLogo(): Promise<string | null> {
 }
 
 export interface FycPdfContact { name: string; email: string | null; phone?: string | null }
-/** Compléments de la fiche : photos (data URL JPEG, dans l'ordre) et valeurs traduites. */
-export interface FycPdfExtras { photos?: string[]; translation?: FycTranslation | null }
+/** Compléments de la fiche : photos (data URL JPEG/PNG, dans l'ordre), photos des dommages légendées, valeurs traduites. */
+export interface FycPdfExtras { photos?: string[]; defects?: Array<{ data: string; caption: string; list: 'devaluation' | 'usage' | null; idx: number | null }>; translation?: FycTranslation | null }
+const imageFormat = (dataUrl: string) => (/^data:image\/png/i.test(dataUrl) ? 'PNG' : /^data:image\/webp/i.test(dataUrl) ? 'WEBP' : 'JPEG');
 
 export async function buildFycPdf(insp: FycInspection, lang: FycLang, contact: FycPdfContact, extras: FycPdfExtras = {}): Promise<Blob> {
   const t = T[lang];
@@ -152,10 +153,26 @@ export async function buildFycPdf(insp: FycInspection, lang: FycLang, contact: F
       for (let c = 0; c < perRow; c++) {
         const p = list[i + c]; if (!p) continue;
         const x = margin + c * (w + gap);
-        try { pdf.addImage(p, 'JPEG', x, y, w, h, undefined, 'FAST'); pdf.setDrawColor(203, 213, 225); pdf.setLineWidth(0.2); pdf.rect(x, y, w, h); } catch { /* photo illisible : case vide */ }
+        try { pdf.addImage(p, imageFormat(p), x, y, w, h, undefined, 'FAST'); pdf.setDrawColor(203, 213, 225); pdf.setLineWidth(0.2); pdf.rect(x, y, w, h); } catch { /* photo illisible : case vide */ }
       }
       y += h + gap;
     }
+  };
+  /** Photos de dommages : 3 par ligne, légende dessous (le dommage, traduit quand on l'a). */
+  const defectGrid = (list: Array<{ data: string; caption: string }>, perRow = 3) => {
+    const gap = 3; const w = (W - 2 * margin - gap * (perRow - 1)) / perRow; const h = w * 0.75;
+    for (let i = 0; i < list.length; i += perRow) {
+      ensure(h + 9);
+      for (let c = 0; c < perRow; c++) {
+        const p = list[i + c]; if (!p) continue;
+        const x = margin + c * (w + gap);
+        try { pdf.addImage(p.data, imageFormat(p.data), x, y, w, h, undefined, 'FAST'); pdf.setDrawColor(203, 213, 225); pdf.setLineWidth(0.2); pdf.rect(x, y, w, h); } catch { /* photo illisible */ }
+        pdf.setFont('helvetica', 'normal'); pdf.setFontSize(7); pdf.setTextColor(...GRIS);
+        pdf.text(pdf.splitTextToSize(safe(p.caption), w)[0] ?? '', x, y + h + 3.2);
+      }
+      y += h + 8;
+    }
+    y += 1;
   };
 
   header();
@@ -193,6 +210,9 @@ export async function buildFycPdf(insp: FycInspection, lang: FycLang, contact: F
   if (dev.length) { subtitle(t.deval); bullets(dev); }
   if (use.length) { subtitle(t.usage); bullets(use, GRIS); }
   if (!dev.length && !use.length) bullets([t.none]);
+  // Photos des dommages (DEKRA), légendées par le dommage qu'elles illustrent, dans la langue de la fiche.
+  const defects = (extras.defects ?? []).filter((d) => d.data).map((d) => ({ data: d.data, caption: (d.list && d.idx != null ? v[d.list][d.idx] : null) ?? d.caption }));
+  if (defects.length) defectGrid(defects);
 
   section(t.price);
   ensure(16);

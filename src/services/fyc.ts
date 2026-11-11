@@ -14,6 +14,8 @@ import { pdfToLinesEx } from '../lib/pdfText';
 import { docxToLinesEx } from '../lib/docxText';
 import { extractPdfPhotos } from '../lib/pdfImages';
 import type { FycTranslation } from '../lib/fycTranslation';
+import { isDekraReport, parseDekraReport, type FycDefectPhoto } from '../lib/dekraReport';
+import { htmlToLines } from '../lib/docxText';
 import { ADMIN_BUCKET } from './storageAccess';
 import { parseFycReport, type FycReportFields } from '../lib/fycReport';
 import type { MarketFilters } from './marketData';
@@ -28,6 +30,8 @@ export interface FycInspection extends FycReportFields {
   archived_at: string | null;
   /** Photos du rapport (11/11 : « ajouter les photos ») : chemins dans le storage admin-documents (fyc/<id>/photo_N.jpg). */
   photos: string[];
+  /** Photos des dommages (rapports DEKRA, 11/11) : chemin, légende, dommage illustré. */
+  defect_photos: FycDefectPhoto[];
   /** Valeurs du rapport traduites par langue (11/11), et la langue demandée au worker (null quand rien n'est en attente). */
   translations: Record<string, FycTranslation>;
   translate_to: string | null;
@@ -47,6 +51,7 @@ function normalize(r: Record<string, unknown>): FycInspection {
     tyres: Array.isArray(r.tyres) ? (r.tyres as string[]) : [],
     archived_at: (r.archived_at as string | null | undefined) ?? null,
     photos: Array.isArray(r.photos) ? (r.photos as string[]).filter((p) => typeof p === 'string') : [],
+    defect_photos: Array.isArray(r.defect_photos) ? (r.defect_photos as FycDefectPhoto[]).filter((p) => p && typeof p.path === 'string') : [],
     translations: (r.translations && typeof r.translations === 'object' ? r.translations : {}) as Record<string, FycTranslation>,
     translate_to: typeof r.translate_to === 'string' ? r.translate_to : null,
     market_filters: (r.market_filters ?? {}) as MarketFilters,
@@ -156,17 +161,23 @@ export async function readInspection(row: FycInspection): Promise<string | null>
     if (!res.ok) throw new Error(`fichier illisible (HTTP ${res.status})`);
     const blob = await res.blob();
     const isDocx = /\.docx$/i.test(row.pdf_path);
+    const isHtml = /\.html?$/i.test(row.pdf_path);
     const docx = isDocx ? await docxToLinesEx(blob) : null;
-    const lines = docx ? docx.lines : (await pdfToLinesEx(blob)).lines;
-    const fields = parseFycReport(lines);
+    // Page HTML (DEKRA, 11/11) : lecteur dédié ; photos déjà rangées par le worker (hébergeur sans CORS).
+    const html = isHtml ? await blob.text() : null;
+    const fields = html != null
+      ? (isDekraReport(html) ? parseDekraReport(html).fields : parseFycReport(htmlToLines(html)))
+      : parseFycReport(docx ? docx.lines : (await pdfToLinesEx(blob)).lines);
     if (!fields.brand && !fields.vin) throw new Error('rapport lu mais sans marque ni VIN : format inconnu');
     // Prix demandé par la plateforme (VWFS) : proposé comme prix d'achat tant qu'aucun n'est saisi.
     const patch: Record<string, unknown> = { ...fields, status: 'read', error: null, updated_at: new Date().toISOString() };
     if (row.purchase_price == null && fields.asking_price != null) patch.purchase_price = fields.asking_price;
     // Photos (11/11) : du PDF, ou des adresses de la page .docx. Une traduction déjà faite reste valable (mêmes valeurs).
     try {
-      const blobs = docx ? await fetchPhotos(docx.photoUrls) : await extractPdfPhotos(blob);
-      if (blobs.length) patch.photos = await storePhotos(row.id, blobs);
+      if (html == null) {
+        const blobs = docx ? await fetchPhotos(docx.photoUrls) : await extractPdfPhotos(blob, { maxCount: 40 });
+        if (blobs.length) patch.photos = await storePhotos(row.id, blobs);
+      }
     } catch (e) { console.warn('[FYC] photos non extraites :', e instanceof Error ? e.message : e); }
     const { error } = await untyped.from('fyc_inspections').update(patch).eq('id', row.id);
     return error ? error.message : null;
