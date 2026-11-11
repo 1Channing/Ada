@@ -12,11 +12,14 @@
  * Export PDF à la charte (src/lib/fycPdf.ts).
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ClipboardList, ExternalLink, FileDown, FileUp, Loader2, RefreshCw, Trash2, Search, AlertTriangle, Check, Archive, ArchiveRestore, Images } from 'lucide-react';
+import { ClipboardList, ExternalLink, FileDown, FileUp, Loader2, RefreshCw, Trash2, Search, AlertTriangle, Check, Archive, ArchiveRestore, Images, Send, X } from 'lucide-react';
 import { useAuth } from '../services/auth';
-import { listInspections, addInspections, addInspectionFile, updateInspection, deleteInspection, retryInspection, rereadInspection, readInspection, requestTranslation, getInspection, filtersFromInspection, fuelTokenOf, type FycInspection } from '../services/fyc';
-import { translationSource, translationFits } from '../lib/fycTranslation';
-import { signedUrl, useSignedUrls } from '../services/storageAccess';
+import { listInspections, addInspections, addInspectionFile, updateInspection, deleteInspection, retryInspection, rereadInspection, readInspection, filtersFromInspection, fuelTokenOf, type FycInspection } from '../services/fyc';
+import { useSignedUrls } from '../services/storageAccess';
+import { buildFiche, publishFiche, ficheLangOf, ficheFileName } from '../services/fycFiche';
+import { saveOffer } from '../services/offers';
+import { BUILTIN_COLUMNS, type ExportColumn } from '../lib/offers/exportColumns';
+import type { OfferVehicle } from '../lib/offers/parseSupplierFile';
 import { damageSummary } from '../lib/fycReport';
 import { loadObservationsForStudy, latestPerListing, filterObservations, priceStats, attackPrice as miAttackPrice, canonKey, canonicalizeGearbox, fuelFilterMatches, FUEL_TOKEN_TO_CRITERIA, GEARBOX_LABELS, type MarketFilters, type Observation, type GearboxToken } from '../services/marketData';
 import { canonicalizeBody } from '../lib/study-core/bodyTypes';
@@ -25,7 +28,7 @@ import { allSiteAdapters } from '../lib/study-core/marketplaces';
 import { loadNetwork, type NetworkContact } from '../services/network';
 import { listLatestStockRuns, listStockVehicles, type LatestStockRun, type StockVehicle } from '../services/dealerStock';
 import { COUNTRY_NAMES } from '../data/cities';
-import { buildFycPdf, langOfCountry } from '../lib/fycPdf';
+import { langOfCountry } from '../lib/fycPdf';
 
 const FUEL_LABEL: Record<string, string> = { electric: 'Électrique', petrol: 'Essence', diesel: 'Diesel', hybrid: 'Hybride', mild_hybrid: 'Micro-hybride', phev: 'Hybride rechargeable', lpg: 'GPL', cng: 'GNV' };
 const fmtEur = (n: number | null | undefined) => (n == null ? '—' : `${Math.round(n).toLocaleString('fr-FR')} €`);
@@ -97,6 +100,19 @@ export function FycView({ onOpenMarket, active = true }: { onOpenMarket: (f: Mar
   };
   const selected = rows.find((r) => r.id === selectedId) ?? shown[0] ?? null;
   const archive = async (r: FycInspection, on: boolean) => { await updateInspection(r.id, { archived_at: on ? new Date().toISOString() : null }); await reload(); };
+  // SÉLECTION DE LIGNES (11/11, Channing : « sélectionner chacune des lignes d'inspection et les transférer dans
+  // Offres ») : cases à cocher, barre d'actions ; la sélection reste quand on passe par Offres ou le MI (page gardée).
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const toggle = (id: string, on: boolean) => setChecked((s) => { const n = new Set(s); if (on) n.add(id); else n.delete(id); return n; });
+  const checkedRows = shown.filter((r) => checked.has(r.id));
+  const transferable = checkedRows.filter((r) => r.status === 'read');
+  const [transferOpen, setTransferOpen] = useState(false);
+  const rereadChecked = async () => {
+    let n = 0;
+    for (const r of checkedRows) if (r.status === 'read' && r.pdf_path) { const err = await rereadInspection(r); if (!err) n++; }
+    setNotice(`${n} rapport${n > 1 ? 's' : ''} en relecture (champs et photos), quelques secondes chacun.`);
+    await reload();
+  };
 
   return (
     <div className="space-y-5">
@@ -124,8 +140,8 @@ export function FycView({ onOpenMarket, active = true }: { onOpenMarket: (f: Mar
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               {tab === 'archives'
-                ? <thead><tr className="text-left text-xs text-slate-400"><th className="py-2 pr-3">Inspection analysée</th><th className="py-2 pr-3">Année · km</th><th className="py-2 pr-3 text-right">Prix d'achat</th><th className="py-2 pr-3 text-right">Prix d'attaque</th><th className="py-2 pr-3">Client comparé</th><th className="py-2 pr-3">Archivée</th><th></th></tr></thead>
-                : <thead><tr className="text-left text-xs text-slate-400"><th className="py-2 pr-3">Véhicule (du rapport)</th><th className="py-2 pr-3">1re immat.</th><th className="py-2 pr-3 text-right">Km</th><th className="py-2 pr-3 text-right">Ch</th><th className="py-2 pr-3">Énergie · boîte</th><th className="py-2 pr-3">État</th><th className="py-2 pr-3 text-right">Achat</th><th className="py-2 pr-3 text-right">Attaque</th><th className="py-2 pr-3">Par</th><th></th></tr></thead>}
+                ? <thead><tr className="text-left text-xs text-slate-400"><th className="py-2 pr-2 w-6"><input type="checkbox" checked={shown.length > 0 && shown.every((r) => checked.has(r.id))} onChange={(e) => setChecked(e.target.checked ? new Set(shown.map((r) => r.id)) : new Set())} className="rounded border-slate-300" /></th><th className="py-2 pr-3">Inspection analysée</th><th className="py-2 pr-3">Année · km</th><th className="py-2 pr-3 text-right">Prix d'achat</th><th className="py-2 pr-3 text-right">Prix d'attaque</th><th className="py-2 pr-3">Client comparé</th><th className="py-2 pr-3">Archivée</th><th></th></tr></thead>
+                : <thead><tr className="text-left text-xs text-slate-400"><th className="py-2 pr-2 w-6"><input type="checkbox" checked={shown.length > 0 && shown.every((r) => checked.has(r.id))} onChange={(e) => setChecked(e.target.checked ? new Set(shown.map((r) => r.id)) : new Set())} className="rounded border-slate-300" /></th><th className="py-2 pr-3">Véhicule (du rapport)</th><th className="py-2 pr-3">1re immat.</th><th className="py-2 pr-3 text-right">Km</th><th className="py-2 pr-3 text-right">Ch</th><th className="py-2 pr-3">Énergie · boîte</th><th className="py-2 pr-3">État</th><th className="py-2 pr-3 text-right">Achat</th><th className="py-2 pr-3 text-right">Attaque</th><th className="py-2 pr-3">Par</th><th></th></tr></thead>}
               <tbody className="divide-y divide-slate-100">
                 {shown.map((r) => {
                   const car = [r.brand, r.model].filter(Boolean).join(' ');
@@ -136,6 +152,7 @@ export function FycView({ onOpenMarket, active = true }: { onOpenMarket: (f: Mar
                     const cl = r.client_contact_id ? contacts.find((c) => c.id === r.client_contact_id) : null;
                     return (
                       <tr key={r.id} onClick={() => setSelectedId(r.id)} className={`cursor-pointer ${sel ? 'bg-blue-50/60' : 'hover:bg-slate-50'}`}>
+                        <td className="py-2 pr-2" onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={checked.has(r.id)} onChange={(e) => toggle(r.id, e.target.checked)} className="rounded border-slate-300" /></td>
                         <td className="py-2 pr-3"><div className="font-medium text-slate-900">{car || 'Rapport non lu'}</div><div className="text-[11px] text-slate-500">{[r.fuel, r.gearbox, r.power_ch ? `${r.power_ch} ch` : null].filter(Boolean).join(' · ')}{r.vin ? ` · VIN ${r.vin}` : ''}</div></td>
                         <td className="py-2 pr-3 whitespace-nowrap">{r.year ?? '—'} · {fmtNum(r.km)} km</td>
                         <td className="py-2 pr-3 text-right tabular-nums">{fmtEur(r.purchase_price)}</td>
@@ -151,6 +168,7 @@ export function FycView({ onOpenMarket, active = true }: { onOpenMarket: (f: Mar
                   }
                   return (
                     <tr key={r.id} onClick={() => setSelectedId(r.id)} className={`cursor-pointer ${sel ? 'bg-blue-50/60' : 'hover:bg-slate-50'}`}>
+                      <td className="py-2 pr-2" onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={checked.has(r.id)} onChange={(e) => toggle(r.id, e.target.checked)} className="rounded border-slate-300" /></td>
                       <td className="py-2 pr-3">
                         <div className="font-medium text-slate-900">{car || (r.status === 'failed' ? 'Rapport non lu' : 'Lecture en cours…')}</div>
                         <div className="text-[11px] text-slate-500 truncate max-w-[360px]">{r.vin ? `VIN ${r.vin} · ` : ''}{r.report_number ? `rapport n° ${r.report_number} du ${fmtDate(r.report_date)}` : r.source_url}</div>
@@ -182,7 +200,17 @@ export function FycView({ onOpenMarket, active = true }: { onOpenMarket: (f: Mar
             </table>
           </div>
         )}
+        {checkedRows.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-sm">
+            <span className="text-slate-700">{checkedRows.length} sélectionnée{checkedRows.length > 1 ? 's' : ''}{transferable.length < checkedRows.length ? ` (${checkedRows.length - transferable.length} non lue${checkedRows.length - transferable.length > 1 ? 's' : ''}, ignorée${checkedRows.length - transferable.length > 1 ? 's' : ''})` : ''}</span>
+            <button onClick={() => setTransferOpen(true)} disabled={transferable.length === 0} className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white disabled:opacity-50"><Send className="w-4 h-4" /> Transférer dans Offres ({transferable.length})</button>
+            <button onClick={() => void rereadChecked()} className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"><Images className="w-4 h-4" /> Relire les rapports</button>
+            <button onClick={() => setChecked(new Set())} className="ml-auto text-xs text-slate-500 hover:underline">Tout décocher</button>
+          </div>
+        )}
       </div>
+
+      {transferOpen && transferable.length > 0 && <TransferModal rows={transferable} contacts={contacts} author={displayName || email || ''} authorEmail={email ?? null} onClose={() => setTransferOpen(false)} onDone={() => { setTransferOpen(false); setChecked(new Set()); }} />}
 
       {selected && selected.status === 'read' && <InspectionPanel key={selected.id} insp={selected} contacts={contacts} refreshTick={refreshTick} onChanged={reload} onOpenMarket={onOpenMarket} author={displayName || email || ''} authorEmail={email ?? null} />}
       {selected && selected.status === 'failed' && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2"><AlertTriangle className="w-4 h-4 inline mr-1" /> Rapport non lu : {selected.error ?? 'sans détail'}. Vérifie le lien (il doit ouvrir le rapport sans mot de passe), puis « Réessayer ».</p>}
@@ -308,50 +336,13 @@ function InspectionPanel({ insp, contacts, refreshTick, onChanged, onOpenMarket,
   const pdfLang = langOfCountry(filters.country);
   const photoUrls = useSignedUrls(insp.photos);
   const defectUrls = useSignedUrls(insp.defect_photos.map((d) => d.path));
-  /** Une photo du storage en data URL : JPEG tel quel ; PNG/WebP (DEKRA, 400 Ko) ré-encodés en JPEG pour une fiche légère. */
-  const photoData = async (path: string): Promise<string | null> => {
-    try {
-      const r = await fetch(await signedUrl(path)); if (!r.ok) return null;
-      const b = await r.blob();
-      if (b.type === 'image/jpeg') return await new Promise<string>((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result)); fr.onerror = rej; fr.readAsDataURL(b); });
-      const bmp = await createImageBitmap(b);
-      const canvas = document.createElement('canvas'); canvas.width = bmp.width; canvas.height = bmp.height;
-      canvas.getContext('2d')?.drawImage(bmp, 0, 0); bmp.close();
-      const out = canvas.toDataURL('image/jpeg', 0.85); canvas.width = 0; canvas.height = 0;
-      return out;
-    } catch { return null; }
-  };
-  /** Fiche PDF : photos du storage, valeurs traduites (demandées au worker si la langue n'est pas encore faite :
-   *  moins d'une minute ; sans réponse, la fiche part avec les valeurs d'origine et le dit). */
+  /** Fiche PDF (services/fycFiche.ts) : photos, dommages, valeurs traduites (attente du worker ≤ 90 s). */
   const exportPdf = async () => {
     setExportNote(null);
     try {
-      setExporting('photos…');
-      const photos: string[] = [];
-      for (const p of insp.photos.slice(0, 40)) { const d = await photoData(p); if (d) photos.push(d); }
-      const defects: Array<{ data: string; caption: string; list: 'devaluation' | 'usage' | null; idx: number | null }> = [];
-      for (const d of insp.defect_photos.slice(0, 40)) { const data = await photoData(d.path); if (data) defects.push({ data, caption: d.caption, list: d.list, idx: d.idx }); }
-      const src = translationSource(insp);
-      let translation = translationFits(src, insp.translations[pdfLang]) ? insp.translations[pdfLang] : null;
-      if (!translation) {
-        const err = await requestTranslation(insp.id, pdfLang);
-        if (err) setExportNote(`Traduction non demandée (${err}) : fiche avec les valeurs du rapport.`);
-        else {
-          const until = Date.now() + 90_000;
-          while (Date.now() < until) {
-            setExporting(`traduction ${pdfLang.toUpperCase()}… ${Math.ceil((until - Date.now()) / 1000)} s`);
-            await new Promise((r) => setTimeout(r, 4000));
-            const fresh = await getInspection(insp.id);
-            if (fresh && translationFits(src, fresh.translations[pdfLang])) { translation = fresh.translations[pdfLang]; break; }
-            if (fresh && fresh.translate_to == null) { setExportNote(`Traduction ${pdfLang.toUpperCase()} refusée par le worker${fresh.error ? ` (${fresh.error})` : ''} : fiche avec les valeurs du rapport.`); break; }
-          }
-          if (!translation && !exportNote) setExportNote(`Traduction ${pdfLang.toUpperCase()} non reçue (worker arrêté ?) : fiche avec les valeurs du rapport. Réessaie dans une minute.`);
-          void onChanged();
-        }
-      }
-      setExporting('mise en page…');
-      const blob = await buildFycPdf(insp, pdfLang, { name: author, email: authorEmail }, { photos, defects, translation });
-      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `MC-Export-${[insp.brand, insp.model].filter(Boolean).join('-') || 'vehicule'}-${pdfLang.toUpperCase()}-${new Date().toISOString().slice(0, 10)}.pdf`; a.click(); URL.revokeObjectURL(a.href);
+      const { blob, note } = await buildFiche(insp, pdfLang, { name: author, email: authorEmail }, setExporting);
+      if (note) { setExportNote(note); void onChanged(); }
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = ficheFileName(insp, pdfLang); a.click(); URL.revokeObjectURL(a.href);
     } finally { setExporting(null); }
   };
 
@@ -490,6 +481,85 @@ function InspectionPanel({ insp, contacts, refreshTick, onChanged, onOpenMarket,
         {client && stock && clientRows.length > 0 && attackPrice != null && clientMin != null && (
           <p className="text-sm"><span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 border text-xs font-medium ${attackPrice < clientMin ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-orange-50 text-orange-800 border-orange-200'}`}>{attackPrice < clientMin ? <Check className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />} {attackPrice < clientMin ? 'Notre prix passe sous tout son stock comparable' : 'Notre prix est au-dessus de son exemplaire le moins cher'}</span></p>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** TRANSFERT VERS OFFRES (11/11, Channing : « les transférer dans Offres avec marque, modèle, 1re immatriculation,
+ *  kilométrage, dommages estimés (vide s'il n'y en a pas), VIN, prix de revente (à demander avant d'envoyer),
+ *  puis le lien de la fiche PDF MC Export ; chaque envoi = une nouvelle liste, avec un titre »). La fiche de chaque
+ *  véhicule est construite ici (photos, dommages, traduction dans la langue de son pays cible), publiée dans le
+ *  bucket public fyc-fiches, et l'offre créée s'ouvre dans l'onglet Offres. */
+function TransferModal({ rows, contacts, author, authorEmail, onClose, onDone }: { rows: FycInspection[]; contacts: NetworkContact[]; author: string; authorEmail: string | null; onClose: () => void; onDone: () => void }) {
+  const today = new Date().toLocaleDateString('fr-FR');
+  const [title, setTitle] = useState(() => { const cl = rows.map((r) => contacts.find((c) => c.id === r.client_contact_id)?.name).filter(Boolean); return cl.length ? `${cl[0]} — ${today}` : `Inspections FYC — ${today}`; });
+  const [prices, setPrices] = useState<Record<string, string>>(() => Object.fromEntries(rows.map((r) => [r.id, r.attack_price != null ? String(r.attack_price) : ''])));
+  const [progress, setProgress] = useState<Record<string, string>>({});
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notes, setNotes] = useState<string[]>([]);
+  const num = (s: string) => { const n = Number((s ?? '').replace(/[^\d.]/g, '')); return Number.isFinite(n) && n > 0 ? Math.round(n) : null; };
+  const missing = rows.filter((r) => num(prices[r.id]) == null);
+  const run = async () => {
+    setRunning(true); setError(null); setNotes([]);
+    try {
+      const vehicles: OfferVehicle[] = [];
+      const warn: string[] = [];
+      for (const r of rows) {
+        const lang = ficheLangOf(r);
+        const { blob, note } = await buildFiche(r, lang, { name: author, email: authorEmail }, (s) => setProgress((p) => ({ ...p, [r.id]: s })));
+        if (note) warn.push(`${[r.brand, r.model].filter(Boolean).join(' ')} : ${note}`);
+        setProgress((p) => ({ ...p, [r.id]: 'publication…' }));
+        const pub = await publishFiche(r, lang, blob);
+        if (pub.error) throw new Error(pub.error);
+        setProgress((p) => ({ ...p, [r.id]: `fiche ${lang.toUpperCase()} publiée` }));
+        vehicles.push({
+          id: r.vin ?? r.id, vin: r.vin, brand: (r.brand ?? '').toUpperCase(), model: r.model ?? '', version: r.version ?? '', reg_date: r.first_registration, year: r.year, km: r.km,
+          color: r.color, fuel: r.fuel, engine: null, power_ch: r.power_ch, gearbox: r.gearbox, co2: null, damages: r.repair_cost ?? null, report_url: pub.url, location: null,
+          price_ht: null, price_ttc: null, vat_recoverable: null, imported: null, extras: {}, selected: true, sale_price: num(prices[r.id]), quantity: 1,
+        });
+      }
+      const cols: ExportColumn[] = (['vehicle', 'reg', 'km', 'damages', 'vin', 'price', 'report'] as const).map((k) => ({ id: k, builtin: k, label: BUILTIN_COLUMNS[k].label }));
+      const saved = await saveOffer({ title: title.trim() || `Inspections FYC — ${today}`, supplier: 'FYC — inspections', source_filename: '', layout: 'flat', mappings: [], vehicles, price_rule: { mode: 'margin', margin: 0 }, countries: [], notes: `Créée depuis le FYC le ${today} (${rows.length} inspection${rows.length > 1 ? 's' : ''}). Prix de revente saisis au transfert ; fiche PDF MC Export de chaque véhicule en dernière colonne.`, status: 'draft', export_columns: cols });
+      if (saved.error || !saved.id) throw new Error(saved.error ?? 'offre non créée');
+      setNotes(warn);
+      onDone();
+      window.history.pushState({}, '', `/offres?offer=${saved.id}&view=export`);
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setRunning(false); }
+  };
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4" onClick={running ? undefined : onClose}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2">
+          <h2 className="text-base font-semibold text-slate-900">Transférer dans Offres — nouvelle liste</h2>
+          <button onClick={onClose} disabled={running} className="ml-auto p-1 text-slate-400 hover:text-slate-700 disabled:opacity-50"><X className="w-4 h-4" /></button>
+        </div>
+        <p className="text-xs text-slate-500">Chaque envoi crée une nouvelle liste dans Offres : marque, modèle, 1re immatriculation, kilométrage, dommages estimés (vide si le rapport n'en chiffre pas), VIN, prix de revente, puis le lien de la fiche PDF MC Export de chaque véhicule (publiée, ouvrable par le client sans compte, dans la langue de son pays cible).</p>
+        <label className="block text-xs text-slate-600">Titre de la liste<input value={title} onChange={(e) => setTitle(e.target.value)} className={`${inp} mt-1`} /></label>
+        <table className="w-full text-sm">
+          <thead><tr className="text-left text-xs text-slate-400"><th className="py-1.5 pr-3">Véhicule</th><th className="py-1.5 pr-3">1re immat. · km</th><th className="py-1.5 pr-3">VIN</th><th className="py-1.5 pr-3 text-right">Dommages (€)</th><th className="py-1.5 pr-3 text-right">Prix de revente (€)</th><th className="py-1.5 pr-3">Fiche</th></tr></thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td className="py-1.5 pr-3 font-medium text-slate-900">{[r.brand, r.model].filter(Boolean).join(' ')}</td>
+                <td className="py-1.5 pr-3 whitespace-nowrap">{fmtDate(r.first_registration)} · {fmtNum(r.km)}</td>
+                <td className="py-1.5 pr-3 text-xs text-slate-500">{r.vin ?? '—'}</td>
+                <td className="py-1.5 pr-3 text-right tabular-nums">{r.repair_cost != null ? fmtNum(r.repair_cost) : ''}</td>
+                <td className="py-1.5 pr-3 text-right"><input value={prices[r.id] ?? ''} onChange={(e) => setPrices((p) => ({ ...p, [r.id]: e.target.value }))} placeholder={r.attack_price != null ? String(r.attack_price) : 'à saisir'} disabled={running} className={`${inp} text-right w-32 inline-block ${num(prices[r.id]) == null ? 'border-amber-400' : ''}`} /></td>
+                <td className="py-1.5 pr-3 text-xs text-slate-500 whitespace-nowrap">{progress[r.id] ?? `PDF ${ficheLangOf(r).toUpperCase()}`}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {missing.length > 0 && <p className="text-xs text-amber-800">{missing.length} prix de revente manquant{missing.length > 1 ? 's' : ''} : le prix d'attaque est proposé quand il existe, sinon saisis-le.</p>}
+        {error && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+        {notes.map((n, i) => <p key={i} className="text-xs text-amber-800">{n}</p>)}
+        <div className="flex items-center gap-2 justify-end">
+          <button onClick={onClose} disabled={running} className="text-sm px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50">Annuler</button>
+          <button onClick={() => void run()} disabled={running || missing.length > 0 || !title.trim()} className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white disabled:opacity-50">{running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} {running ? 'Fiches en cours…' : `Créer la liste (${rows.length})`}</button>
+        </div>
       </div>
     </div>
   );

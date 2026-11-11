@@ -177,6 +177,7 @@ export function Offres() {
   // Ouverture par l'URL (/offres?offer=<id>&view=analyse — bouton « Étude de marché » de la vitrine).
   const [search, setSearch] = useState(window.location.search);
   const handledSearch = useRef<string | null>(null);
+  const reloadedFor = useRef<string | null>(null);
   useEffect(() => {
     const f = () => setSearch(window.location.search);
     window.addEventListener('locationchange', f); window.addEventListener('popstate', f);
@@ -430,7 +431,8 @@ export function Offres() {
     const id = p.get('offer');
     if (!id) { handledSearch.current = search; return; }
     const o = offers.find((x) => x.id === id);
-    if (!o) return; // la liste n'est pas encore là : on réessaie à sa lecture
+    // Offre créée ailleurs (transfert depuis le FYC, 11/11) : pas encore dans la liste → relue une fois.
+    if (!o) { if (reloadedFor.current !== search) { reloadedFor.current = search; void reload(); } return; }
     handledSearch.current = search;
     if (draft?.id !== id) open(o);
     const v = p.get('view');
