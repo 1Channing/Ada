@@ -22,7 +22,7 @@ import { saveOffer } from '../services/offers';
 import { BUILTIN_COLUMNS, type ExportColumn } from '../lib/offers/exportColumns';
 import type { OfferVehicle } from '../lib/offers/parseSupplierFile';
 import { damageSummary } from '../lib/fycReport';
-import { loadObservationsForStudy, latestPerListing, filterObservations, priceStats, attackPrice as miAttackPrice, canonKey, canonicalizeGearbox, fuelFilterMatches, FUEL_TOKEN_TO_CRITERIA, GEARBOX_LABELS, type MarketFilters, type Observation, type GearboxToken } from '../services/marketData';
+import { loadObservationsForStudy, loadSnapshots, pruneVanishedListings, latestPerListing, filterObservations, priceStats, attackPrice as miAttackPrice, canonKey, canonicalizeGearbox, fuelFilterMatches, FUEL_TOKEN_TO_CRITERIA, GEARBOX_LABELS, type MarketFilters, type Observation, type Snapshot, type GearboxToken } from '../services/marketData';
 import { canonicalizeBody } from '../lib/study-core/bodyTypes';
 import { BODY_TYPES } from '../lib/study-core/bodyTypes';
 import { allSiteAdapters } from '../lib/study-core/marketplaces';
@@ -36,6 +36,8 @@ const fmtEur = (n: number | null | undefined) => (n == null ? '—' : `${Math.ro
 const fmtNum = (n: number | null | undefined) => (n == null ? '—' : Math.round(n).toLocaleString('fr-FR'));
 const fmtDate = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString('fr-FR') : '—');
 const LAST_COUNTRY_KEY = 'ada_fyc_country';
+let snapshotsPromise: Promise<Snapshot[]> | null = null;
+const snapshotsOnce = () => (snapshotsPromise ??= loadSnapshots().catch((e) => { snapshotsPromise = null; throw e; }));
 const inp = 'px-2.5 py-2 rounded-lg border border-slate-300 text-sm bg-white w-full';
 
 /** `active` : la vue FYC est affichée (le switch MI | FYC) — au retour du MI, les annonces sont relues. */
@@ -299,32 +301,29 @@ function InspectionPanel({ insp, contacts, refreshTick, onChanged, onOpenMarket,
     }, 800);
     return () => clearTimeout(t);
   }, [filters.brand, filters.model, filters.country, filters.site, refreshTick, obsTick]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Les scans (couverture) : comme le MI, une annonce absente du dernier scan de son segment est sortie de l'état du
+  // marché. Chargés une fois par session (même jeu que la page MI).
+  const [snapshots, setSnapshots] = useState<Snapshot[] | null>(null);
+  useEffect(() => { if (obs && !snapshots) void snapshotsOnce().then(setSnapshots).catch(() => setSnapshots([])); }, [obs, snapshots]);
   const market = useMemo(() => {
     if (!obs) return null;
-    // MÊME FILTRAGE QUE LE MI (11/11, Channing : « il dit ne rien trouver en équivalent, or le MI en trouve ») :
-    // filterObservations (modèle par identité unifiée, énergie, boîte et carrosserie canonisées, accidentées
-    // écartées) puis la dernière observation de chaque annonce — plus de règle maison.
+    // EXACTEMENT LES CHIFFRES DU MI (11/11, Channing : « le MI ne colle pas avec ce qu'on a dans le FYC ») : mêmes
+    // filtres (filterObservations), dernière observation par annonce, annonces disparues écartées
+    // (pruneVanishedListings), prix d'attaque par la même règle sur le même jeu. Plus de règle cachée « année ±1,
+    // km ±30 % » : les comparables, ce sont les filtres affichés, modifiables.
     const inBase = latestPerListing(obs).length;
-    const latest = latestPerListing(filterObservations(obs, filters));
+    const latest = pruneVanishedListings(latestPerListing(filterObservations(obs, filters)), snapshots ?? [], obs);
     const stats = priceStats(latest);
-    const comp = latest.filter((o) => insp.year != null && o.year != null && Math.abs(o.year - insp.year) <= 1 && insp.km != null && o.mileage != null && Math.abs(o.mileage - insp.km) <= insp.km * 0.3);
-    const compStats = priceStats(comp);
-    // La comparaison se fait sur les COMPARABLES (Channing 10/11 soir : « c'est là qu'on fait les comparaisons ») ;
-    // sans comparable, sur toutes les annonces filtrées.
-    const base = comp.length ? comp : latest;
-    const baseStats = comp.length ? compStats : stats;
-    // PRIX D'ATTAQUE DU MI (10/11 soir, Channing : « que le prix d'attaque s'affiche en fonction du MI ») : la règle
-    // du Market Intelligence (médiane de la tranche basse des annonces) appliquée aux comparables.
-    const mi = miAttackPrice(base);
+    const mi = miAttackPrice(latest);
     const effective = typedAttack ?? mi?.price ?? null;
-    const priced = base.map((o) => o.price).filter((p): p is number => typeof p === 'number' && p > 0).sort((a, b) => a - b);
+    const priced = latest.map((o) => o.price).filter((p): p is number => typeof p === 'number' && p > 0).sort((a, b) => a - b);
     const below = effective != null ? priced.filter((p) => p < effective).length : 0;
     const pct = effective != null && priced.length ? Math.round((below / priced.length) * 100) : null;
     const lastScan = latest.reduce<string | null>((m, o) => (!m || o.scraped_at > m ? o.scraped_at : m), null);
-    const position = effective == null ? 'pas d\'annonce avec prix' : pct == null ? 'pas d\'annonce avec prix' : pct === 0 ? `sous ${comp.length ? 'tous les comparables' : 'toutes les annonces'}` : `${pct} % ${comp.length ? 'des comparables' : 'des annonces'} sont moins chers`;
-    return { inBase, latest, stats, comp, compStats, baseStats, usingComparables: comp.length > 0, mi, effective, pct, lastScan, position, cheapest: [...base].filter((o) => o.price).sort((a, b) => (a.price ?? 0) - (b.price ?? 0)).slice(0, 5) };
-  }, [obs, filtersKey, typedAttack, insp.year, insp.km]); // eslint-disable-line react-hooks/exhaustive-deps
-  /** Le prix d'attaque EFFECTIF : saisi, sinon celui que le MI calcule sur les comparables. */
+    const position = effective == null || pct == null ? 'pas d\'annonce avec prix' : pct === 0 ? 'sous toutes les annonces' : `${pct} % des annonces sont moins chères`;
+    return { inBase, latest, stats, mi, effective, pct, lastScan, position, cheapest: [...latest].filter((o) => o.price).sort((a, b) => (a.price ?? 0) - (b.price ?? 0)).slice(0, 5) };
+  }, [obs, snapshots, filtersKey, typedAttack]); // eslint-disable-line react-hooks/exhaustive-deps
+  /** Le prix d'attaque EFFECTIF : saisi, sinon celui que le MI calcule sur les mêmes annonces. */
   const attackPrice = typedAttack ?? market?.mi?.price ?? null;
   const attackFromMi = typedAttack == null && market?.mi != null;
   const takeMiPrice = async () => { if (!market?.mi) return; setAttack(String(market.mi.price)); await updateInspection(insp.id, { attack_price: market.mi.price }); await onChanged(); };
@@ -460,20 +459,20 @@ function InspectionPanel({ insp, contacts, refreshTick, onChanged, onOpenMarket,
         {obsLoading ? <p className="text-sm text-slate-400 py-2">Lecture des annonces en base…</p> : market && market.stats.count > 0 ? (
           <>
             <div className="grid sm:grid-cols-2 gap-3">
-              <Tile label={`Comparables · ${COUNTRY_NAMES[filters.country ?? ''] ?? filters.country} (année ±1, km ±30 %)`} value={String(market.comp.length)} hint={market.compStats.count ? `de ${fmtEur(market.compStats.min)} à ${fmtEur(market.compStats.max)} · P25–P75 ${fmtEur(market.compStats.p25)} – ${fmtEur(market.compStats.p75)}${market.lastScan ? ` · scan ${fmtDate(market.lastScan)}` : ''}` : `aucun comparable, ${market.stats.count} annonces filtrées${market.lastScan ? ` · scan ${fmtDate(market.lastScan)}` : ''}`} />
+              <Tile label={`Annonces · ${COUNTRY_NAMES[filters.country ?? ''] ?? filters.country} · mêmes filtres que le MI`} value={String(market.latest.length)} hint={market.stats.count ? `de ${fmtEur(market.stats.min)} à ${fmtEur(market.stats.max)} · P25–P75 ${fmtEur(market.stats.p25)} – ${fmtEur(market.stats.p75)}${market.lastScan ? ` · scan ${fmtDate(market.lastScan)}` : ''}` : 'aucune annonce avec prix'} />
               <Tile label={attackFromMi ? 'Prix d\'attaque proposé par le MI' : 'Notre prix d\'attaque'} value={fmtEur(attackPrice)} hint={`${market.position}${attackFromMi && market.mi ? ` · règle MI sur les ${market.mi.window} moins chères — saisis le tien pour le remplacer` : !attackFromMi && market.mi ? ` · le MI proposerait ${fmtEur(market.mi.price)}` : ''}`} strong />
             </div>
-            {attackPrice != null && market.baseStats.count > 0 && (
-              <div className="relative h-12 rounded-lg bg-slate-50 border border-slate-200" title={market.usingComparables ? 'Les comparables, du moins cher au plus cher' : 'Toutes les annonces filtrées'}>
-                {(() => { const lo = market.baseStats.min, hi = market.baseStats.max, span = Math.max(1, hi - lo); const x = (v: number) => `${Math.min(98, Math.max(1, ((v - lo) / span) * 100))}%`; return (<>
-                  <div className="absolute top-5 h-3 rounded bg-blue-100" style={{ left: x(market.baseStats.p25), width: `calc(${x(market.baseStats.p75)} - ${x(market.baseStats.p25)})` }} />
+            {attackPrice != null && market.stats.count > 0 && (
+              <div className="relative h-12 rounded-lg bg-slate-50 border border-slate-200" title="Les annonces filtrées, du moins cher au plus cher">
+                {(() => { const lo = market.stats.min, hi = market.stats.max, span = Math.max(1, hi - lo); const x = (v: number) => `${Math.min(98, Math.max(1, ((v - lo) / span) * 100))}%`; return (<>
+                  <div className="absolute top-5 h-3 rounded bg-blue-100" style={{ left: x(market.stats.p25), width: `calc(${x(market.stats.p75)} - ${x(market.stats.p25)})` }} />
                   <div className="absolute top-2 w-1 h-9 bg-emerald-600 rounded" style={{ left: x(attackPrice) }} title={`notre prix ${fmtEur(attackPrice)}`} />
                   <span className="absolute left-1 bottom-0.5 text-[10px] text-slate-500">{fmtEur(lo)}</span>
                   <span className="absolute right-1 bottom-0.5 text-[10px] text-slate-500">{fmtEur(hi)}</span>
                 </>); })()}
               </div>
             )}
-            <p className="text-xs text-slate-500">Les 5 moins chères : {market.cheapest.map((o, i) => <span key={i}>{i ? ' · ' : ''}{o.listing_url ? <a href={o.listing_url} target="_blank" rel="noreferrer" className="text-brand-ocean hover:underline">{fmtEur(o.price)}</a> : fmtEur(o.price)} ({o.year ?? '—'}, {fmtNum(o.mileage)} km)</span>)}</p>
+            <p className="text-xs text-slate-500">Les 5 moins chères (mêmes annonces que le MI) : {market.cheapest.map((o, i) => <span key={i}>{i ? ' · ' : ''}{o.listing_url ? <a href={o.listing_url} target="_blank" rel="noreferrer" className="text-brand-ocean hover:underline">{fmtEur(o.price)}</a> : fmtEur(o.price)} ({o.year ?? '—'}, {fmtNum(o.mileage)} km)</span>)}</p>
           </>
         ) : market ? <p className="text-sm text-slate-500">{market.inBase > 0 ? `${market.inBase} annonces en base pour ${filters.brand} ${filters.model ?? ''} (${COUNTRY_NAMES[filters.country ?? ''] ?? filters.country}), aucune ne passe les filtres (énergie, boîte, carrosserie, années, km, puissance) : assouplis-les, ou lance la recherche dans le MI.` : 'Aucune annonce en base pour ce modèle dans ce pays : clique « Voir dans le MI (lance la recherche) », puis reviens ici (les annonces sont relues au retour).'}</p> : <p className="text-sm text-slate-500">Choisis un pays et une marque.</p>}
       </div>
