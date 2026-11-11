@@ -209,7 +209,7 @@ export function fuelTokenOf(raw: string | null | undefined): MarketFilters['fuel
   const s = (raw ?? '').toLowerCase();
   if (!s) return '';
   if (/plug|recharge|phev/.test(s)) return 'phev';
-  if (/hybr/.test(s)) return 'hybrid';
+  if (/hybr|ibrid/.test(s)) return 'hybrid';
   if (/elec|élec|strom/.test(s)) return 'electric';
   if (/diesel|gasoil|gazole/.test(s)) return 'diesel';
   if (/petrol|essence|benzin|gasolin/.test(s)) return 'petrol';
