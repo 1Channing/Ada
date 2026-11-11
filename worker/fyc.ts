@@ -23,6 +23,8 @@ import { callClaude, AiUnavailable, BudgetReached } from './agents/claude';
 import { HAIKU } from '../src/lib/agents/aiCost';
 import { translationSource, translationSystem, translationFits, FYC_TRANSLATION_SCHEMA, FYC_LANG_NAMES, type FycTranslation, type FycTranslatable } from '../src/lib/fycTranslation';
 import { isDekraReport, parseDekraReport, dekraLanguageUrls, dekraTranslationFrom, type DekraPhoto, type FycDefectPhoto } from '../src/lib/dekraReport';
+import { isFleetboxReport, parseFleetboxReport, fleetboxTranslationFrom } from '../src/lib/fleetboxReport';
+import { groupLines } from '../src/lib/pdfLines';
 
 const POLL_MS = 20_000;
 const BUCKET = 'admin-documents';
@@ -114,7 +116,34 @@ async function dekraTranslation(pdfPath: string | null, lang: string): Promise<F
   return dekraTranslationFrom(parseDekraReport(html), parseDekraReport(other));
 }
 
-async function translate(sb: { from: (t: string) => any }, row: { id: string; translate_to: string; translations: Record<string, unknown> | null; pdf_path: string | null } & FycTranslatable): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
+/** Lignes pdf.js d'un PDF (même regroupement que le navigateur), côté worker. */
+async function pdfLinesOf(buf: Buffer): Promise<Array<{ text: string; frags: Array<{ x: number; s: string }> }>> {
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;
+  try {
+    const out: Array<{ text: string; frags: Array<{ x: number; s: string }> }> = [];
+    for (let n = 1; n <= doc.numPages; n++) { const page = await doc.getPage(n); const tc = await page.getTextContent(); out.push(...groupLines(tc.items as Array<{ str?: string; transform?: number[] }>, n)); page.cleanup(); }
+    return out;
+  } finally { await doc.destroy(); }
+}
+
+/** Rapport DEKRA fleetbox (PDF, paramètre l=) relu dans la langue demandée ; null si impossible. */
+const FLEETBOX_LANGS = new Set(['it', 'fr', 'en', 'de', 'es', 'nl', 'pt']);
+async function fleetboxTranslation(sourceUrl: string, pdfPath: string | null, lang: string): Promise<FycTranslation | null> {
+  if (!/PDFDownloadHandlerSFT\.ashx/i.test(sourceUrl) || !FLEETBOX_LANGS.has(lang) || !pdfPath) return null;
+  const dl = await supabase.storage.from(BUCKET).download(pdfPath);
+  if (dl.error || !dl.data) return null;
+  const srcLines = await pdfLinesOf(Buffer.from(await dl.data.arrayBuffer()));
+  if (!isFleetboxReport(srcLines)) return null;
+  const u = new URL(sourceUrl); u.searchParams.set('l', lang);
+  const r = await fetch(u.toString(), { headers: { 'User-Agent': UA, 'Accept': 'application/pdf,*/*' } });
+  if (!r.ok) { console.warn(`[FYC] fleetbox ${lang} : HTTP ${r.status}`); return null; }
+  const buf = Buffer.from(await r.arrayBuffer());
+  if (buf.subarray(0, 5).toString('latin1') !== '%PDF-') return null;
+  return fleetboxTranslationFrom(parseFleetboxReport(srcLines), parseFleetboxReport(await pdfLinesOf(buf)), lang);
+}
+
+async function translate(sb: { from: (t: string) => any }, row: { id: string; translate_to: string; translations: Record<string, unknown> | null; pdf_path: string | null; source_url: string } & FycTranslatable): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   const lang = String(row.translate_to).toLowerCase();
   const src = translationSource({ ...row, equipment: Array.isArray(row.equipment) ? row.equipment : [], tyres: Array.isArray(row.tyres) ? row.tyres : [], damages: { devaluation: row.damages?.devaluation ?? [], usage: row.damages?.usage ?? [] } });
   const done = (t: FycTranslation | null, err: string | null) => sb.from('fyc_inspections').update({
@@ -123,11 +152,11 @@ async function translate(sb: { from: (t: string) => any }, row: { id: string; tr
     ...(err ? { error: `traduction ${lang} : ${err}`.slice(0, 800) } : {}),
   }).eq('id', row.id);
   if (!FYC_LANG_NAMES[lang]) { await done(null, 'langue inconnue'); return; }
-  // 1. Par DEKRA lui-même (mêmes mots que l'inspecteur, gratuit).
+  // 1. Par DEKRA lui-même (mêmes mots que l'inspecteur, gratuit) : page HTML, ou PDF fleetbox (paramètre l=).
   try {
-    const t = await dekraTranslation(row.pdf_path, lang);
-    if (t && translationFits(src, t)) { await done(t, null); console.warn(`[FYC] valeurs traduites en ${lang} par la page DEKRA (${t.devaluation.length + t.usage.length} dommages, ${t.tyres.length} pneus)`); return; }
-  } catch (e) { console.warn(`[FYC] page DEKRA ${lang} illisible, repli Claude : ${e instanceof Error ? e.message : String(e)}`); }
+    const t = (await dekraTranslation(row.pdf_path, lang)) ?? (await fleetboxTranslation(row.source_url, row.pdf_path, lang));
+    if (t && translationFits(src, t)) { await done(t, null); console.warn(`[FYC] valeurs traduites en ${lang} par le rapport DEKRA (${t.devaluation.length + t.usage.length} dommages, ${t.tyres.length} pneus)`); return; }
+  } catch (e) { console.warn(`[FYC] rapport DEKRA ${lang} illisible, repli Claude : ${e instanceof Error ? e.message : String(e)}`); }
   // 2. Sinon Claude.
   try {
     const r = await callClaude<FycTranslation>({
@@ -151,7 +180,7 @@ async function tick(): Promise<void> {
   try {
     const sb = supabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
     // Traductions demandées (fiche PDF client) : avant les téléchargements, quelqu'un attend devant l'écran.
-    const tr = await sb.from('fyc_inspections').select('id, translate_to, translations, pdf_path, fuel, gearbox, body, color, equipment, tyres, damages').eq('status', 'read').not('translate_to', 'is', null).order('updated_at', { ascending: true }).limit(3);
+    const tr = await sb.from('fyc_inspections').select('id, translate_to, translations, pdf_path, source_url, fuel, gearbox, body, color, equipment, tyres, damages').eq('status', 'read').not('translate_to', 'is', null).order('updated_at', { ascending: true }).limit(3);
     if (!tr.error) for (const row of (tr.data ?? []) as Array<Parameters<typeof translate>[1]>) await translate(sb, row);
     const { data, error } = await sb.from('fyc_inspections').select('id, source_url').eq('status', 'queued').order('created_at', { ascending: true }).limit(3);
     if (error) { if (!warned && !/does not exist|schema cache/i.test(error.message)) console.warn(`[FYC] file illisible : ${error.message}`); warned = true; return; }

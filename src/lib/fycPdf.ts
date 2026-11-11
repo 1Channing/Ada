@@ -225,7 +225,7 @@ export async function buildFycPdf(insp: FycInspection, lang: FycLang, contact: F
   section(t.contact);
   kv([['MC Export', contact.name], ['E-mail', contact.email ?? '-'], ['Web', 'mc-export.com'], [t.date, today]]);
 
-  if (photos.length > 2) { section(t.photos); photoGrid(photos.slice(2)); }
+  if (photos.length > 2) { section(t.photos); photoGrid(photos.slice(2), photos.length > 12 ? 3 : 2); }
 
   footer();
   return pdf.output('blob');

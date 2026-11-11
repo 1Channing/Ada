@@ -101,39 +101,33 @@ export async function buildOfferPdf(doc: OfferDocument): Promise<Blob> {
     };
   });
   const cols = columns ? configured(columns) : allCols.filter((c) => doc.vehicles.some((v) => c.has(v)));
-  const tableW = cols.reduce((a, c) => a + c.w, 0);
-  const scale = (W - 2 * margin) / tableW;
-  cols.forEach((c) => { c.w = c.w * scale; });
-  // Colonnes réglées (souvent plus nombreuses) : une mise à l'échelle uniforme
-  // coupait les dates (« 06/03/202 »). Les colonnes courtes reçoivent la largeur
-  // de leur texte le plus long (en-tête compris), les colonnes longues se
-  // partagent le reste et passent sur deux lignes.
-  if (columns) {
+  // LARGEURS SELON LE CONTENU (11/11, Channing : « des PDF d'offres plus uniformes, des espaces entre colonnes qui
+  // s'adaptent ») : chaque colonne reçoit la largeur de son texte le plus long (en-tête comprise), la place qui reste
+  // est répartie à parts égales — mêmes marges entre toutes les colonnes, plus de trou de 60 mm derrière « Dacia
+  // Bigster ». S'il manque de la place, les colonnes longues passent sur deux lignes (jamais sous leur plus long mot),
+  // puis tout rétrécit d'un même facteur. Même règle avec ou sans colonnes réglées sur l'offre.
+  {
     const avail = W - 2 * margin;
+    const PAD = 4;
     const textW = (t: string, bold: boolean) => { pdf.setFont('helvetica', bold ? 'bold' : 'normal'); pdf.setFontSize(7.5); return pdf.getTextWidth(t); };
-    const fixed = cols.filter((c) => !c.wrap);
-    const flex = cols.filter((c) => c.wrap);
-    // En-têtes sur deux lignes au besoin : une colonne courte prend la largeur
-    // de sa valeur la plus longue ou du plus long MOT de son en-tête.
     const longestWord = (t: string, bold: boolean) => Math.max(0, ...t.split(/\s+/).map((w) => textW(w, bold)));
-    fixed.forEach((c) => { c.w = Math.min(60, Math.max(longestWord(c.label, true), ...doc.vehicles.map((v) => textW(c.get(v), c.key === 'price'))) + 4); });
-    // Une colonne longue ne descend jamais sous son plus long mot (« Essence » ne
-    // sort plus « Essenc-e »), plafonné à 30 mm.
-    const flexMin = (c: Col) => Math.min(30, Math.max(14, longestWord(c.label, true) + 4, ...doc.vehicles.map((v) => longestWord(c.get(v), false) + 4)));
-    const rest = avail - fixed.reduce((a, c) => a + c.w, 0);
-    const flexBase = flex.reduce((a, c) => a + c.w, 0);
-    const flexMinTotal = flex.reduce((a, c) => a + flexMin(c), 0);
-    if (flex.length && rest >= flexMinTotal) {
-      flex.forEach((c) => { c.w = Math.max(flexMin(c), (c.w / flexBase) * rest); });
-      const over = cols.reduce((a, c) => a + c.w, 0) - avail;
-      if (over > 0) { const room = flex.reduce((a, c) => a + (c.w - flexMin(c)), 0); flex.forEach((c) => { c.w -= room > 0 ? (over * (c.w - flexMin(c))) / room : 0; }); }
+    const need = new Map<Col, number>();
+    const minW = new Map<Col, number>();
+    for (const c of cols) {
+      const cells = doc.vehicles.map((v) => c.get(v));
+      const widest = Math.max(textW(c.label, true), ...cells.map((t) => textW(t, c.key === 'price')));
+      need.set(c, Math.min(c.wrap ? 70 : 60, widest + PAD));
+      minW.set(c, c.wrap ? Math.min(30, Math.max(14, longestWord(c.label, true) + PAD, ...cells.map((t) => longestWord(t, false) + PAD))) : need.get(c)!);
+    }
+    const total = cols.reduce((a, c) => a + need.get(c)!, 0);
+    if (total <= avail) {
+      const extra = (avail - total) / cols.length;
+      cols.forEach((c) => { c.w = need.get(c)! + extra; });
     } else {
-      // Trop de colonnes : les colonnes longues descendent à leur minimum d'abord,
-      // les colonnes courtes (chiffres, dates) ne rétrécissent qu'en dernier recours.
-      flex.forEach((c) => { c.w = flexMin(c); });
-      const total = cols.reduce((a, c) => a + c.w, 0);
-      if (total > avail) { const k = avail / total; cols.forEach((c) => { c.w *= k; }); }
-      else if (flex.length) { const extra = (avail - total) / flex.length; flex.forEach((c) => { c.w += extra; }); }
+      const over = total - avail;
+      const slack = cols.reduce((a, c) => a + (need.get(c)! - minW.get(c)!), 0);
+      if (slack >= over) cols.forEach((c) => { c.w = need.get(c)! - (slack > 0 ? (over * (need.get(c)! - minW.get(c)!)) / slack : 0); });
+      else { cols.forEach((c) => { c.w = minW.get(c)!; }); const k = avail / cols.reduce((a, c) => a + c.w, 0); cols.forEach((c) => { c.w *= k; }); }
     }
   }
 

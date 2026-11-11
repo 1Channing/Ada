@@ -15,6 +15,7 @@ import { docxToLinesEx } from '../lib/docxText';
 import { extractPdfPhotos } from '../lib/pdfImages';
 import type { FycTranslation } from '../lib/fycTranslation';
 import { isDekraReport, parseDekraReport, type FycDefectPhoto } from '../lib/dekraReport';
+import { isFleetboxReport, parseFleetboxReport } from '../lib/fleetboxReport';
 import { htmlToLines } from '../lib/docxText';
 import { ADMIN_BUCKET } from './storageAccess';
 import { parseFycReport, type FycReportFields } from '../lib/fycReport';
@@ -167,9 +168,12 @@ export async function readInspection(row: FycInspection): Promise<string | null>
     const docx = isDocx ? await docxToLinesEx(blob) : null;
     // Page HTML (DEKRA, 11/11) : lecteur dédié ; photos déjà rangées par le worker (hébergeur sans CORS).
     const html = isHtml ? await blob.text() : null;
+    // PDF : rapport DEKRA « fleetbox » (lecteur dédié, 11/11) ou rapport VTI / VWFS (lecteur générique).
+    const pdfLines = html == null && !docx ? (await pdfToLinesEx(blob)).lines : null;
     const fields = html != null
       ? (isDekraReport(html) ? parseDekraReport(html).fields : parseFycReport(htmlToLines(html)))
-      : parseFycReport(docx ? docx.lines : (await pdfToLinesEx(blob)).lines);
+      : docx ? parseFycReport(docx.lines)
+        : isFleetboxReport(pdfLines!) ? parseFleetboxReport(pdfLines!).fields : parseFycReport(pdfLines!);
     if (!fields.brand && !fields.vin) throw new Error('rapport lu mais sans marque ni VIN : format inconnu');
     // Prix demandé par la plateforme (VWFS) : proposé comme prix d'achat tant qu'aucun n'est saisi.
     const patch: Record<string, unknown> = { ...fields, status: 'read', error: null, updated_at: new Date().toISOString() };
@@ -177,7 +181,8 @@ export async function readInspection(row: FycInspection): Promise<string | null>
     // Photos (11/11) : du PDF, ou des adresses de la page .docx. Une traduction déjà faite reste valable (mêmes valeurs).
     try {
       if (html == null) {
-        const blobs = docx ? await fetchPhotos(docx.photoUrls) : await extractPdfPhotos(blob, { maxCount: 40 });
+        // Vignettes 200×150 des PDF fleetbox acceptées (≥ 180 px) ; bandeaux-logos écartés par leur proportion (> 2,2).
+        const blobs = docx ? await fetchPhotos(docx.photoUrls) : await extractPdfPhotos(blob, { maxCount: 40, minWidth: 180, maxRatio: 2.2 });
         if (blobs.length) patch.photos = await storePhotos(row.id, blobs);
       }
     } catch (e) { console.warn('[FYC] photos non extraites :', e instanceof Error ? e.message : e); }
