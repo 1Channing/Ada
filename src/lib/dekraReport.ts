@@ -13,6 +13,19 @@
  */
 import type { FycReportFields, FycDamage } from './fycReport';
 import { shortModel } from './fycReport';
+import type { FycTranslation } from './fycTranslation';
+
+/** « Acceptable » dans les 7 langues DEKRA : trace d'usage tolérée, pas une dévaluation. */
+const ACCEPTABLE = /^(?:acceptable|ter info|akzeptabel|accettabile|aceptable|aceit[aá]vel|for information|acceptabel)$/i;
+
+/** LES AUTRES LANGUES DU RAPPORT (11/11, Channing : « il y a les liens pour traduction dans les langues, s'en servir ») :
+ *  le sélecteur de la page pointe sur l'API DEKRA (inspection-report?reportId=…&language=xx-YY), qui répond sans
+ *  jeton. Retourne { fr: url, nl: url, … }. */
+export function dekraLanguageUrls(html: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const m of html.matchAll(/<option[^>]*value="([^"]*language=([a-z]{2})-[A-Z]{2}[^"]*)"/gi)) out[m[2].toLowerCase()] = decode(m[1]);
+  return out;
+}
 
 /** Libellés par champ, toutes langues (comparés par norm()). */
 const L = {
@@ -66,7 +79,27 @@ const isoDate = (s: string | null) => { const m = (s ?? '').match(/(\d{1,2})[/.-
 const intOf = (s: string | null) => { const m = (s ?? '').replace(/[\s\u202f\u00a0]/g, '').match(/\d+/); return m ? Number(m[0]) : null; };
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
-export function parseDekraReport(html: string): { fields: FycReportFields; photos: DekraPhoto[] } {
+export interface DekraParsed { fields: FycReportFields; photos: DekraPhoto[]; /** Les dommages dans l'ordre du tableau (liste et rang), pour aligner deux langues. */ rows: Array<{ list: 'devaluation' | 'usage'; idx: number }> }
+
+/** Traduction d'un rapport par le MÊME rapport dans une autre langue : dommages alignés par rang dans le tableau
+ *  (la liste dévaluation / usage est celle de la source, pas celle que la langue cible déduirait), pneus rang à rang ;
+ *  null si les deux pages n'ont pas la même structure. Pas d'équipements chez DEKRA. */
+export function dekraTranslationFrom(src: DekraParsed, tr: DekraParsed): FycTranslation | null {
+  if (src.rows.length !== tr.rows.length || src.fields.tyres.length !== tr.fields.tyres.length) return null;
+  const dev: string[] = new Array(src.fields.damages.devaluation.length).fill('');
+  const use: string[] = new Array(src.fields.damages.usage.length).fill('');
+  for (let i = 0; i < src.rows.length; i++) {
+    const s = src.rows[i]; const t = tr.rows[i];
+    const raw = tr.fields.damages[t.list][t.idx]?.raw;
+    if (raw == null) return null;
+    (s.list === 'devaluation' ? dev : use)[s.idx] = raw;
+  }
+  if (dev.some((x) => !x) || use.some((x) => !x)) return null;
+  const f = tr.fields;
+  return { fuel: f.fuel, gearbox: f.gearbox, body: f.body, color: f.color, equipment: [], tyres: [...f.tyres], devaluation: dev, usage: use };
+}
+
+export function parseDekraReport(html: string): DekraParsed {
   const h = html.replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<svg[\s\S]*?<\/svg>/gi, '');
   // Libellés « <span class="label">X</span><span>Y</span> ».
   const labels: Record<string, string> = {};
@@ -87,9 +120,10 @@ export function parseDekraReport(html: string): { fields: FycReportFields; photo
   const devaluation: FycDamage[] = []; const usage: FycDamage[] = [];
   const photos: DekraPhoto[] = [];
   const table = h.match(/<table class="table-defects">([\s\S]*?)<\/table>/i)?.[1] ?? '';
-  const rows = [...table.matchAll(/<tr class="collapse[^"]*">([\s\S]*?)<\/tr>(?:\s*<tr class="show">([\s\S]*?)<\/tr>)?/gi)];
+  const trs = [...table.matchAll(/<tr class="collapse[^"]*">([\s\S]*?)<\/tr>(?:\s*<tr class="show">([\s\S]*?)<\/tr>)?/gi)];
   const byCaption = new Map<string, { list: 'devaluation' | 'usage'; idx: number }>();
-  for (const r of rows) {
+  const rows: DekraParsed['rows'] = [];
+  for (const r of trs) {
     const tds = [...r[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((c) => c[1]);
     if (tds.length < 3 || !/^\d+$/.test(strip(tds[0]))) continue;
     // Élément : « Spoiler / Trasero » + sous-libellé éventuel (« Pintado : No », classe defects-feature) gardé en note.
@@ -100,10 +134,11 @@ export function parseDekraReport(html: string): { fields: FycReportFields; photo
     const where = parts.filter((p) => p !== '-').join(' / ') || element;
     const d: FycDamage = { zone: where, kind: damage, action: correction, raw: `${where} : ${damage}${feature ? ` (${feature})` : ''}${correction ? ` → ${correction}` : ''}` };
     // « Acceptable » = trace d'usage tolérée ; le reste est à prévoir (dévaluation).
-    const list: 'devaluation' | 'usage' = /^acceptable$/i.test(correction) ? 'usage' : 'devaluation';
+    const list: 'devaluation' | 'usage' = ACCEPTABLE.test(correction) ? 'usage' : 'devaluation';
     const target = list === 'devaluation' ? devaluation : usage;
     target.push(d);
     const ref = { list, idx: target.length - 1 };
+    rows.push(ref);
     byCaption.set(norm(`${element} / ${damage}`), ref);
     for (const im of (r[2] ?? '').matchAll(/<img[^>]*src="([^"]+)"/gi)) if (!/^data:/i.test(im[1])) photos.push({ url: decode(im[1]), caption: `${where} / ${damage}`, ...ref });
   }
@@ -154,5 +189,5 @@ export function parseDekraReport(html: string): { fields: FycReportFields; photo
     doors: intOf(lab(L.doors)), seats: intOf(lab(L.seats)), repainted: null,
     damages: { devaluation, usage }, equipment: [], tyres, raw_fields: raw,
   };
-  return { fields, photos: [...mains, ...photos] };
+  return { fields, photos: [...mains, ...photos], rows };
 }

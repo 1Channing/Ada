@@ -15,13 +15,14 @@
  * TRADUCTIONS (11/11, Channing : « sur les PDF il y a beaucoup de français, pas de possibilité de traduire ? ») :
  * une ligne lue dont translate_to est posé → les valeurs du rapport (énergie, boîte, carrosserie, couleur,
  * équipements, pneus, constats) traduites par Claude dans cette langue, gardées dans translations[langue] ;
- * demandées par la fiche PDF client, une fois par langue.
+ * demandées par la fiche PDF client, une fois par langue. Un rapport DEKRA est d'abord traduit PAR DEKRA (la même
+ * page dans la langue cible, via son sélecteur de langue, 11/11) ; Claude ne sert que si cette langue n'y est pas.
  */
 import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
 import { callClaude, AiUnavailable, BudgetReached } from './agents/claude';
 import { HAIKU } from '../src/lib/agents/aiCost';
 import { translationSource, translationSystem, translationFits, FYC_TRANSLATION_SCHEMA, FYC_LANG_NAMES, type FycTranslation, type FycTranslatable } from '../src/lib/fycTranslation';
-import { isDekraReport, parseDekraReport, type DekraPhoto, type FycDefectPhoto } from '../src/lib/dekraReport';
+import { isDekraReport, parseDekraReport, dekraLanguageUrls, dekraTranslationFrom, type DekraPhoto, type FycDefectPhoto } from '../src/lib/dekraReport';
 
 const POLL_MS = 20_000;
 const BUCKET = 'admin-documents';
@@ -97,7 +98,23 @@ async function downloadPhotos(id: string, list: DekraPhoto[]): Promise<{ photos:
 /** Plafond du jour pour les traductions FYC (quelques centimes par fiche) — compté avec les appels de l'agente Ada. */
 const TRANSLATION_BUDGET_USD = 5;
 
-async function translate(sb: { from: (t: string) => any }, row: { id: string; translate_to: string; translations: Record<string, unknown> | null } & FycTranslatable): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
+/** La page DEKRA rangée dans le storage, relue dans la langue demandée par l'API de DEKRA ; null si impossible. */
+async function dekraTranslation(pdfPath: string | null, lang: string): Promise<FycTranslation | null> {
+  if (!pdfPath || !/\.html?$/i.test(pdfPath)) return null;
+  const dl = await supabase.storage.from(BUCKET).download(pdfPath);
+  if (dl.error || !dl.data) return null;
+  const html = await dl.data.text();
+  if (!isDekraReport(html)) return null;
+  const url = dekraLanguageUrls(html)[lang];
+  if (!url) return null;
+  const r = await fetch(url, { headers: { 'User-Agent': UA, 'Accept': 'text/html,*/*' } });
+  if (!r.ok) { console.warn(`[FYC] DEKRA ${lang} : HTTP ${r.status}`); return null; }
+  const other = await r.text();
+  if (!isDekraReport(other)) return null;
+  return dekraTranslationFrom(parseDekraReport(html), parseDekraReport(other));
+}
+
+async function translate(sb: { from: (t: string) => any }, row: { id: string; translate_to: string; translations: Record<string, unknown> | null; pdf_path: string | null } & FycTranslatable): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   const lang = String(row.translate_to).toLowerCase();
   const src = translationSource({ ...row, equipment: Array.isArray(row.equipment) ? row.equipment : [], tyres: Array.isArray(row.tyres) ? row.tyres : [], damages: { devaluation: row.damages?.devaluation ?? [], usage: row.damages?.usage ?? [] } });
   const done = (t: FycTranslation | null, err: string | null) => sb.from('fyc_inspections').update({
@@ -106,6 +123,12 @@ async function translate(sb: { from: (t: string) => any }, row: { id: string; tr
     ...(err ? { error: `traduction ${lang} : ${err}`.slice(0, 800) } : {}),
   }).eq('id', row.id);
   if (!FYC_LANG_NAMES[lang]) { await done(null, 'langue inconnue'); return; }
+  // 1. Par DEKRA lui-même (mêmes mots que l'inspecteur, gratuit).
+  try {
+    const t = await dekraTranslation(row.pdf_path, lang);
+    if (t && translationFits(src, t)) { await done(t, null); console.warn(`[FYC] valeurs traduites en ${lang} par la page DEKRA (${t.devaluation.length + t.usage.length} dommages, ${t.tyres.length} pneus)`); return; }
+  } catch (e) { console.warn(`[FYC] page DEKRA ${lang} illisible, repli Claude : ${e instanceof Error ? e.message : String(e)}`); }
+  // 2. Sinon Claude.
   try {
     const r = await callClaude<FycTranslation>({
       agent: 'ada', budgetUsd: TRANSLATION_BUDGET_USD, purpose: 'fyc_traduction', model: HAIKU,
@@ -128,7 +151,7 @@ async function tick(): Promise<void> {
   try {
     const sb = supabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
     // Traductions demandées (fiche PDF client) : avant les téléchargements, quelqu'un attend devant l'écran.
-    const tr = await sb.from('fyc_inspections').select('id, translate_to, translations, fuel, gearbox, body, color, equipment, tyres, damages').eq('status', 'read').not('translate_to', 'is', null).order('updated_at', { ascending: true }).limit(3);
+    const tr = await sb.from('fyc_inspections').select('id, translate_to, translations, pdf_path, fuel, gearbox, body, color, equipment, tyres, damages').eq('status', 'read').not('translate_to', 'is', null).order('updated_at', { ascending: true }).limit(3);
     if (!tr.error) for (const row of (tr.data ?? []) as Array<Parameters<typeof translate>[1]>) await translate(sb, row);
     const { data, error } = await sb.from('fyc_inspections').select('id, source_url').eq('status', 'queued').order('created_at', { ascending: true }).limit(3);
     if (error) { if (!warned && !/does not exist|schema cache/i.test(error.message)) console.warn(`[FYC] file illisible : ${error.message}`); warned = true; return; }
