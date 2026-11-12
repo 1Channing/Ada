@@ -31,7 +31,7 @@ Default (pictures attached)
 
 /** `hidden` : la fenêtre reste montée (bloc et photos conservés) pendant que la page travaille, refermée par l'utilisateur
  *  (12/11, Channing : « il faut pouvoir fermer cette fenêtre le temps que ça charge »). */
-export function SingleUnitModal({ busy, status, hidden = false, onAdd, onClose }: { busy: boolean; status: string | null; hidden?: boolean; onAdd: (units: SingleUnit[], opts: SingleUnitOptions) => void; onClose: () => void }) {
+export function SingleUnitModal({ busy, status, hidden = false, mode = 'offer', onAdd, onClose }: { busy: boolean; status: string | null; hidden?: boolean; mode?: 'offer' | 'fyc'; onAdd: (units: SingleUnit[], opts: SingleUnitOptions) => void; onClose: () => void }) {
   const [text, setText] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const units = useMemo(() => parseSingleUnits(text), [text]);
@@ -57,7 +57,9 @@ export function SingleUnitModal({ busy, status, hidden = false, onAdd, onClose }
               <input type="file" accept=".pdf,application/pdf,image/*" multiple className="hidden" disabled={busy} onChange={(e) => { setFiles([...(e.target.files ?? [])]); e.currentTarget.value = ''; }} />
             </label>
             {files.length > 0 && units.length > 1 && <p className="text-xs text-amber-700">Plusieurs unités reconnues : les photos ne sont rangées que pour une unité à la fois. Colle-les une par une pour leur joindre des photos.</p>}
-            <p className="text-xs text-slate-500">Le dossier déposé devient le lien « inspection » de la ligne : un PDF est publié tel quel ; plusieurs fichiers (PDF, images) sont assemblés en un seul PDF, une photo par page, sans rien d'autre.</p>
+            {mode === 'offer'
+              ? <p className="text-xs text-slate-500">Le dossier déposé devient le lien « inspection » de la ligne : un PDF est publié tel quel ; plusieurs fichiers (PDF, images) sont assemblés en un seul PDF, une photo par page, sans rien d'autre.</p>
+              : <p className="text-xs text-slate-500">L'inspection est créée tout de suite avec ces critères ; les options vont en équipements, les défauts en points à prévoir, les photos de l'album ou des images déposées dans la fiche. Aucun prix.</p>}
           </div>
           <div className="space-y-3">
             <p className="text-sm text-slate-600">{units.length ? `${units.length} unité${units.length > 1 ? 's' : ''} reconnue${units.length > 1 ? 's' : ''}` : 'Aperçu de ce qui est reconnu'}</p>
@@ -72,10 +74,10 @@ export function SingleUnitModal({ busy, status, hidden = false, onAdd, onClose }
                   {chip(u.vin, 'bg-blue-50 text-brand-encre font-mono')}
                 </div>
                 {!u.vin && <p className="text-xs text-amber-700">VIN non trouvé : la ligne sera sans châssis (modifiable au crayon).</p>}
-                {u.options.length > 0 && <p className="text-slate-700"><span className="text-slate-500">Options (colonne libre « Options ») :</span> {u.options.join(' · ')}</p>}
+                {u.options.length > 0 && <p className="text-slate-700"><span className="text-slate-500">{mode === 'offer' ? 'Options (colonne libre « Options »)' : 'Options (équipements de l\'inspection)'} :</span> {u.options.join(' · ')}</p>}
                 {u.service && <p className="text-slate-700"><span className="text-slate-500">Entretien :</span> {u.service}</p>}
                 {u.defects.length > 0 && <p className="text-slate-700"><span className="text-slate-500">Défauts :</span> {u.defects.join(' ; ')}</p>}
-                <p className="text-slate-700"><span className="text-slate-500">Prix MC Export :</span> {u.price != null ? `${fmtEur(u.price)}${u.price_ttc ? ' TTC' : ' HT'}${u.price_note ? ` — ${u.price_note}` : ''}` : 'non lu (à saisir dans l\'offre)'}</p>
+                {mode === 'offer' && <p className="text-slate-700"><span className="text-slate-500">Prix MC Export :</span> {u.price != null ? `${fmtEur(u.price)}${u.price_ttc ? ' TTC' : ' HT'}${u.price_note ? ` — ${u.price_note}` : ''}` : 'non lu (à saisir dans l\'offre)'}</p>}
                 {u.rest.length > 0 && <p className="text-xs text-slate-400">Non lu : {u.rest.join(' · ')}</p>}
               </div>
             ))}
@@ -87,7 +89,7 @@ export function SingleUnitModal({ busy, status, hidden = false, onAdd, onClose }
           <button onClick={onClose} className="px-3 py-2 text-sm text-slate-600 hover:text-slate-900">Fermer</button>
           <button onClick={() => onAdd(units, { files: photosForOne ? files : [] })} disabled={busy || units.length === 0}
             className="px-4 py-2 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white text-sm font-medium disabled:opacity-50">
-            {busy ? 'En cours…' : 'Ajouter à l\'offre'}
+            {busy ? 'En cours…' : mode === 'offer' ? 'Ajouter à l\'offre' : 'Créer l\'inspection'}
           </button>
         </div>
       </div>

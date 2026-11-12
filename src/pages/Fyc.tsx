@@ -12,9 +12,11 @@
  * Export PDF à la charte (src/lib/fycPdf.ts).
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ClipboardList, ExternalLink, FileDown, FileUp, Loader2, RefreshCw, Trash2, Search, AlertTriangle, Check, Archive, ArchiveRestore, Images, Send, X, Pencil } from 'lucide-react';
+import { ClipboardList, ExternalLink, FileDown, FileUp, Loader2, RefreshCw, Trash2, Search, AlertTriangle, Check, Archive, ArchiveRestore, Images, Send, X, Pencil, Car } from 'lucide-react';
+import { SingleUnitModal, type SingleUnitOptions } from '../components/SingleUnitModal';
+import { unitToInspectionFields, type SingleUnit } from '../lib/offers/singleUnit';
 import { useAuth } from '../services/auth';
-import { listInspections, addInspections, addInspectionFile, updateInspection, deleteInspection, retryInspection, rereadInspection, readInspection, attachPhotos, photosPending, filtersFromInspection, fuelTokenOf, type FycInspection } from '../services/fyc';
+import { listInspections, addInspections, addInspectionFile, createUnitInspection, updateInspection, deleteInspection, retryInspection, rereadInspection, readInspection, attachPhotos, photosPending, filtersFromInspection, fuelTokenOf, type FycInspection } from '../services/fyc';
 import { useSignedUrls } from '../services/storageAccess';
 import { buildFiche, publishFiche, prefetchTranslations, engineOfInspection, ficheLangOf, ficheFileName } from '../services/fycFiche';
 import type { FycEditableField } from '../services/fyc';
@@ -109,6 +111,25 @@ export function FycView({ onOpenMarket, active = true }: { onOpenMarket: (f: Mar
     setNotice(last ? last : `${ok} fichier${ok > 1 ? 's' : ''} déposé${ok > 1 ? 's' : ''} — lecture en cours.`);
     await reload();
   };
+  // SINGLE UNIT DANS LE FYC (12/11, Channing : « ajouter des single units dans le FYC, de la même manière que dans les
+  // offres ») : même fenêtre, l'inspection est créée tout de suite (champs du bloc, photos de l'album), sans prix.
+  const [unitOpen, setUnitOpen] = useState(false);
+  const [unitBusy, setUnitBusy] = useState(false);
+  const [unitStatus, setUnitStatus] = useState<string | null>(null);
+  const addUnits = async (units: SingleUnit[], opts: SingleUnitOptions) => {
+    if (!units.length) return;
+    setUnitBusy(true); setUnitStatus(null); setNotice(null);
+    let ok = 0; const notes: string[] = []; let lastId: string | null = null;
+    for (const u of units) {
+      const label = `${u.brand} ${u.model}`;
+      const r = await createUnitInspection(unitToInspectionFields(u), units.length === 1 ? opts.files : [], (st) => setUnitStatus(`${label} : ${st}`));
+      if (r.error || !r.row) notes.push(`${label} : ${r.error ?? 'inspection non créée'}`); else { ok++; lastId = r.row.id; if (r.note) notes.push(`${label} : ${r.note}`); }
+    }
+    setUnitBusy(false); setUnitStatus(null); setUnitOpen(false);
+    setNotice(`${ok} inspection${ok > 1 ? 's' : ''} créée${ok > 1 ? 's' : ''} depuis ${units.length > 1 ? 'les unités' : 'l\'unité'}${notes.length ? ` · ${notes.join(' · ')}` : ''}`);
+    await reload();
+    if (lastId) setSelectedId(lastId);
+  };
   const selected = rows.find((r) => r.id === selectedId) ?? shown[0] ?? null;
   const archive = async (r: FycInspection, on: boolean) => { await updateInspection(r.id, { archived_at: on ? new Date().toISOString() : null }); await reload(); };
   // SÉLECTION DE LIGNES (11/11, Channing : « sélectionner chacune des lignes d'inspection et les transférer dans
@@ -189,7 +210,16 @@ export function FycView({ onOpenMarket, active = true }: { onOpenMarket: (f: Mar
           <button onClick={() => void add()} disabled={adding || !addText.trim()} className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white disabled:opacity-50">{adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardList className="w-4 h-4" />} Lire les rapports</button>
           <input ref={fileInput} type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple className="hidden" onChange={(e) => { void addFiles(e.target.files); e.target.value = ''; }} />
           <button onClick={() => fileInput.current?.click()} disabled={adding} title="Un rapport exporté en fichier : PDF, ou .docx (export GIS@WEB de VWFS)" className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"><FileUp className="w-4 h-4" /> Déposer un fichier (PDF, DOCX)</button>
+          <button onClick={() => setUnitOpen(true)} disabled={adding} title="Une single unit : bloc texte collé + album photos" className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-brand-ocean bg-white text-brand-ocean hover:bg-blue-50 disabled:opacity-50"><Car className="w-4 h-4" /> Unité</button>
         </div>}
+        {(unitOpen || unitBusy) && <SingleUnitModal mode="fyc" busy={unitBusy} status={unitStatus} hidden={!unitOpen} onAdd={(units, opts) => { void addUnits(units, opts); }} onClose={() => setUnitOpen(false)} />}
+        {unitBusy && !unitOpen && (
+          <div className="rounded-xl border border-blue-200 bg-blue-50 text-brand-encre px-4 py-2.5 text-sm flex items-center gap-3">
+            <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+            <span className="flex-1 truncate">Single unit en cours{unitStatus ? ` — ${unitStatus}` : '…'}</span>
+            <button onClick={() => setUnitOpen(true)} className="text-sm font-medium underline-offset-2 hover:underline">Voir</button>
+          </div>
+        )}
         {notice && <p className="text-xs text-slate-600">{notice}</p>}
         {error && <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{error}</p>}
         {loading ? <p className="text-sm text-slate-400 py-4 text-center">Chargement…</p> : shown.length === 0 ? (

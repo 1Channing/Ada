@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
   Upload, FileSpreadsheet, FileText, Trash2, Loader2, ExternalLink, Check, CloudOff, Search, SlidersHorizontal,
-  PanelLeftOpen, X, StickyNote, Settings, Pencil, ArrowUp, ArrowDown, Plus, RotateCcw, BarChart3, ListChecks, Columns3, Megaphone, ImagePlus, MoreHorizontal, Car,
+  PanelLeftOpen, X, StickyNote, Settings, Pencil, ArrowUp, ArrowDown, Plus, RotateCcw, BarChart3, ListChecks, Columns3, Megaphone, ImagePlus, MoreHorizontal, Car, Archive, ArchiveRestore, Merge,
 } from 'lucide-react';
 import { listShowcase, publishToShowcase, unpublishFromShowcase, reorderShowcase, setShowcaseNote, setShowcaseTitle, setShowcasePrice, setShowcaseVehicle, snapshotVehicle, addShowcasePhotos, removeShowcasePhoto, addManualShowcase, type IntraItem, type IntraDraft } from '../services/intra';
 import { useAuth } from '../services/auth';
@@ -23,6 +23,7 @@ import { useOfferFiches, OfferFichesBanner, OfferFichesModal } from '../componen
 import { SingleUnitModal, type SingleUnitOptions } from '../components/SingleUnitModal';
 import { unitToVehicle, type SingleUnit } from '../lib/offers/singleUnit';
 import { publishUnitDossier } from '../services/unitPhotos';
+import { mergeOffers } from '../lib/offers/mergeOffers';
 import {
   ALL_BUILTIN_KEYS, BUILTIN_COLUMNS, cellValue, defaultExportColumns, displayLabel, effectiveColumns, isColumnEmpty, newCustomColumn,
   type ExportColumn, type ExportContext,
@@ -95,6 +96,13 @@ export function Offres() {
   const [view, setView] = useState<View>('selection');
   const [listOpen, setListOpen] = useState(false);
   const [listQuery, setListQuery] = useState('');
+  // MENU ⋯ DES OFFRES (12/11, Channing : « à droite des noms des offres, trois petits points qui ouvrent les options :
+  // archives, suppression, fusion de plusieurs listes »). Archive = statut « clôturée », masquée sauf « Archives ».
+  const [offerMenu, setOfferMenu] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  /** Fusion en cours : l'offre de base et celles cochées pour la rejoindre. */
+  const [merge, setMerge] = useState<{ base: string; picked: string[] } | null>(null);
+  const [merging, setMerging] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [editVehicle, setEditVehicle] = useState<string | null>(null);
   /** Fenêtre d'un modèle : ses véhicules, à cocher et corriger sans quitter le choix des modèles (11/10). */
@@ -490,6 +498,41 @@ export function Offres() {
     await reload();
   };
 
+  const setStatus = async (o: SupplierOffer, status: SupplierOffer['status']) => {
+    setOfferMenu(null);
+    const r = await saveOffer({ ...o, status });
+    if (r.error) { fail(r.error); return; }
+    if (draft?.id === o.id) setDraft((d) => (d ? { ...d, status } : d));
+    await reload();
+  };
+  /** FUSION (12/11) : les offres cochées rejoignent l'offre de base, renommée au passage ; les autres sont supprimées
+   *  après enregistrement. Les prix des autres offres sont ramenés aux réglages de la base (voir mergeOffers). */
+  const runMerge = async () => {
+    if (!merge || !merge.picked.length) return;
+    const base = offers.find((o) => o.id === merge.base); const others = merge.picked.map((id) => offers.find((o) => o.id === id)!).filter(Boolean);
+    if (!base || !others.length) return;
+    const title = prompt(`Nom de l'offre fusionnée (${1 + others.length} listes, ${base.vehicles.length + others.reduce((n, o) => n + o.vehicles.length, 0)} véhicules) :`, base.title || '');
+    if (title == null) return;
+    setMerging(true);
+    try {
+      if (saveTimer.current && draft && dirty.current) { window.clearTimeout(saveTimer.current); dirty.current = false; await persist(draft); }
+      const fresh = await reload();
+      const b = fresh.find((o) => o.id === base.id) ?? base; const os = others.map((o) => fresh.find((f) => f.id === o.id) ?? o);
+      const { merged, notes } = mergeOffers(b, os, title.trim() || b.title);
+      const r = await saveOffer(merged);
+      if (r.error) throw new Error(r.error);
+      const errs: string[] = [];
+      for (const o of os) { const e = await deleteOffer(o.id); if (e) errs.push(`${o.title || o.id} : ${e}`); }
+      const rows = await reload();
+      const now = rows.find((o) => o.id === b.id);
+      if (now) { if (draft?.id === b.id || os.some((o) => o.id === draft?.id)) open(now); }
+      else if (os.some((o) => o.id === draft?.id)) setDraft(null);
+      const detail = [...notes.map((n) => `${n.offer} : ${n.text}`), ...errs.map((e) => `suppression impossible — ${e}`)];
+      (errs.length ? fail : info)(`${1 + os.length} offres fusionnées dans « ${title.trim() || b.title} » (${merged.vehicles?.length ?? 0} véhicules)${detail.length ? `. ${detail.join(' · ')}` : '.'}`);
+    } catch (e) { fail(`Fusion impossible : ${e instanceof Error ? e.message : String(e)}`); }
+    setMerging(false); setMerge(null);
+  };
+
   const selected = useMemo(() => (draft?.vehicles ?? []).filter((v) => v.selected), [draft]);
   // Exemplaires (07/10) : une ligne par modèle, la quantité à côté — les comptes parlent en véhicules.
   const qtyOf = (v: OfferVehicle) => Math.max(1, v.quantity ?? 1);
@@ -783,7 +826,8 @@ export function Offres() {
   );
 
   // ── RENDU ───────────────────────────────────────────────────────────────────
-  const filteredOffers = offers.filter((o) => !listQuery.trim() || `${o.title} ${o.supplier}`.toLowerCase().includes(listQuery.trim().toLowerCase()));
+  const archivedCount = offers.filter((o) => o.status === 'closed').length;
+  const filteredOffers = offers.filter((o) => (showArchived ? o.status === 'closed' : o.status !== 'closed') && (!listQuery.trim() || `${o.title} ${o.supplier}`.toLowerCase().includes(listQuery.trim().toLowerCase())));
   const uploadButton = (compact = false) => (
     <button onClick={() => fileRef.current?.click()} disabled={busy === 'lecture'} className={`flex items-center justify-center gap-2 bg-brand-ocean hover:bg-brand-encre text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 ${compact ? 'px-3 py-2' : 'w-full px-4 py-2.5'}`}>
       {busy === 'lecture' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} Nouvelle offre
@@ -882,20 +926,49 @@ export function Offres() {
         ) : filteredOffers.map((o) => {
           const active = draft?.id === o.id;
           const n = (o.vehicles ?? []).length, sel = (o.vehicles ?? []).filter((v) => v.selected).length;
+          const picked = merge ? merge.base === o.id || merge.picked.includes(o.id) : false;
           return (
-            <div key={o.id} className={`group flex items-start gap-2 px-4 py-3 ${active ? 'bg-blue-50/70' : 'hover:bg-slate-50'}`}>
-              <button onClick={() => open(o)} className="min-w-0 flex-1 text-left">
+            <div key={o.id} className={`group relative flex items-start gap-2 px-4 py-3 ${picked ? 'bg-amber-50' : active ? 'bg-blue-50/70' : 'hover:bg-slate-50'}`}>
+              {merge && (
+                <input type="checkbox" checked={picked} disabled={merge.base === o.id} aria-label={`Fusionner ${o.title || 'cette offre'}`} className="mt-1 rounded"
+                  onChange={(e) => setMerge((m) => (m ? { ...m, picked: e.target.checked ? [...m.picked, o.id] : m.picked.filter((id) => id !== o.id) } : m))} />
+              )}
+              <button onClick={() => (merge ? (merge.base !== o.id && setMerge((m) => (m ? { ...m, picked: m.picked.includes(o.id) ? m.picked.filter((id) => id !== o.id) : [...m.picked, o.id] } : m))) : open(o))} className="min-w-0 flex-1 text-left">
                 <span className={`block text-sm truncate ${active ? 'font-semibold text-brand-encre' : 'font-medium text-slate-800'}`}>{o.title || 'Sans titre'}</span>
                 <span className="block text-xs text-slate-500 truncate">{o.supplier || 'fournisseur ?'} · {sel}/{n} véh. · {new Date(o.updated_at).toLocaleDateString('fr-FR')}</span>
                 <span className={`inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full border ${STATUS_CLASS[o.status] ?? STATUS_CLASS.draft}`}>{STATUS_LABEL[o.status] ?? o.status}</span>
               </button>
-              {o.user_id === userId && (
-                <button onClick={() => void remove(o)} className="p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 focus:opacity-100" aria-label={`Supprimer ${o.title || 'cette offre'}`}><Trash2 className="w-3.5 h-3.5" /></button>
+              {!merge && (
+                <button onClick={() => setOfferMenu(offerMenu === o.id ? null : o.id)} className={`p-1 rounded text-slate-400 hover:text-slate-800 hover:bg-slate-100 ${offerMenu === o.id ? 'bg-slate-100 text-slate-800' : ''}`} aria-label={`Options de ${o.title || 'cette offre'}`} aria-expanded={offerMenu === o.id}><MoreHorizontal className="w-4 h-4" /></button>
+              )}
+              {offerMenu === o.id && (
+                <div className="absolute right-3 top-9 z-20 w-56 bg-white border border-slate-200 rounded-xl shadow-lg py-1 text-sm">
+                  {o.status === 'closed'
+                    ? <button onClick={() => void setStatus(o, 'draft')} className="w-full flex items-center gap-2 px-3 py-2 text-left text-slate-700 hover:bg-slate-50"><ArchiveRestore className="w-4 h-4 text-slate-400" /> Remettre en cours</button>
+                    : <button onClick={() => void setStatus(o, 'closed')} className="w-full flex items-center gap-2 px-3 py-2 text-left text-slate-700 hover:bg-slate-50"><Archive className="w-4 h-4 text-slate-400" /> Archiver</button>}
+                  <button onClick={() => { setOfferMenu(null); setMerge({ base: o.id, picked: [] }); }} className="w-full flex items-center gap-2 px-3 py-2 text-left text-slate-700 hover:bg-slate-50"><Merge className="w-4 h-4 text-slate-400" /> Fusionner avec d'autres…</button>
+                  {o.user_id === userId && <button onClick={() => { setOfferMenu(null); void remove(o); }} className="w-full flex items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4" /> Supprimer</button>}
+                </div>
               )}
             </div>
           );
         })}
       </div>
+      {offerMenu && <button aria-label="Fermer le menu" className="fixed inset-0 z-10 cursor-default" onClick={() => setOfferMenu(null)} />}
+      <div className="px-4 py-2 border-t border-slate-100 flex items-center justify-between gap-2 text-xs">
+        <button onClick={() => setShowArchived((v) => !v)} className={`flex items-center gap-1.5 px-2 py-1 rounded-lg ${showArchived ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100'}`}>
+          <Archive className="w-3.5 h-3.5" /> {showArchived ? 'Retour aux offres en cours' : `Archives · ${archivedCount}`}
+        </button>
+        {merge && (
+          <div className="flex items-center gap-2">
+            <button onClick={() => setMerge(null)} disabled={merging} className="px-2 py-1 rounded-lg text-slate-500 hover:bg-slate-100">Annuler</button>
+            <button onClick={() => void runMerge()} disabled={merging || merge.picked.length === 0} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white font-medium disabled:opacity-50">
+              {merging ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Merge className="w-3.5 h-3.5" />} Fusionner {merge.picked.length + 1} offres
+            </button>
+          </div>
+        )}
+      </div>
+      {merge && <p className="px-4 pb-3 text-xs text-amber-800">Coche les offres à regrouper avec « {offers.find((o) => o.id === merge.base)?.title || 'l\'offre'} » ; le nom se choisit à la fusion. Les prix des autres offres sont ramenés aux réglages de celle-ci.</p>}
     </>
   );
 
