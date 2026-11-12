@@ -1613,12 +1613,24 @@ export function Offres() {
                   <div className="overflow-auto max-h-[75vh] p-3">
                     <p className="text-sm font-bold text-slate-900 uppercase">{draft.title || 'OFFRE MC EXPORT'}</p>
                     <table className="mt-2 text-xs w-full">
-                      <thead className="sticky top-0"><tr className="bg-slate-800 text-white text-left">{previewColumns.map((c) => <th key={c.id} className="px-2 py-1.5 font-semibold whitespace-nowrap">{displayLabel(c, exportCtx)}</th>)}</tr></thead>
+                      <thead className="sticky top-0"><tr className="bg-slate-800 text-white text-left">{previewColumns.map((c) => <th key={c.id} className="px-2 py-1.5 font-semibold whitespace-nowrap">{displayLabel(c, exportCtx)}</th>)}<th className="px-2 py-1.5 font-semibold whitespace-nowrap" title="Corriger un véhicule, comme dans Sélection (12/11)"><span className="sr-only">Corriger</span></th></tr></thead>
                       <tbody>
                         {selected.map((v, i) => (
-                          <tr key={v.id} className={i % 2 ? 'bg-slate-50' : ''}>
+                          <Fragment key={v.id}>
+                          <tr className={i % 2 ? 'bg-slate-50' : ''}>
                             {previewColumns.map((c) => <td key={c.id} className={`px-2 py-1 border-b border-slate-100 max-w-[220px] truncate ${c.builtin === 'price' ? 'font-semibold text-brand-encre' : 'text-slate-700'}`}>{previewCell(c, v)}{c.builtin === 'price' && v.margin != null && draft.price_rule.mode === 'margin' && <span className="ml-1 text-[10px] font-normal text-amber-700" title="Marge propre à ce véhicule">marge {v.margin} €</span>}</td>)}
+                            <td className="px-2 py-1 border-b border-slate-100 whitespace-nowrap">
+                              <button onClick={() => setEditVehicle(editVehicle === v.id ? null : v.id)} aria-label={`Corriger ${v.brand} ${v.model}`} aria-expanded={editVehicle === v.id} className={`p-1 rounded ${editVehicle === v.id ? 'bg-blue-100 text-brand-encre' : 'text-slate-400 hover:text-brand-ocean hover:bg-slate-100'}`}><Pencil className="w-3.5 h-3.5" /></button>
+                            </td>
                           </tr>
+                          {editVehicle === v.id && (
+                            <tr className="bg-blue-50/40">
+                              <td colSpan={previewColumns.length + 1} className="px-3 py-2">
+                                <VehicleEditor v={v} onChange={(patch) => correctVehicle(v.id, patch)} />
+                              </td>
+                            </tr>
+                          )}
+                          </Fragment>
                         ))}
                       </tbody>
                     </table>
@@ -1667,6 +1679,7 @@ export function Offres() {
                           {previewColumns.map((c) => <th key={c.id} className="px-2 py-1.5 font-semibold whitespace-nowrap">{displayLabel(c, exportCtx)}</th>)}
                           <th className="px-2 py-1.5 font-semibold whitespace-nowrap">Relevé de marché</th>
                           <th className="px-2 py-1.5 font-semibold whitespace-nowrap">Mot pour la bonne affaire</th>
+                          <th className="px-2 py-1.5 font-semibold whitespace-nowrap" title="Corriger un véhicule, comme dans Sélection (12/11)"><span className="sr-only">Corriger</span></th>
                         </tr></thead>
                         <tbody>
                           {selected.map((v, i) => {
@@ -1697,10 +1710,20 @@ export function Offres() {
                                 <td className="px-2 py-1 border-b border-slate-100">
                                   {it ? <input defaultValue={it.note} onBlur={async (e) => { const note = e.target.value.trim(); if (note === it.note) return; const err = await setShowcaseNote(it.id, note); if (err) fail(err); else void reloadShowcase(); }} placeholder="ex. dispo immédiate, 2 exemplaires" className="w-48 px-2 py-1 rounded border border-slate-300" /> : <span className="text-slate-300">—</span>}
                                 </td>
+                                <td className="px-2 py-1 border-b border-slate-100 whitespace-nowrap">
+                                  <button onClick={() => setEditVehicle(editVehicle === v.id ? null : v.id)} aria-label={`Corriger ${v.brand} ${v.model}`} aria-expanded={editVehicle === v.id} className={`p-1 rounded ${editVehicle === v.id ? 'bg-blue-100 text-brand-encre' : 'text-slate-400 hover:text-brand-ocean hover:bg-slate-100'}`}><Pencil className="w-3.5 h-3.5" /></button>
+                                </td>
                               </tr>
+                              {editVehicle === v.id && (
+                                <tr className="bg-blue-50/40">
+                                  <td colSpan={previewColumns.length + 4} className="px-3 py-2">
+                                    <VehicleEditor v={v} onChange={(patch) => correctVehicle(v.id, patch)} />
+                                  </td>
+                                </tr>
+                              )}
                               {lot && editLot === lot.key && (
                                 <tr className="bg-blue-50/40">
-                                  <td colSpan={previewColumns.length + 3} className="px-3 py-2 space-y-2">
+                                  <td colSpan={previewColumns.length + 4} className="px-3 py-2 space-y-2">
                                     <div className="flex items-center gap-2 flex-wrap text-xs">
                                       <span className="font-semibold text-slate-800">Étude de marché du lot</span>
                                       <span className="text-slate-600">{lot.label}</span>
@@ -1876,10 +1899,10 @@ export function Offres() {
 }
 
 /** Correction à la main des valeurs lues d'un véhicule (11/10 — remplace l'écran de correspondance des colonnes). */
-type BulkField = 'brand' | 'model' | 'version' | 'engine' | 'fuel' | 'gearbox' | 'power_ch' | 'color' | 'vat_recoverable' | 'damages' | 'year';
+type BulkField = 'brand' | 'model' | 'version' | 'engine' | 'fuel' | 'gearbox' | 'power_ch' | 'co2' | 'color' | 'vat_recoverable' | 'damages' | 'year';
 const BULK_FIELDS: Array<{ id: BulkField; label: string }> = [
   { id: 'brand', label: 'Marque' }, { id: 'model', label: 'Modèle' }, { id: 'version', label: 'Version' }, { id: 'engine', label: 'Motorisation' },
-  { id: 'fuel', label: 'Énergie' }, { id: 'gearbox', label: 'Boîte' }, { id: 'power_ch', label: 'Ch' }, { id: 'color', label: 'Couleur' },
+  { id: 'fuel', label: 'Énergie' }, { id: 'gearbox', label: 'Boîte' }, { id: 'power_ch', label: 'Ch' }, { id: 'co2', label: 'CO₂ (g/km)' }, { id: 'color', label: 'Couleur' },
   { id: 'vat_recoverable', label: 'TVA' }, { id: 'damages', label: 'Dommages (€)' }, { id: 'year', label: 'Année' },
 ];
 /** La valeur actuelle d'un véhicule pour un champ, en texte (pré-remplit le formulaire). */
@@ -1926,7 +1949,7 @@ function BulkEditor({ bulk, count, sample, onChange, onApply, onCancel }: {
     </select>
   ) : (
     <input
-      type={f === 'power_ch' || f === 'damages' || f === 'year' ? 'number' : 'text'} value={bulk.value} autoFocus
+      type={f === 'power_ch' || f === 'damages' || f === 'year' || f === 'co2' ? 'number' : 'text'} value={bulk.value} autoFocus
       onChange={(e) => onChange({ ...bulk, value: e.target.value })}
       onKeyDown={(e) => { if (e.key === 'Enter') onApply(bulkPatch(f, bulk.value)); }}
       className={`${field} ${f === 'version' ? 'w-72' : 'w-44'} ${f === 'brand' || f === 'model' ? 'uppercase' : ''}`}
@@ -1974,6 +1997,7 @@ function VehicleEditor({ v, onChange }: { v: OfferVehicle; onChange: (patch: Par
         </select>
       </label>
       <label className="text-slate-600">Ch<input type="number" value={v.power_ch ?? ''} onChange={(e) => onChange({ power_ch: numOrNull(e.target.value) })} className={`${field} w-20`} /></label>
+      <label className="text-slate-600" title="Émissions CO₂ (colonne CO₂ de l'offre exportée)">CO₂ (g/km)<input type="number" min={0} value={v.co2 ?? ''} onChange={(e) => onChange({ co2: numOrNull(e.target.value) })} className={`${field} w-24`} /></label>
       <label className="text-slate-600">Couleur<input value={v.color ?? ''} onChange={(e) => onChange({ color: e.target.value || null })} className={`${field} w-28`} /></label>
       <label className="text-slate-600">Dommages (€)<input type="number" value={v.damages ?? ''} onChange={(e) => onChange({ damages: numOrNull(e.target.value) })} className={`${field} w-24`} /></label>
       <label className="text-slate-600">TVA
