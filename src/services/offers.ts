@@ -91,6 +91,9 @@ export function applyPriceRule(vehicles: OfferVehicle[], rule: PriceRule, suppli
     if (v.sale_price != null && !force) return v;
     const base = supplierHt(v);
     const price = rule.mode === 'fixed' ? rule.margin : base != null ? base + (v.margin ?? rule.margin) : null;
+    // Sans prix fournisseur (véhicule venu du FYC, single unit), le prix MC Export a été saisi à la main : la règle
+    // ne peut pas le recalculer, elle le GARDE (12/11, Channing : « 3 véhicules viennent de perdre leurs prix »).
+    if (price == null && rule.mode === 'margin') return v;
     return { ...v, sale_price: price != null ? Math.round(price) : null };
   });
 }

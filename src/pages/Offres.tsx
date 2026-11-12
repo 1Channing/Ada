@@ -436,8 +436,22 @@ export function Offres() {
   /** MARGE PROPRE d'un véhicule (01/11) : la poser (ou l'effacer : retour à la marge commune) recalcule son prix MC Export. */
   const setMargin = (id: string, margin: number | null) => update((d) => {
     const st = resolveSettings(d.settings);
-    return { ...d, vehicles: d.vehicles.map((v) => (v.id === id ? { ...v, margin, sale_price: priceWithMargin(supplierHtWith(v, st), margin, d.price_rule) } : v)) };
+    // Sans prix fournisseur, le prix saisi à la main est gardé (la marge est notée, pas appliquée).
+    return { ...d, vehicles: d.vehicles.map((v) => (v.id === id ? { ...v, margin, sale_price: priceWithMargin(supplierHtWith(v, st), margin, d.price_rule) ?? v.sale_price } : v)) };
   });
+  // MARGE SUR UNE SÉLECTION (12/11, Channing : « sélectionner les véhicules sur lesquels on veut ajouter de la marge
+  // plutôt que d'appliquer à tous ») : les véhicules cochés dans l'aperçu Export reçoivent le montant comme marge
+  // propre (prix recalculé), les autres ne bougent pas.
+  const [marginScope, setMarginScope] = useState<'all' | 'picked'>('all');
+  const [marginPick, setMarginPick] = useState<Set<string>>(new Set());
+  const applyRuleToPicked = (value: number) => {
+    if (!marginPick.size) return;
+    update((d) => {
+      const st = resolveSettings(d.settings);
+      return { ...d, vehicles: d.vehicles.map((v) => (marginPick.has(v.id) ? { ...v, margin: value, sale_price: priceWithMargin(supplierHtWith(v, st), value, d.price_rule) ?? v.sale_price } : v)) };
+    });
+    info(`Marge de ${value} € appliquée à ${marginPick.size} véhicule${marginPick.size > 1 ? 's' : ''} (marge propre, visible dans Sélection).`);
+  };
   const ownMargins = useMemo(() => (draft?.vehicles ?? []).filter((v) => v.margin != null).length, [draft]);
   /** Paramètres de l'offre. Prix du fichier ou TVA fournisseur changés : les prix MC Export sont recalculés avec la règle. */
   const updateSettings = (patch: Partial<OfferSettings>) => update((d) => {
@@ -1544,7 +1558,15 @@ export function Offres() {
                 {draft.price_rule.mode !== 'none' && <>
                   <input type="number" aria-label="Montant" value={draft.price_rule.margin} onChange={(e) => update({ price_rule: { ...draft.price_rule, margin: Number(e.target.value) || 0 } })} className="w-24 px-2 py-1.5 rounded-lg border border-slate-300 text-right" />
                   <span className="text-slate-500">€</span>
-                  <button onClick={() => applyRule(draft.price_rule)} className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-900 text-white" title={ownMargins > 0 ? `Recalcule tous les prix ; les ${ownMargins} véhicule${ownMargins > 1 ? 's' : ''} à marge propre gardent la leur` : 'Recalcule tous les prix avec cette règle'}>Appliquer à tous</button>
+                  {draft.price_rule.mode === 'margin' && (
+                    <select value={marginScope} onChange={(e) => setMarginScope(e.target.value as 'all' | 'picked')} aria-label="Appliquer la marge à" className="px-2 py-1.5 rounded-lg border border-slate-300 bg-white text-xs">
+                      <option value="all">à tous les véhicules</option>
+                      <option value="picked">aux véhicules cochés dans l'aperçu</option>
+                    </select>
+                  )}
+                  {draft.price_rule.mode === 'margin' && marginScope === 'picked'
+                    ? <button onClick={() => applyRuleToPicked(draft.price_rule.margin)} disabled={marginPick.size === 0} className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-900 text-white disabled:opacity-50" title="Les véhicules cochés reçoivent ce montant comme marge propre ; les autres ne bougent pas">Appliquer aux {marginPick.size} coché{marginPick.size > 1 ? 's' : ''}</button>
+                    : <button onClick={() => applyRule(draft.price_rule)} className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-900 text-white" title={ownMargins > 0 ? `Recalcule tous les prix ; les ${ownMargins} véhicule${ownMargins > 1 ? 's' : ''} à marge propre gardent la leur` : 'Recalcule tous les prix avec cette règle ; un véhicule sans prix fournisseur garde le prix saisi'}>Appliquer à tous</button>}
                   {draft.price_rule.mode === 'margin' && (ownMargins > 0
                     ? <span className="text-xs text-amber-800">{ownMargins} véhicule{ownMargins > 1 ? 's' : ''} avec sa marge propre (onglet Sélection, colonne Marge) · <button onClick={() => applyRule(draft.price_rule, true)} className="text-brand-ocean hover:underline">tout remettre à {draft.price_rule.margin} €</button></span>
                     : <span className="text-xs text-slate-500">Une marge différente pour un véhicule : onglet Sélection, colonne Marge.</span>)}
@@ -1613,11 +1635,12 @@ export function Offres() {
                   <div className="overflow-auto max-h-[75vh] p-3">
                     <p className="text-sm font-bold text-slate-900 uppercase">{draft.title || 'OFFRE MC EXPORT'}</p>
                     <table className="mt-2 text-xs w-full">
-                      <thead className="sticky top-0"><tr className="bg-slate-800 text-white text-left">{previewColumns.map((c) => <th key={c.id} className="px-2 py-1.5 font-semibold whitespace-nowrap">{displayLabel(c, exportCtx)}</th>)}<th className="px-2 py-1.5 font-semibold whitespace-nowrap" title="Corriger un véhicule, comme dans Sélection (12/11)"><span className="sr-only">Corriger</span></th></tr></thead>
+                      <thead className="sticky top-0"><tr className="bg-slate-800 text-white text-left">{draft.price_rule.mode === 'margin' && marginScope === 'picked' && <th className="px-2 py-1.5"><input type="checkbox" aria-label="Cocher tous les véhicules pour la marge" checked={selected.length > 0 && selected.every((v) => marginPick.has(v.id))} onChange={(e) => setMarginPick(e.target.checked ? new Set(selected.map((v) => v.id)) : new Set())} /></th>}{previewColumns.map((c) => <th key={c.id} className="px-2 py-1.5 font-semibold whitespace-nowrap">{displayLabel(c, exportCtx)}</th>)}<th className="px-2 py-1.5 font-semibold whitespace-nowrap" title="Corriger un véhicule, comme dans Sélection (12/11)"><span className="sr-only">Corriger</span></th></tr></thead>
                       <tbody>
                         {selected.map((v, i) => (
                           <Fragment key={v.id}>
-                          <tr className={i % 2 ? 'bg-slate-50' : ''}>
+                          <tr className={marginPick.has(v.id) && marginScope === 'picked' ? 'bg-amber-50' : i % 2 ? 'bg-slate-50' : ''}>
+                            {draft.price_rule.mode === 'margin' && marginScope === 'picked' && <td className="px-2 py-1 border-b border-slate-100"><input type="checkbox" aria-label={`Marge pour ${v.brand} ${v.model}`} checked={marginPick.has(v.id)} onChange={(e) => setMarginPick((cur) => { const n = new Set(cur); if (e.target.checked) n.add(v.id); else n.delete(v.id); return n; })} /></td>}
                             {previewColumns.map((c) => <td key={c.id} className={`px-2 py-1 border-b border-slate-100 max-w-[220px] truncate ${c.builtin === 'price' ? 'font-semibold text-brand-encre' : 'text-slate-700'}`}>{previewCell(c, v)}{c.builtin === 'price' && v.margin != null && draft.price_rule.mode === 'margin' && <span className="ml-1 text-[10px] font-normal text-amber-700" title="Marge propre à ce véhicule">marge {v.margin} €</span>}</td>)}
                             <td className="px-2 py-1 border-b border-slate-100 whitespace-nowrap">
                               <button onClick={() => setEditVehicle(editVehicle === v.id ? null : v.id)} aria-label={`Corriger ${v.brand} ${v.model}`} aria-expanded={editVehicle === v.id} className={`p-1 rounded ${editVehicle === v.id ? 'bg-blue-100 text-brand-encre' : 'text-slate-400 hover:text-brand-ocean hover:bg-slate-100'}`}><Pencil className="w-3.5 h-3.5" /></button>
@@ -1625,7 +1648,7 @@ export function Offres() {
                           </tr>
                           {editVehicle === v.id && (
                             <tr className="bg-blue-50/40">
-                              <td colSpan={previewColumns.length + 1} className="px-3 py-2">
+                              <td colSpan={previewColumns.length + 2} className="px-3 py-2">
                                 <VehicleEditor v={v} onChange={(patch) => correctVehicle(v.id, patch)} />
                               </td>
                             </tr>
