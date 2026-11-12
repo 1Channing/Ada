@@ -679,6 +679,8 @@ app.post('/campaign/start', async (req, res) => {
 registerAgentRoutes(app);
 
 app.listen(PORT, "0.0.0.0", () => {
+  // Version de Node en clair dans worker_logs (12/11) : pdf.js côté worker exige Node ≥ 22.13 (engines dans package.json).
+  console.warn(`[BOOT] Node ${process.version} — worker démarré`);
   console.log(`[WORKER] ===== MC Export Worker Service Started =====`);
   console.log(`[WORKER] Node version: ${process.version}`);
   console.log(`[WORKER] PORT: ${PORT}`);
