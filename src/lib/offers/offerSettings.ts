@@ -214,6 +214,9 @@ export function detectPriceSetup(
       const contradicts = basis === 'ht' ? TTC_MARK.test(h) : HT_MARK.test(h);
       if (explicit && !contradicts) facts.push(`Prix lus en ${basis.toUpperCase()} : la colonne « ${col} » le dit.`);
       else doubts.push(`La colonne de prix « ${col} » ne dit pas clairement HT ou TTC : ADA l'a lue en ${basis.toUpperCase()}${basis === 'ttc' ? ' (elle retire la TVA)' : ' (prix pris tels quels)'}.`);
+    } else if (o.vehicles.length && o.vehicles.every((v) => v.sale_price != null)) {
+      // Single units (12/11) : pas de colonne, le prix MC Export est saisi avec chaque unité.
+      facts.push('Prix MC Export saisis avec chaque véhicule (single units).');
     } else {
       doubts.push('Aucune colonne de prix reconnue : les prix MC Export resteront vides.');
     }

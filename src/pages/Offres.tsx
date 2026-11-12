@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
   Upload, FileSpreadsheet, FileText, Trash2, Loader2, ExternalLink, Check, CloudOff, Search, SlidersHorizontal,
-  PanelLeftOpen, X, StickyNote, Settings, Pencil, ArrowUp, ArrowDown, Plus, RotateCcw, BarChart3, ListChecks, Columns3, Megaphone, ImagePlus, MoreHorizontal,
+  PanelLeftOpen, X, StickyNote, Settings, Pencil, ArrowUp, ArrowDown, Plus, RotateCcw, BarChart3, ListChecks, Columns3, Megaphone, ImagePlus, MoreHorizontal, Car,
 } from 'lucide-react';
 import { listShowcase, publishToShowcase, unpublishFromShowcase, reorderShowcase, setShowcaseNote, setShowcaseTitle, setShowcasePrice, setShowcaseVehicle, snapshotVehicle, addShowcasePhotos, removeShowcasePhoto, addManualShowcase, type IntraItem, type IntraDraft } from '../services/intra';
 import { useAuth } from '../services/auth';
@@ -20,6 +20,10 @@ import type { OfferSourceFile } from '../services/offers';
 import { buildOfferWorkbook, downloadBlob, slugFile, fmtEur, fmtKm, fmtDate } from '../lib/offers/exportOfferXlsx';
 import { buildOfferPdf } from '../lib/offers/exportOfferPdf';
 import { useOfferFiches, OfferFichesBanner, OfferFichesModal } from '../components/OfferFiches';
+import { SingleUnitModal, type SingleUnitOptions } from '../components/SingleUnitModal';
+import { unitToVehicle, unitToInspectionFields, type SingleUnit } from '../lib/offers/singleUnit';
+import { createUnitInspection } from '../services/fyc';
+import { buildFiche, publishFiche } from '../services/fycFiche';
 import {
   ALL_BUILTIN_KEYS, BUILTIN_COLUMNS, cellValue, defaultExportColumns, displayLabel, effectiveColumns, isColumnEmpty, newCustomColumn,
   type ExportColumn, type ExportContext,
@@ -376,6 +380,54 @@ export function Offres() {
   // FICHES MC EXPORT À LA PLACE DES RAPPORTS FOURNISSEUR (12/11) : travail porté par la page, fenêtre refermable.
   const fiches = useOfferFiches(setVehicle, displayName || email || '', email ?? null, () => draft?.title || 'offre');
   const [fichesOpen, setFichesOpen] = useState(false);
+  // SINGLE UNITS (12/11, Channing : « ajouter des single units sur nos listes, et en même temps créer l'inspection
+  // façon MC Export ») : les critères vont dans la ligne de l'offre, les options dans l'inspection, la fiche en lien.
+  const [unitOpen, setUnitOpen] = useState(false);
+  const [unitBusy, setUnitBusy] = useState(false);
+  const [unitStatus, setUnitStatus] = useState<string | null>(null);
+  const addUnits = async (units: SingleUnit[], opts: SingleUnitOptions) => {
+    if (!units.length) return;
+    setUnitBusy(true); setUnitStatus(null); setMsg(null);
+    const vehicles = units.map((u) => unitToVehicle(u));
+    try {
+      if (draft) {
+        // Même VIN déjà dans l'offre : la ligne est remplacée (nouvelle saisie), les autres gardent leur place.
+        update((d) => ({ ...d, vehicles: [...d.vehicles.filter((v) => !vehicles.some((n) => n.id === v.id)), ...vehicles] }));
+      } else {
+        const d: Draft = { ...EMPTY, title: `Single units — ${new Date().toLocaleDateString('fr-FR')}`, supplier: 'Single unit', vehicles };
+        setParsed(null); setDraft(d); setView('selection'); setListOpen(false);
+        await persist(d);
+      }
+      let published = 0; const notes: string[] = [];
+      if (opts.fiche) {
+        for (let i = 0; i < units.length; i++) {
+          const u = units[i]; const v = vehicles[i];
+          const label = `${u.brand} ${u.model}`;
+          const st = (s: string) => setUnitStatus(`${label} : ${s}`);
+          try {
+            st('inspection…');
+            // Le prix de l'unité est NOTRE prix : il devient le prix d'attaque de l'inspection (cartouche « Notre prix » de la fiche).
+            const made = await createUnitInspection(unitToInspectionFields(u), opts.files, st, { attack_price: u.price });
+            if (made.error || !made.row) throw new Error(made.error ?? 'inspection non créée');
+            if (made.note) notes.push(`${label} : ${made.note}`);
+            const { blob, note } = await buildFiche(made.row, opts.lang, { name: displayName || email || '', email: email ?? null }, st);
+            if (note) notes.push(`${label} : ${note}`);
+            st('publication…');
+            const pub = await publishFiche(made.row, opts.lang, blob);
+            if (pub.error || !pub.url) throw new Error(pub.error ?? 'fiche non publiée');
+            setVehicle(v.id, { report_url: pub.url });
+            published++;
+          } catch (e) { notes.push(`${label} : ${e instanceof Error ? e.message : String(e)}`); }
+        }
+      }
+      const n = vehicles.length;
+      const head = `${n} unité${n > 1 ? 's' : ''} ajoutée${n > 1 ? 's' : ''} à l'offre`;
+      const tail = opts.fiche ? ` · ${published}/${n} fiche${n > 1 ? 's' : ''} MC Export publiée${published > 1 ? 's' : ''} (inspection visible dans le FYC)` : '';
+      if (notes.length) fail(`${head}${tail}. ${notes.join(' · ')}`); else info(`${head}${tail}.`);
+      setUnitOpen(false);
+    } catch (e) { fail(`Single unit : ${e instanceof Error ? e.message : String(e)}`); }
+    setUnitBusy(false); setUnitStatus(null);
+  };
   /** Correction à la main d'une valeur lue : appliquée et mémorisée (rejouée après une relecture du fichier). */
   const correctVehicle = (id: string, patch: Partial<OfferVehicle>) => update((d) => ({
     ...d, vehicles: d.vehicles.map((v) => (v.id === id ? { ...v, ...patch, manual: { ...(v.manual ?? {}), ...patch } } : v)),
@@ -821,8 +873,14 @@ export function Offres() {
           <span className="text-base font-semibold text-slate-900">Offres <span className="text-slate-400 font-normal">{offers.length}</span></span>
           {inDrawer && <button onClick={() => setListOpen(false)} aria-label="Fermer" className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"><X className="w-4 h-4" /></button>}
         </div>
-        {uploadButton()}
-        <p className="text-[11px] text-slate-500 text-center">Excel, CSV, ou plusieurs PDF à la fois</p>
+        <div className="flex gap-2">
+          {uploadButton()}
+          <button onClick={() => setUnitOpen(true)} disabled={busy === 'lecture'} title="Ajouter une single unit (bloc texte + photos)"
+            className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-brand-ocean text-brand-ocean hover:bg-blue-50 text-sm font-medium transition-colors disabled:opacity-50">
+            <Car className="w-4 h-4" /> Unité
+          </button>
+        </div>
+        <p className="text-[11px] text-slate-500 text-center">Excel, CSV, plusieurs PDF à la fois — ou une single unit collée</p>
         <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-sm">
           <Search className="w-4 h-4 text-slate-400" />
           <span className="sr-only">Chercher une offre</span>
@@ -857,6 +915,7 @@ export function Offres() {
     <div className="space-y-4">
       <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.pdf" multiple className="hidden" onChange={(e) => { const l = e.target.files; if (l && l.length) void onFiles(l); e.currentTarget.value = ''; }} />
 
+      {unitOpen && <SingleUnitModal busy={unitBusy} status={unitStatus} onAdd={(units, opts) => { void addUnits(units, opts); }} onClose={() => { if (!unitBusy) setUnitOpen(false); }} />}
       {/* ── Panneau des offres (s'ouvre au besoin, l'offre garde la largeur) ──── */}
       {listOpen && draft && (
         <div className="fixed inset-0 z-40 flex">

@@ -255,3 +255,64 @@ export function fuelTokenOf(raw: string | null | undefined): MarketFilters['fuel
   if (/cng|gnv/.test(s)) return 'cng';
   return '';
 }
+
+/** JPEG ≤ 1 600 px d'une image déposée (PNG, HEIC refusé par le navigateur → erreur explicite) : les photos des fiches
+ *  sont rangées en .jpg et lues comme telles. */
+async function toJpeg(file: Blob): Promise<Blob> {
+  const bmp = await createImageBitmap(file);
+  const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+  const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+  c.getContext('2d')!.drawImage(bmp, 0, 0, c.width, c.height); bmp.close();
+  return await new Promise<Blob>((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('encodage JPEG impossible'))), 'image/jpeg', 0.88));
+}
+
+/**
+ * SINGLE UNIT (12/11, Channing : « créer l'inspection façon MC Export ») : une inspection « read » tout de suite,
+ * sans rapport à télécharger — les champs viennent du texte collé (src/lib/offers/singleUnit.ts), les photos des
+ * fichiers déposés (album PDF → photos extraites ici, images → JPEG). Même VIN redéposé = même ligne, mise à jour.
+ */
+export async function createUnitInspection(fields: FycReportFields, files: File[], onStatus?: (s: string) => void, extra: Partial<Pick<FycInspection, 'attack_price' | 'purchase_price' | 'notes'>> = {}): Promise<{ row: FycInspection | null; error: string | null; note: string | null }> {
+  const { userId, displayName, email } = useAuth.getState();
+  const source_url = `unité:${fields.vin ?? crypto.randomUUID()}`;
+  let id: string = crypto.randomUUID();
+  let previous: FycInspection | null = null;
+  if (fields.vin) {
+    const { data } = await untyped.from('fyc_inspections').select('*').eq('source_url', source_url).limit(1);
+    if (Array.isArray(data) && data[0]) { previous = normalize(data[0]); id = previous.id; }
+  }
+  // Photos : album PDF (extraites dans le navigateur, ≤ 40) et images, dans l'ordre de dépôt.
+  const blobs: Blob[] = [];
+  let pdf_path: string | null = previous?.pdf_path ?? null;
+  const notes: string[] = [];
+  for (const f of files) {
+    try {
+      if (/\.pdf$/i.test(f.name) || f.type === 'application/pdf') {
+        onStatus?.(`photos de ${f.name}…`);
+        // Album choisi par l'utilisateur : les vues larges (1200×470, ratio 2,5) sont de vraies photos, pas des bandeaux.
+        const got = await extractPdfPhotos(f, { maxCount: 40 - blobs.length, minWidth: 180, maxRatio: 3.5 });
+        blobs.push(...got);
+        if (!pdf_path) {
+          const path = `fyc/${id}.pdf`;
+          const up = await supabase.storage.from(ADMIN_BUCKET).upload(path, f, { contentType: 'application/pdf', upsert: true });
+          if (!up.error) pdf_path = path;
+        }
+      } else if (/^image\//.test(f.type)) {
+        if (blobs.length < 40) blobs.push(await toJpeg(f));
+      } else notes.push(`${f.name} ignoré (ni PDF ni image)`);
+    } catch (e) { notes.push(`${f.name} : ${e instanceof Error ? e.message : String(e)}`); }
+  }
+  onStatus?.(blobs.length ? `envoi de ${blobs.length} photo${blobs.length > 1 ? 's' : ''}…` : 'enregistrement…');
+  const photos = blobs.length ? await storePhotos(id, blobs) : (previous?.photos ?? []);
+  const row: Record<string, unknown> = {
+    id, source_url, status: 'read', error: null, pdf_path, ...fields,
+    raw_fields: { ...fields.raw_fields, _photos: photos.length ? 'ok' : 'aucune', ...(notes.length ? { _photos_note: notes.join(' ; ') } : {}) },
+    photos, defect_photos: [], translations: {}, translate_to: null, archived_at: null,
+    updated_at: new Date().toISOString(), ...extra,
+  };
+  if (!previous) Object.assign(row, { created_by: userId, created_by_name: displayName || email || '', notes: extra.notes ?? 'Single unit saisie dans les offres.' });
+  const q = previous ? untyped.from('fyc_inspections').update(row).eq('id', id) : untyped.from('fyc_inspections').insert(row);
+  const { error } = await q;
+  if (error) return { row: null, error: missing(error.message) ? FYC_SQL_HINT : error.message, note: null };
+  const fresh = await getInspection(id);
+  return { row: fresh, error: fresh ? null : 'inspection non relue', note: notes.length ? notes.join(' ; ') : null };
+}
