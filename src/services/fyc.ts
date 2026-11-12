@@ -21,6 +21,7 @@ import { htmlToLines } from '../lib/docxText';
 import { ADMIN_BUCKET } from './storageAccess';
 import { parseFycReport, type FycReportFields } from '../lib/fycReport';
 import { applyVinModel } from '../lib/vinModel';
+import { isOwnFiche, OWN_FICHE_ERROR } from '../lib/fycLinks';
 import type { MarketFilters } from './marketData';
 
 export type FycStatus = 'queued' | 'fetched' | 'read' | 'failed';
@@ -75,6 +76,7 @@ export async function listInspections(): Promise<{ rows: FycInspection[]; error:
 /** L'inspection d'un lien (archivée ou non), créée en file si elle n'existe pas (12/11 : fiches MC Export depuis Offres). */
 export async function ensureInspection(url: string, note?: string): Promise<{ row: FycInspection | null; error: string | null }> {
   const clean = url.trim().replace(/&amp;/gi, '&');
+  if (isOwnFiche(clean)) return { row: null, error: OWN_FICHE_ERROR };
   const find = async () => { const { data } = await untyped.from('fyc_inspections').select('*').eq('source_url', clean).order('created_at', { ascending: false }).limit(1); const r = (data ?? [])[0]; return r ? normalize(r as Record<string, unknown>) : null; };
   const have = await find();
   if (have) return { row: have, error: null };
@@ -89,6 +91,7 @@ export async function addInspections(text: string): Promise<{ added: number; exi
   // « &amp; » (adresse copiée depuis une page HTML, 12/11) : rétabli en « & », sinon le site rend un fichier vide.
   const urls = [...new Set(text.split(/[\s,;]+/).map((u) => u.trim().replace(/&amp;/gi, '&')).filter((u) => /^https?:\/\//i.test(u)))];
   if (urls.length === 0) return { added: 0, existing: 0, error: 'Aucun lien reconnu (il faut une adresse commençant par http).' };
+  if (urls.some(isOwnFiche)) return { added: 0, existing: 0, error: `Lien refusé : ${OWN_FICHE_ERROR}.` };
   const { data: have } = await untyped.from('fyc_inspections').select('source_url').in('source_url', urls);
   const seen = new Set(((have ?? []) as Array<{ source_url: string }>).map((r) => r.source_url));
   const fresh = urls.filter((u) => !seen.has(u));

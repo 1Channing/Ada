@@ -28,6 +28,7 @@ import { parseFycReport } from '../src/lib/fycReport';
 import { isMacadamReport, parseMacadamReport, macadamGeneralPhotos, macadamAssessmentId, macadamUrls } from '../src/lib/macadamReport';
 import { groupLines } from '../src/lib/pdfLines';
 import { applyVinModel } from '../src/lib/vinModel';
+import { isOwnFiche, OWN_FICHE_ERROR } from '../src/lib/fycLinks';
 
 const POLL_MS = 20_000;
 const BUCKET = 'admin-documents';
@@ -202,6 +203,7 @@ async function tick(): Promise<void> {
     if (error) { if (!warned && !/does not exist|schema cache/i.test(error.message)) console.warn(`[FYC] file illisible : ${error.message}`); warned = true; return; }
     for (const row of (data ?? []) as Array<{ id: string; source_url: string; purchase_price: number | null }>) {
       try {
+        if (isOwnFiche(row.source_url)) throw new Error(OWN_FICHE_ERROR);
         const { buf, from, kind } = await fetchReport(row.source_url);
         const path = `fyc/${row.id}.${kind}`;
         const up = await supabase.storage.from(BUCKET).upload(path, buf, { contentType: kind === 'pdf' ? 'application/pdf' : 'text/html; charset=utf-8', upsert: true });

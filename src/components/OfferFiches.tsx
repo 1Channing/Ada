@@ -11,6 +11,7 @@
 import { useState } from 'react';
 import { Loader2, X, FileDown, AlertTriangle, Check } from 'lucide-react';
 import type { OfferVehicle } from '../lib/offers/parseSupplierFile';
+import { isExternalReport } from '../lib/fycLinks';
 import type { FycLang } from '../lib/fycPdf';
 import { buildFiche, publishFiche, prefetchTranslations, ensureInspection, waitInspectionRead } from '../services/fycFiche';
 import { updateInspection, retryInspection, type FycInspection } from '../services/fyc';
@@ -23,7 +24,13 @@ export const SUPPLIER_REPORT_KEY = 'Rapport fournisseur';
 
 export interface FicheJob { lang: FycLang; ids: string[]; progress: Record<string, string>; done: number; failed: number; running: boolean; error: string | null }
 /** Le lien de rapport d'ORIGINE d'un véhicule : celui gardé en colonne libre quand une fiche l'a déjà remplacé. */
-export const sourceReportUrl = (v: OfferVehicle): string | null => { const u = v.extras?.[SUPPLIER_REPORT_KEY] || v.report_url; return u && /^https?:\/\//i.test(u) ? u : null; };
+/** Le rapport à lire : le lien de la ligne quand il est externe (l'utilisateur l'a posé ou corrigé), sinon le lien
+ *  d'origine gardé en colonne libre — jamais une de nos fiches (12/11 : deux Captur « lues » depuis notre propre PDF). */
+export const sourceReportUrl = (v: OfferVehicle): string | null => {
+  if (isExternalReport(v.report_url)) return v.report_url.trim();
+  const kept = v.extras?.[SUPPLIER_REPORT_KEY];
+  return isExternalReport(kept) ? kept.trim() : null;
+};
 
 /** Le travail, porté par la page : `start` lance, `job` suit. */
 export function useOfferFiches(setVehicle: (id: string, patch: Partial<OfferVehicle>) => void, author: string, authorEmail: string | null, offerTitle: () => string) {

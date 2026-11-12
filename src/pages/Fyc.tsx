@@ -15,6 +15,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ClipboardList, ExternalLink, FileDown, FileUp, Loader2, RefreshCw, Trash2, Search, AlertTriangle, Check, Archive, ArchiveRestore, Images, Send, X, Pencil, Car } from 'lucide-react';
 import { SingleUnitModal, type SingleUnitOptions } from '../components/SingleUnitModal';
 import { unitToInspectionFields, type SingleUnit } from '../lib/offers/singleUnit';
+import { isExternalReport } from '../lib/fycLinks';
+import { SUPPLIER_REPORT_KEY } from '../components/OfferFiches';
 import { useAuth } from '../services/auth';
 import { listInspections, addInspections, addInspectionFile, createUnitInspection, updateInspection, deleteInspection, retryInspection, rereadInspection, readInspection, attachPhotos, photosPending, filtersFromInspection, fuelTokenOf, type FycInspection } from '../services/fyc';
 import { useSignedUrls } from '../services/storageAccess';
@@ -165,7 +167,8 @@ export function FycView({ onOpenMarket, active = true }: { onOpenMarket: (f: Mar
           vehicles.push({
             id: r.vin ?? r.id, vin: r.vin, brand: (r.brand ?? '').toUpperCase(), model: r.model ?? '', version: r.version ?? '', reg_date: r.first_registration, year: r.year, km: r.km,
             color: r.color, fuel: r.fuel, engine: engineOfInspection(r), power_ch: r.power_ch, gearbox: r.gearbox, co2: null, damages: r.repair_cost ?? null, report_url: pub.url, location: null,
-            price_ht: null, price_ttc: null, vat_recoverable: null, imported: null, extras: {}, selected: true, sale_price: prices[r.id] ?? null, quantity: 1,
+            // Lien du rapport d'origine gardé en colonne libre : « Fiches MC Export » dans l'offre repart de lui, jamais de notre fiche (12/11).
+            price_ht: null, price_ttc: null, vat_recoverable: null, imported: null, extras: isExternalReport(r.source_url) ? { [SUPPLIER_REPORT_KEY]: r.source_url } : {}, selected: true, sale_price: prices[r.id] ?? null, quantity: 1,
           });
         }
         const today = new Date().toLocaleDateString('fr-FR');
