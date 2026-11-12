@@ -1922,11 +1922,11 @@ export function Offres() {
 }
 
 /** Correction à la main des valeurs lues d'un véhicule (11/10 — remplace l'écran de correspondance des colonnes). */
-type BulkField = 'brand' | 'model' | 'version' | 'engine' | 'fuel' | 'gearbox' | 'power_ch' | 'co2' | 'color' | 'vat_recoverable' | 'damages' | 'year';
+type BulkField = 'brand' | 'model' | 'version' | 'engine' | 'fuel' | 'gearbox' | 'power_ch' | 'co2' | 'color' | 'vat_recoverable' | 'damages' | 'year' | 'report_url';
 const BULK_FIELDS: Array<{ id: BulkField; label: string }> = [
   { id: 'brand', label: 'Marque' }, { id: 'model', label: 'Modèle' }, { id: 'version', label: 'Version' }, { id: 'engine', label: 'Motorisation' },
   { id: 'fuel', label: 'Énergie' }, { id: 'gearbox', label: 'Boîte' }, { id: 'power_ch', label: 'Ch' }, { id: 'co2', label: 'CO₂ (g/km)' }, { id: 'color', label: 'Couleur' },
-  { id: 'vat_recoverable', label: 'TVA' }, { id: 'damages', label: 'Dommages (€)' }, { id: 'year', label: 'Année' },
+  { id: 'vat_recoverable', label: 'TVA' }, { id: 'damages', label: 'Dommages (€)' }, { id: 'year', label: 'Année' }, { id: 'report_url', label: 'Lien du rapport' },
 ];
 /** La valeur actuelle d'un véhicule pour un champ, en texte (pré-remplit le formulaire). */
 function bulkCurrent(v: OfferVehicle | undefined, f: BulkField): string {
@@ -1940,7 +1940,7 @@ function bulkPatch(f: BulkField, value: string): Partial<OfferVehicle> {
   const t = value.trim();
   if (f === 'brand' || f === 'model') return { [f]: t.toUpperCase() };
   if (f === 'version') return { version: t };
-  if (f === 'engine' || f === 'color') return { [f]: t || null };
+  if (f === 'engine' || f === 'color' || f === 'report_url') return { [f]: t || null };
   if (f === 'fuel' || f === 'gearbox') return { [f]: t || null };
   if (f === 'vat_recoverable') return { vat_recoverable: t === '' ? null : t === 'oui' };
   return { [f]: numOrNull(t) };
@@ -2030,6 +2030,7 @@ function VehicleEditor({ v, onChange }: { v: OfferVehicle; onChange: (patch: Par
       </label>
       <label className="text-slate-600">Prix fournisseur HT (€)<input type="number" value={v.price_ht ?? ''} onChange={(e) => onChange({ price_ht: numOrNull(e.target.value) })} className={`${field} w-28`} /></label>
       <label className="text-slate-600">Prix fournisseur TTC (€)<input type="number" value={v.price_ttc ?? ''} onChange={(e) => onChange({ price_ttc: numOrNull(e.target.value) })} className={`${field} w-28`} /></label>
+      <label className="text-slate-600 basis-full md:basis-auto md:grow" title="Adresse du rapport d'inspection ou de la fiche (colonne Rapport de l'offre) — 12/11, Channing : « pouvoir changer le lien de l'inspection au besoin »">Lien du rapport / inspection<input type="url" value={v.report_url ?? ''} onChange={(e) => onChange({ report_url: e.target.value.trim() || null })} placeholder="https://…" className={`${field} w-full md:w-[420px] font-mono`} /></label>
       <span className="text-[11px] text-slate-500 pb-1.5 basis-full">Chaque correction est enregistrée et rejouée si le fichier est relu. Un prix fournisseur corrigé ne change pas le prix MC Export : « Appliquer à tous » (onglet Export) le recalcule.</span>
     </div>
   );
