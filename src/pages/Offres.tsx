@@ -21,9 +21,8 @@ import { buildOfferWorkbook, downloadBlob, slugFile, fmtEur, fmtKm, fmtDate } fr
 import { buildOfferPdf } from '../lib/offers/exportOfferPdf';
 import { useOfferFiches, OfferFichesBanner, OfferFichesModal } from '../components/OfferFiches';
 import { SingleUnitModal, type SingleUnitOptions } from '../components/SingleUnitModal';
-import { unitToVehicle, unitToInspectionFields, type SingleUnit } from '../lib/offers/singleUnit';
-import { createUnitInspection } from '../services/fyc';
-import { buildFiche, publishFiche } from '../services/fycFiche';
+import { unitToVehicle, type SingleUnit } from '../lib/offers/singleUnit';
+import { publishUnitDossier } from '../services/unitPhotos';
 import {
   ALL_BUILTIN_KEYS, BUILTIN_COLUMNS, cellValue, defaultExportColumns, displayLabel, effectiveColumns, isColumnEmpty, newCustomColumn,
   type ExportColumn, type ExportContext,
@@ -398,31 +397,20 @@ export function Offres() {
         setParsed(null); setDraft(d); setView('selection'); setListOpen(false);
         await persist(d);
       }
+      // Dossier photos (12/11, Channing : « juste joindre le dossier de photos en PDF tel qu'il est ») : publié tel quel,
+      // son adresse devient le lien « inspection » de la ligne. Une seule unité à la fois peut en recevoir.
       let published = 0; const notes: string[] = [];
-      if (opts.fiche) {
-        for (let i = 0; i < units.length; i++) {
-          const u = units[i]; const v = vehicles[i];
-          const label = `${u.brand} ${u.model}`;
-          const st = (s: string) => setUnitStatus(`${label} : ${s}`);
-          try {
-            st('inspection…');
-            // Pas de prix sur la fiche d'une unité (12/11, Channing) : le prix reste dans la ligne de l'offre.
-            const made = await createUnitInspection(unitToInspectionFields(u), opts.files, st);
-            if (made.error || !made.row) throw new Error(made.error ?? 'inspection non créée');
-            if (made.note) notes.push(`${label} : ${made.note}`);
-            const { blob, note } = await buildFiche(made.row, opts.lang, { name: displayName || email || '', email: email ?? null }, st);
-            if (note) notes.push(`${label} : ${note}`);
-            st('publication…');
-            const pub = await publishFiche(made.row, opts.lang, blob);
-            if (pub.error || !pub.url) throw new Error(pub.error ?? 'fiche non publiée');
-            setVehicle(v.id, { report_url: pub.url });
-            published++;
-          } catch (e) { notes.push(`${label} : ${e instanceof Error ? e.message : String(e)}`); }
-        }
+      if (opts.files.length && units.length === 1) {
+        const v = vehicles[0]; const label = `${units[0].brand} ${units[0].model}`;
+        setUnitStatus(`${label} : dossier photos…`);
+        const pub = await publishUnitDossier(v.vin ?? v.id, opts.files, (st) => setUnitStatus(`${label} : ${st}`));
+        notes.push(...pub.notes.map((n) => `${label} : ${n}`));
+        if (pub.error || !pub.url) notes.push(`${label} : dossier photos non publié (${pub.error ?? 'adresse absente'})`);
+        else { setVehicle(v.id, { report_url: pub.url }); published++; }
       }
       const n = vehicles.length;
       const head = `${n} unité${n > 1 ? 's' : ''} ajoutée${n > 1 ? 's' : ''} à l'offre`;
-      const tail = opts.fiche ? ` · ${published}/${n} fiche${n > 1 ? 's' : ''} MC Export publiée${published > 1 ? 's' : ''} (inspection visible dans le FYC)` : '';
+      const tail = published ? ' · dossier photos publié en lien' : '';
       if (notes.length) fail(`${head}${tail}. ${notes.join(' · ')}`); else info(`${head}${tail}.`);
       setUnitOpen(false);
     } catch (e) { fail(`Single unit : ${e instanceof Error ? e.message : String(e)}`); }

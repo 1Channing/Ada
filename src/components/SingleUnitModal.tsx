@@ -1,16 +1,15 @@
 /**
  * SINGLE UNIT (12/11, Channing : « ajouter des single units sur nos listes, et en même temps créer l'inspection
  * façon MC Export »). Le bloc texte est collé tel quel, les photos (album PDF ou images) déposées à côté ; l'aperçu
- * montre ce qui a été reconnu avant d'ajouter. La page Offres fait le reste (ligne dans l'offre, inspection, fiche).
+ * montre ce qui a été reconnu avant d'ajouter. La page Offres fait le reste : ligne dans l'offre, dossier photos publié
+ * tel quel en lien « inspection » (12/11, Channing : « juste les photos qui défilent sans rien d'autre »).
  */
 import { useMemo, useState } from 'react';
 import { X, Loader2, ImagePlus, Car } from 'lucide-react';
 import { parseSingleUnits, type SingleUnit } from '../lib/offers/singleUnit';
-import type { FycLang } from '../lib/fycPdf';
-import { FICHE_LANGS } from './OfferFiches';
 import { fmtKm, fmtDate, fmtEur } from '../lib/offers/exportOfferXlsx';
 
-export interface SingleUnitOptions { fiche: boolean; lang: FycLang; files: File[] }
+export interface SingleUnitOptions { files: File[] }
 
 const EXAMPLE = `SUZUKI IGNIS 1.2 DUALJET 83ps
 
@@ -35,8 +34,6 @@ Default (pictures attached)
 export function SingleUnitModal({ busy, status, hidden = false, onAdd, onClose }: { busy: boolean; status: string | null; hidden?: boolean; onAdd: (units: SingleUnit[], opts: SingleUnitOptions) => void; onClose: () => void }) {
   const [text, setText] = useState('');
   const [files, setFiles] = useState<File[]>([]);
-  const [fiche, setFiche] = useState(true);
-  const [lang, setLang] = useState<FycLang>('en');
   const units = useMemo(() => parseSingleUnits(text), [text]);
   const photosForOne = files.length > 0 && units.length === 1;
   const chip = (s: string | null | undefined, cls = 'bg-slate-100 text-slate-700') => (s ? <span className={`px-1.5 py-0.5 rounded text-[11px] ${cls}`}>{s}</span> : null);
@@ -56,22 +53,11 @@ export function SingleUnitModal({ busy, status, hidden = false, onAdd, onClose }
             </label>
             <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-slate-300 text-sm text-slate-600 cursor-pointer hover:border-brand-ocean">
               <ImagePlus className="w-4 h-4 text-slate-400" />
-              <span>{files.length ? `${files.length} fichier${files.length > 1 ? 's' : ''} : ${files.map((f) => f.name).join(', ')}` : 'Photos : album PDF ou images (facultatif)'}</span>
+              <span>{files.length ? `${files.length} fichier${files.length > 1 ? 's' : ''} : ${files.map((f) => f.name).join(', ')}` : 'Dossier photos : PDF tel quel, ou images (facultatif)'}</span>
               <input type="file" accept=".pdf,application/pdf,image/*" multiple className="hidden" disabled={busy} onChange={(e) => { setFiles([...(e.target.files ?? [])]); e.currentTarget.value = ''; }} />
             </label>
             {files.length > 0 && units.length > 1 && <p className="text-xs text-amber-700">Plusieurs unités reconnues : les photos ne sont rangées que pour une unité à la fois. Colle-les une par une pour leur joindre des photos.</p>}
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input type="checkbox" checked={fiche} onChange={(e) => setFiche(e.target.checked)} disabled={busy} className="rounded" />
-              Créer l'inspection et publier la fiche MC Export
-            </label>
-            {fiche && (
-              <label className="flex items-center gap-2 text-sm text-slate-700">
-                <span className="text-slate-600">Langue de la fiche</span>
-                <select value={lang} onChange={(e) => setLang(e.target.value as FycLang)} disabled={busy} className="rounded-lg border border-slate-200 px-2 py-1 text-sm">
-                  {FICHE_LANGS.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
-                </select>
-              </label>
-            )}
+            <p className="text-xs text-slate-500">Le dossier déposé devient le lien « inspection » de la ligne : un PDF est publié tel quel ; plusieurs fichiers (PDF, images) sont assemblés en un seul PDF, une photo par page, sans rien d'autre.</p>
           </div>
           <div className="space-y-3">
             <p className="text-sm text-slate-600">{units.length ? `${units.length} unité${units.length > 1 ? 's' : ''} reconnue${units.length > 1 ? 's' : ''}` : 'Aperçu de ce qui est reconnu'}</p>
@@ -86,7 +72,7 @@ export function SingleUnitModal({ busy, status, hidden = false, onAdd, onClose }
                   {chip(u.vin, 'bg-blue-50 text-brand-encre font-mono')}
                 </div>
                 {!u.vin && <p className="text-xs text-amber-700">VIN non trouvé : la ligne sera sans châssis (modifiable au crayon).</p>}
-                {u.options.length > 0 && <p className="text-slate-700"><span className="text-slate-500">Options (dans l'inspection) :</span> {u.options.join(' · ')}</p>}
+                {u.options.length > 0 && <p className="text-slate-700"><span className="text-slate-500">Options (colonne libre « Options ») :</span> {u.options.join(' · ')}</p>}
                 {u.service && <p className="text-slate-700"><span className="text-slate-500">Entretien :</span> {u.service}</p>}
                 {u.defects.length > 0 && <p className="text-slate-700"><span className="text-slate-500">Défauts :</span> {u.defects.join(' ; ')}</p>}
                 <p className="text-slate-700"><span className="text-slate-500">Prix MC Export :</span> {u.price != null ? `${fmtEur(u.price)}${u.price_ttc ? ' TTC' : ' HT'}${u.price_note ? ` — ${u.price_note}` : ''}` : 'non lu (à saisir dans l\'offre)'}</p>
@@ -99,9 +85,9 @@ export function SingleUnitModal({ busy, status, hidden = false, onAdd, onClose }
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-100">
           <button onClick={onClose} className="px-3 py-2 text-sm text-slate-600 hover:text-slate-900">Fermer</button>
-          <button onClick={() => onAdd(units, { fiche, lang, files: photosForOne ? files : [] })} disabled={busy || units.length === 0}
+          <button onClick={() => onAdd(units, { files: photosForOne ? files : [] })} disabled={busy || units.length === 0}
             className="px-4 py-2 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white text-sm font-medium disabled:opacity-50">
-            {busy ? 'En cours…' : `Ajouter à l'offre${fiche ? ' + fiche' : ''}`}
+            {busy ? 'En cours…' : 'Ajouter à l\'offre'}
           </button>
         </div>
       </div>

@@ -2,8 +2,8 @@
  * FYC — FICHE VÉHICULE PDF À LA CHARTE MC EXPORT (10/11, Channing : « reproduire comme l'inspection mais avec nos
  * visuels, le plus propre et pro, uniformisé, dans la langue du pays cible »).
  *
- * Document DESTINÉ AU CLIENT : la voiture du rapport (données, équipements, pneus, état constaté), notre prix
- * (prix d'attaque) et nos coordonnées. Jamais le prix d'achat, jamais les notes internes. Libellés dans la langue
+ * Document DESTINÉ AU CLIENT : la voiture du rapport (données, équipements, pneus, état constaté) et nos coordonnées.
+ * Aucun prix (12/11), jamais le prix d'achat, jamais les notes internes. Libellés dans la langue
  * du pays cible (fr, en, nl, de, da, sv, es, it) ; les VALEURS du rapport (énergie, équipements, constats…) aussi quand
  * leur traduction est fournie (worker, 11/11) ; les photos du rapport en tête et en fin de fiche (11/11).
  * A4 portrait, même en-tête que les offres (logo, MC EXPORT, titre, date). Police Helvetica : ASCII (« EUR »).
@@ -200,18 +200,12 @@ export async function buildFycPdf(insp: FycInspection, lang: FycLang, contact: F
   };
 
   header();
-  // Gros titre : à gauche du cartouche de prix (58 mm), police réduite si la voiture a un long nom.
+  // Gros titre, police réduite si la voiture a un long nom.
   pdf.setFont('helvetica', 'bold'); pdf.setTextColor(...ENCRE);
-  { let ts = 16; pdf.setFontSize(ts); const roomTitle = W - 2 * margin - (insp.attack_price != null ? 62 : 0); while (ts > 10 && pdf.getTextWidth(safe(car)) > roomTitle) { ts -= 0.5; pdf.setFontSize(ts); } }
+  { let ts = 16; pdf.setFontSize(ts); const roomTitle = W - 2 * margin; while (ts > 10 && pdf.getTextWidth(safe(car)) > roomTitle) { ts -= 0.5; pdf.setFontSize(ts); } }
   pdf.text(safe(car), margin, y + 5);
   pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9.5); pdf.setTextColor(...GRIS);
   pdf.text(safe([insp.year ? String(insp.year) : null, insp.km != null ? `${num(insp.km)} km` : null, v.fuel, v.gearbox, insp.power_ch ? `${insp.power_ch} ${t.ch}` : null].filter(Boolean).join(' - ')), margin, y + 11);
-  // Prix en évidence, à droite
-  if (insp.attack_price != null) {
-    pdf.setFillColor(236, 253, 245); pdf.setDrawColor(167, 243, 208); pdf.roundedRect(W - margin - 58, y - 1, 58, 15, 2, 2, 'FD');
-    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(7.5); pdf.setTextColor(4, 120, 87); pdf.text(safe(t.price).toUpperCase(), W - margin - 54, y + 4);
-    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(14); pdf.text(`${num(insp.attack_price)} EUR`, W - margin - 54, y + 11);
-  }
   y += 18;
 
   // Les deux premières photos en tête (la voiture d'abord), les autres en fin de fiche.
@@ -243,17 +237,8 @@ export async function buildFycPdf(insp: FycInspection, lang: FycLang, contact: F
   const defects = (extras.defects ?? []).filter((d) => d.data).map((d) => ({ data: d.data, caption: (d.list && d.idx != null ? v[d.list][d.idx] : null) ?? d.caption }));
   if (defects.length) defectGrid(defects);
 
-  // Prix seulement quand un prix d'attaque est saisi (12/11, Channing : « je ne veux pas les prix sur les inspections »
-  // des single units) : sans prix, ni cartouche en tête ni bloc « Notre prix ».
-  if (insp.attack_price != null) {
-    section(t.price);
-    ensure(16);
-    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(18); pdf.setTextColor(...ENCRE);
-    pdf.text(`${num(insp.attack_price)} EUR`, margin, y + 7);
-    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5); pdf.setTextColor(...GRIS);
-    pdf.text(safe(t.priceNote), margin, y + 13);
-    y += 18;
-  }
+  // PLUS DE PRIX SUR LA FICHE (12/11, Channing : « on enlève la ligne prix, comme on a dit ») : ni cartouche en tête,
+  // ni bloc « Notre prix » — le prix se discute dans l'offre, pas sur l'inspection.
 
   section(t.contact);
   kv([['MC Export', contact.name], ['E-mail', contact.email ?? '-'], ['Web', 'mc-export.com'], [t.date, today]]);

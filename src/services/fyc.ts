@@ -20,6 +20,7 @@ import { isMacadamReport, parseMacadamReport } from '../lib/macadamReport';
 import { htmlToLines } from '../lib/docxText';
 import { ADMIN_BUCKET } from './storageAccess';
 import { parseFycReport, type FycReportFields } from '../lib/fycReport';
+import { applyVinModel } from '../lib/vinModel';
 import type { MarketFilters } from './marketData';
 
 export type FycStatus = 'queued' | 'fetched' | 'read' | 'failed';
@@ -205,6 +206,7 @@ export async function readInspection(row: FycInspection): Promise<string | null>
       ? (isDekraReport(html) ? parseDekraReport(html).fields : isMacadamReport(html) ? parseMacadamReport(html).fields : parseFycReport(htmlToLines(html)))
       : docx ? parseFycReport(docx.lines)
         : isFleetboxReport(pdfLines!) ? parseFleetboxReport(pdfLines!).fields : parseFycReport(pdfLines!);
+    Object.assign(fields, applyVinModel(fields)); // le VIN l'emporte sur l'étiquette du rapport (Tesla, 12/11)
     if (!fields.brand && !fields.vin) throw new Error('rapport lu mais sans marque ni VIN : format inconnu');
     // Prix demandé par la plateforme (VWFS) : proposé comme prix d'achat tant qu'aucun n'est saisi.
     const patch: Record<string, unknown> = { ...fields, status: 'read', error: null, updated_at: new Date().toISOString() };

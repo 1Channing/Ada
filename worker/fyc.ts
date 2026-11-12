@@ -27,6 +27,7 @@ import { isFleetboxReport, parseFleetboxReport, fleetboxTranslationFrom } from '
 import { parseFycReport } from '../src/lib/fycReport';
 import { isMacadamReport, parseMacadamReport, macadamGeneralPhotos, macadamAssessmentId, macadamUrls } from '../src/lib/macadamReport';
 import { groupLines } from '../src/lib/pdfLines';
+import { applyVinModel } from '../src/lib/vinModel';
 
 const POLL_MS = 20_000;
 const BUCKET = 'admin-documents';
@@ -241,6 +242,8 @@ async function tick(): Promise<void> {
             }
           }
         } catch (e) { console.warn(`[FYC] champs non lus côté worker (le navigateur essaiera) : ${e instanceof Error ? e.message : String(e)}`); }
+        // Le VIN l'emporte sur l'étiquette du rapport (Tesla « MODEL Y » étiquetée sur une Model 3, 12/11).
+        if (status === 'read' && typeof extra.vin === 'string') Object.assign(extra, applyVinModel({ brand: (extra.brand as string) ?? null, model: (extra.model as string) ?? null, vin: extra.vin }));
         await sb.from('fyc_inspections').update({ status, pdf_path: path, error: null, updated_at: new Date().toISOString(), ...extra }).eq('id', row.id);
         console.warn(`[FYC] rapport téléchargé (${Math.round(buf.length / 1024)} Ko, ${kind}, ${status === 'read' ? 'champs lus' : 'champs à lire par le navigateur'}) depuis ${from.slice(0, 60)}…`);
       } catch (e) {

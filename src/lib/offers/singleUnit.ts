@@ -167,10 +167,13 @@ export function parseSingleUnits(text: string): SingleUnit[] {
 export const UNIT_SERVICE_KEY = 'Entretien';
 export const UNIT_DEFECTS_KEY = 'Défauts';
 export const UNIT_CONDITIONS_KEY = 'Conditions';
+export const UNIT_OPTIONS_KEY = 'Options';
 
-/** Ligne de l'offre : les critères (marque, modèle, 1re immat., km, VIN, CO2, prix) — les options vont dans l'inspection. */
+/** Ligne de l'offre : les critères (marque, modèle, 1re immat., km, VIN, CO2, prix) et les options en colonne libre. */
 export function unitToVehicle(u: SingleUnit, id?: string): OfferVehicle {
   const extras: Record<string, string> = {};
+  // Options en colonne libre (12/11 : plus d'inspection MC Export pour les unités, le dossier photos suffit).
+  if (u.options.length) extras[UNIT_OPTIONS_KEY] = u.options.join(' · ');
   if (u.service) extras[UNIT_SERVICE_KEY] = u.service;
   if (u.defects.length) extras[UNIT_DEFECTS_KEY] = u.defects.join(' ; ');
   if (u.price_note) extras[UNIT_CONDITIONS_KEY] = u.price_note;
