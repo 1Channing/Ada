@@ -30,7 +30,9 @@ Default (pictures attached)
 
 14 000 netto delivered`;
 
-export function SingleUnitModal({ busy, status, onAdd, onClose }: { busy: boolean; status: string | null; onAdd: (units: SingleUnit[], opts: SingleUnitOptions) => void; onClose: () => void }) {
+/** `hidden` : la fenêtre reste montée (bloc et photos conservés) pendant que la page travaille, refermée par l'utilisateur
+ *  (12/11, Channing : « il faut pouvoir fermer cette fenêtre le temps que ça charge »). */
+export function SingleUnitModal({ busy, status, hidden = false, onAdd, onClose }: { busy: boolean; status: string | null; hidden?: boolean; onAdd: (units: SingleUnit[], opts: SingleUnitOptions) => void; onClose: () => void }) {
   const [text, setText] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [fiche, setFiche] = useState(true);
@@ -39,11 +41,11 @@ export function SingleUnitModal({ busy, status, onAdd, onClose }: { busy: boolea
   const photosForOne = files.length > 0 && units.length === 1;
   const chip = (s: string | null | undefined, cls = 'bg-slate-100 text-slate-700') => (s ? <span className={`px-1.5 py-0.5 rounded text-[11px] ${cls}`}>{s}</span> : null);
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={busy ? undefined : onClose}>
+    <div className={`fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 ${hidden ? 'hidden' : ''}`} onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
           <div className="flex items-center gap-2"><Car className="w-5 h-5 text-brand-ocean" /><h2 className="font-semibold text-slate-900">Single unit</h2></div>
-          <button onClick={onClose} disabled={busy} aria-label="Fermer" className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} aria-label="Fermer" className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"><X className="w-4 h-4" /></button>
         </div>
         <div className="flex-1 overflow-y-auto px-5 py-4 grid gap-4 md:grid-cols-2">
           <div className="space-y-3">
@@ -92,10 +94,11 @@ export function SingleUnitModal({ busy, status, onAdd, onClose }: { busy: boolea
               </div>
             ))}
             {status && <p className="text-sm text-brand-encre flex items-center gap-2">{busy && <Loader2 className="w-4 h-4 animate-spin" />}{status}</p>}
+            {busy && <p className="text-xs text-slate-500">Tu peux fermer cette fenêtre : le travail continue, la bannière en haut de la page montre l'avancement.</p>}
           </div>
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-100">
-          <button onClick={onClose} disabled={busy} className="px-3 py-2 text-sm text-slate-600 hover:text-slate-900 disabled:opacity-40">Fermer</button>
+          <button onClick={onClose} className="px-3 py-2 text-sm text-slate-600 hover:text-slate-900">Fermer</button>
           <button onClick={() => onAdd(units, { fiche, lang, files: photosForOne ? files : [] })} disabled={busy || units.length === 0}
             className="px-4 py-2 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white text-sm font-medium disabled:opacity-50">
             {busy ? 'En cours…' : `Ajouter à l'offre${fiche ? ' + fiche' : ''}`}

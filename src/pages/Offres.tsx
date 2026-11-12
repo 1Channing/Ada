@@ -915,7 +915,14 @@ export function Offres() {
     <div className="space-y-4">
       <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.pdf" multiple className="hidden" onChange={(e) => { const l = e.target.files; if (l && l.length) void onFiles(l); e.currentTarget.value = ''; }} />
 
-      {unitOpen && <SingleUnitModal busy={unitBusy} status={unitStatus} onAdd={(units, opts) => { void addUnits(units, opts); }} onClose={() => { if (!unitBusy) setUnitOpen(false); }} />}
+      {(unitOpen || unitBusy) && <SingleUnitModal busy={unitBusy} status={unitStatus} hidden={!unitOpen} onAdd={(units, opts) => { void addUnits(units, opts); }} onClose={() => setUnitOpen(false)} />}
+      {unitBusy && !unitOpen && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 text-brand-encre px-4 py-2.5 text-sm flex items-center gap-3">
+          <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+          <span className="flex-1 truncate">Single unit en cours{unitStatus ? ` — ${unitStatus}` : '…'}</span>
+          <button onClick={() => setUnitOpen(true)} className="text-sm font-medium underline-offset-2 hover:underline">Voir</button>
+        </div>
+      )}
       {/* ── Panneau des offres (s'ouvre au besoin, l'offre garde la largeur) ──── */}
       {listOpen && draft && (
         <div className="fixed inset-0 z-40 flex">
