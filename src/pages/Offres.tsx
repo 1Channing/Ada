@@ -24,6 +24,7 @@ import { SingleUnitModal, type SingleUnitOptions } from '../components/SingleUni
 import { unitToVehicle, type SingleUnit } from '../lib/offers/singleUnit';
 import { publishUnitDossier } from '../services/unitPhotos';
 import { mergeOffers } from '../lib/offers/mergeOffers';
+import { gridToXlsxBlob, xlsxStorageName, isSpreadsheetName } from '../lib/offers/gridXlsx';
 import {
   ALL_BUILTIN_KEYS, BUILTIN_COLUMNS, cellValue, defaultExportColumns, displayLabel, effectiveColumns, isColumnEmpty, newCustomColumn,
   type ExportColumn, type ExportContext,
@@ -519,6 +520,20 @@ export function Offres() {
       const fresh = await reload();
       const b = fresh.find((o) => o.id === base.id) ?? base; const os = others.map((o) => fresh.find((f) => f.id === o.id) ?? o);
       const { merged, notes } = mergeOffers(b, os, title.trim() || b.title);
+      // FICHIERS BRUTS GARDÉS (12/11, Channing : « j'ai perdu le fichier brut d'une des listes ») : la grille Excel de
+      // chaque autre offre est réécrite en .xlsx dans le stockage et listée sous « Fichier d'origine, brut » ; si la base
+      // n'a pas de grille, la sienne aussi. Un dépôt qui échoue arrête la fusion : rien n'est supprimé.
+      const kept: OfferSourceFile[] = [...(merged.source_files ?? [])];
+      for (const o of os) {
+        if (!o.source_grid?.length) continue;
+        const name = o.source_filename || `${o.title || 'liste'}.xlsx`;
+        const path = `offres/${Date.now().toString(36)}_${xlsxStorageName(name)}`;
+        const blob = gridToXlsxBlob(o.source_grid, name.replace(/\.[^.]+$/, ''));
+        const up = await supabase.storage.from(ADMIN_BUCKET).upload(path, blob, { contentType: blob.type });
+        if (up.error) throw new Error(`fichier brut de « ${o.title || name} » non conservé (${up.error.message}) — fusion annulée, rien n'est perdu`);
+        kept.push({ name: /\.(xlsx|xlsm|xls|csv)$/i.test(name) ? name : `${name}.xlsx`, path, size: blob.size });
+      }
+      merged.source_files = kept;
       const r = await saveOffer(merged);
       if (r.error) throw new Error(r.error);
       const errs: string[] = [];
@@ -1978,17 +1993,51 @@ function VehicleEditor({ v, onChange }: { v: OfferVehicle; onChange: (patch: Par
  * initiale pour étudier le brut ») : la feuille telle que reçue (grille conservée
  * avec l'offre) ou les PDF déposés, affichés sans aucune interprétation.
  */
-function SourceViewer({ grid, files, filename }: { grid: unknown[][] | null; files: OfferSourceFile[]; filename: string }) {
-  const [urls, setUrls] = useState<Record<string, string>>({});
-  const [error, setError] = useState<string | null>(null);
+/** Grille brute telle quelle (lettres de colonnes, 1 000 lignes au plus). */
+function GridTable({ grid }: { grid: unknown[][] }) {
   const MAX_ROWS = 1000;
-  if (!grid?.length && files.length === 0) return null;
-  const width = grid ? Math.max(0, ...grid.map((r) => (Array.isArray(r) ? r.length : 0))) : 0;
+  const width = Math.max(0, ...grid.map((r) => (Array.isArray(r) ? r.length : 0)));
   const colName = (i: number) => { let n = i + 1, out = ''; while (n > 0) { const m = (n - 1) % 26; out = String.fromCharCode(65 + m) + out; n = Math.floor((n - 1) / 26); } return out; };
   const cell = (x: unknown) => (x == null ? '' : typeof x === 'object' ? JSON.stringify(x) : String(x));
+  return (
+    <div className="overflow-auto max-h-[70vh]">
+      <table className="text-[11px] border-collapse">
+        <thead className="sticky top-0 z-10">
+          <tr className="bg-slate-100 text-slate-500">
+            <th className="sticky left-0 bg-slate-100 px-2 py-1 border border-slate-200 font-medium"></th>
+            {Array.from({ length: width }, (_, i) => <th key={i} className="px-2 py-1 border border-slate-200 font-medium">{colName(i)}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {grid.slice(0, MAX_ROWS).map((row, ri) => (
+            <tr key={ri} className="odd:bg-white even:bg-slate-50/60">
+              <td className="sticky left-0 bg-slate-100 px-2 py-1 border border-slate-200 text-slate-500">{ri + 1}</td>
+              {Array.from({ length: width }, (_, ci) => <td key={ci} className="px-2 py-1 border border-slate-200 whitespace-nowrap max-w-[320px] truncate" title={cell((row as unknown[])[ci])}>{cell((row as unknown[])[ci])}</td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {grid.length > MAX_ROWS && <p className="px-3 py-2 text-xs text-slate-500">{grid.length - MAX_ROWS} lignes de plus non affichées.</p>}
+    </div>
+  );
+}
+
+function SourceViewer({ grid, files, filename }: { grid: unknown[][] | null; files: OfferSourceFile[]; filename: string }) {
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  /** Fichiers tableur du stockage (xlsx d'une offre fusionnée, 12/11) lus en grille à la demande. */
+  const [grids, setGrids] = useState<Record<string, unknown[][]>>({});
+  const [error, setError] = useState<string | null>(null);
+  if (!grid?.length && files.length === 0) return null;
   const showPdf = async (f: OfferSourceFile) => {
-    try { const u = await signedUrl(f.path); setUrls((cur) => ({ ...cur, [f.path]: u })); setError(null); }
-    catch (e) { setError(`Ouverture impossible : ${e instanceof Error ? e.message : String(e)}`); }
+    try {
+      const u = await signedUrl(f.path); setError(null);
+      if (isSpreadsheetName(f.name) || isSpreadsheetName(f.path)) {
+        const res = await fetch(u); if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const g = readSupplierGrid(await res.arrayBuffer()).grid;
+        setGrids((cur) => ({ ...cur, [f.path]: g }));
+      }
+      setUrls((cur) => ({ ...cur, [f.path]: u }));
+    } catch (e) { setError(`Ouverture impossible : ${e instanceof Error ? e.message : String(e)}`); }
   };
   return (
     <details className="bg-white rounded-xl border border-slate-200 shadow-sm">
@@ -1998,42 +2047,20 @@ function SourceViewer({ grid, files, filename }: { grid: unknown[][] | null; fil
         <span className="text-xs text-slate-500">{filename || files.map((f) => f.name).join(' + ')} · tel que reçu, sans interprétation</span>
       </summary>
       <div className="border-t border-slate-100">
-        {grid && grid.length > 0 && (
-          <div className="overflow-auto max-h-[70vh]">
-            <table className="text-[11px] border-collapse">
-              <thead className="sticky top-0 z-10">
-                <tr className="bg-slate-100 text-slate-500">
-                  <th className="sticky left-0 bg-slate-100 px-2 py-1 border border-slate-200 font-medium"></th>
-                  {Array.from({ length: width }, (_, i) => <th key={i} className="px-2 py-1 border border-slate-200 font-medium">{colName(i)}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {grid.slice(0, MAX_ROWS).map((row, ri) => (
-                  <tr key={ri} className="hover:bg-blue-50/40">
-                    <td className="sticky left-0 bg-slate-50 px-2 py-0.5 border border-slate-200 text-slate-400 text-right tabular-nums">{ri + 1}</td>
-                    {Array.from({ length: width }, (_, ci) => (
-                      <td key={ci} className="px-2 py-0.5 border border-slate-200 whitespace-nowrap max-w-[320px] truncate text-slate-700" title={cell(Array.isArray(row) ? row[ci] : '')}>{cell(Array.isArray(row) ? row[ci] : '')}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {grid.length > MAX_ROWS && <p className="px-3 py-2 text-xs text-slate-500">{grid.length - MAX_ROWS} lignes de plus non affichées.</p>}
-          </div>
-        )}
+        {grid && grid.length > 0 && <GridTable grid={grid} />}
         {files.length > 0 && (
           <div className="p-3 space-y-3">
             {error && <p className="text-xs text-red-700">{error}</p>}
             {files.map((f) => (
               <div key={f.path} className="space-y-2">
                 <div className="flex items-center gap-3 text-sm">
-                  <FileText className="w-4 h-4 text-slate-500" />
+                  {isSpreadsheetName(f.name) ? <FileSpreadsheet className="w-4 h-4 text-slate-500" /> : <FileText className="w-4 h-4 text-slate-500" />}
                   <span className="font-medium text-slate-800">{f.name}</span>
                   {!urls[f.path]
                     ? <button onClick={() => void showPdf(f)} className="text-xs px-2.5 py-1 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Afficher ici</button>
                     : <a href={urls[f.path]} target="_blank" rel="noreferrer" className="text-xs text-brand-ocean hover:underline inline-flex items-center gap-1">Ouvrir dans un onglet <ExternalLink className="w-3 h-3" /></a>}
                 </div>
-                {urls[f.path] && <iframe title={f.name} src={urls[f.path]} className="w-full h-[75vh] rounded-lg border border-slate-200" />}
+                {urls[f.path] && (grids[f.path] ? <GridTable grid={grids[f.path]} /> : <iframe title={f.name} src={urls[f.path]} className="w-full h-[75vh] rounded-lg border border-slate-200" />)}
               </div>
             ))}
           </div>
