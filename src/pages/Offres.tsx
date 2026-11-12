@@ -406,8 +406,8 @@ export function Offres() {
           const st = (s: string) => setUnitStatus(`${label} : ${s}`);
           try {
             st('inspection…');
-            // Le prix de l'unité est NOTRE prix : il devient le prix d'attaque de l'inspection (cartouche « Notre prix » de la fiche).
-            const made = await createUnitInspection(unitToInspectionFields(u), opts.files, st, { attack_price: u.price });
+            // Pas de prix sur la fiche d'une unité (12/11, Channing) : le prix reste dans la ligne de l'offre.
+            const made = await createUnitInspection(unitToInspectionFields(u), opts.files, st);
             if (made.error || !made.row) throw new Error(made.error ?? 'inspection non créée');
             if (made.note) notes.push(`${label} : ${made.note}`);
             const { blob, note } = await buildFiche(made.row, opts.lang, { name: displayName || email || '', email: email ?? null }, st);

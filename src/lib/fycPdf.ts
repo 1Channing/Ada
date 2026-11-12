@@ -153,28 +153,44 @@ export async function buildFycPdf(insp: FycInspection, lang: FycLang, contact: F
     y += 2;
   };
   const subtitle = (s: string) => { ensure(7); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(8.8); pdf.setTextColor(...OCEAN); pdf.text(safe(s), margin, y + 3.5); y += 5.5; };
-  /** Photos en grille (2 par ligne, 4:3), chacune dans un cadre fin. */
+  /** Photo à ses proportions, centrée dans sa case (12/11, Channing : « les photos sont un peu écrasées ») :
+   *  une vue large 1200×615 n'est plus étirée au 4:3. */
+  const fitImage = (data: string, x: number, y0: number, w: number, h: number) => {
+    let iw = w; let ih = h;
+    try { const pr = pdf.getImageProperties(data); if (pr.width > 0 && pr.height > 0) { const k = Math.min(w / pr.width, h / pr.height); iw = pr.width * k; ih = pr.height * k; } } catch { /* proportions inconnues : case entière */ }
+    pdf.addImage(data, imageFormat(data), x + (w - iw) / 2, y0 + (h - ih) / 2, iw, ih, undefined, 'FAST');
+    pdf.setDrawColor(203, 213, 225); pdf.setLineWidth(0.2); pdf.rect(x, y0, w, h);
+  };
+  /** Hauteur d'une rangée de photos : la plus haute des photos à largeur w, plafonnée au 4:3 (une vue large n'a plus de bande blanche). */
+  const rowHeight = (datas: string[], w: number) => {
+    let h = 0;
+    for (const d of datas) { try { const pr = pdf.getImageProperties(d); h = Math.max(h, pr.width > 0 ? Math.min(w * 0.75, w * pr.height / pr.width) : w * 0.75); } catch { h = Math.max(h, w * 0.75); } }
+    return h || w * 0.75;
+  };
+  /** Photos en grille (2 par ligne), chacune à ses proportions dans un cadre fin, rangée à la hauteur de ses photos. */
   const photoGrid = (list: string[], perRow = 2) => {
-    const gap = 4; const w = (W - 2 * margin - gap * (perRow - 1)) / perRow; const h = w * 0.75;
+    const gap = 4; const w = (W - 2 * margin - gap * (perRow - 1)) / perRow;
     for (let i = 0; i < list.length; i += perRow) {
+      const h = rowHeight(list.slice(i, i + perRow), w);
       ensure(h + gap);
       for (let c = 0; c < perRow; c++) {
         const p = list[i + c]; if (!p) continue;
         const x = margin + c * (w + gap);
-        try { pdf.addImage(p, imageFormat(p), x, y, w, h, undefined, 'FAST'); pdf.setDrawColor(203, 213, 225); pdf.setLineWidth(0.2); pdf.rect(x, y, w, h); } catch { /* photo illisible : case vide */ }
+        try { fitImage(p, x, y, w, h); } catch { /* photo illisible : case vide */ }
       }
       y += h + gap;
     }
   };
   /** Photos de dommages : 3 par ligne, légende dessous (le dommage, traduit quand on l'a). */
   const defectGrid = (list: Array<{ data: string; caption: string }>, perRow = 3) => {
-    const gap = 3; const w = (W - 2 * margin - gap * (perRow - 1)) / perRow; const h = w * 0.75;
+    const gap = 3; const w = (W - 2 * margin - gap * (perRow - 1)) / perRow;
     for (let i = 0; i < list.length; i += perRow) {
+      const h = rowHeight(list.slice(i, i + perRow).map((p) => p.data), w);
       ensure(h + 9);
       for (let c = 0; c < perRow; c++) {
         const p = list[i + c]; if (!p) continue;
         const x = margin + c * (w + gap);
-        try { pdf.addImage(p.data, imageFormat(p.data), x, y, w, h, undefined, 'FAST'); pdf.setDrawColor(203, 213, 225); pdf.setLineWidth(0.2); pdf.rect(x, y, w, h); } catch { /* photo illisible */ }
+        try { fitImage(p.data, x, y, w, h); } catch { /* photo illisible */ }
         pdf.setFont('helvetica', 'normal'); pdf.setFontSize(7); pdf.setTextColor(...GRIS);
         pdf.text(pdf.splitTextToSize(safe(p.caption), w)[0] ?? '', x, y + h + 3.2);
       }
@@ -227,13 +243,17 @@ export async function buildFycPdf(insp: FycInspection, lang: FycLang, contact: F
   const defects = (extras.defects ?? []).filter((d) => d.data).map((d) => ({ data: d.data, caption: (d.list && d.idx != null ? v[d.list][d.idx] : null) ?? d.caption }));
   if (defects.length) defectGrid(defects);
 
-  section(t.price);
-  ensure(16);
-  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(18); pdf.setTextColor(...ENCRE);
-  pdf.text(insp.attack_price != null ? `${num(insp.attack_price)} EUR` : '-', margin, y + 7);
-  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5); pdf.setTextColor(...GRIS);
-  pdf.text(safe(t.priceNote), margin, y + 13);
-  y += 18;
+  // Prix seulement quand un prix d'attaque est saisi (12/11, Channing : « je ne veux pas les prix sur les inspections »
+  // des single units) : sans prix, ni cartouche en tête ni bloc « Notre prix ».
+  if (insp.attack_price != null) {
+    section(t.price);
+    ensure(16);
+    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(18); pdf.setTextColor(...ENCRE);
+    pdf.text(`${num(insp.attack_price)} EUR`, margin, y + 7);
+    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5); pdf.setTextColor(...GRIS);
+    pdf.text(safe(t.priceNote), margin, y + 13);
+    y += 18;
+  }
 
   section(t.contact);
   kv([['MC Export', contact.name], ['E-mail', contact.email ?? '-'], ['Web', 'mc-export.com'], [t.date, today]]);
