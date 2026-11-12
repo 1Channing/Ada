@@ -10,6 +10,7 @@ import { signedUrl } from './storageAccess';
 import { buildFycPdf, langOfCountry, type FycLang, type FycPdfContact } from '../lib/fycPdf';
 import { translationSource, translationFits, type FycTranslation } from '../lib/fycTranslation';
 import { getInspection, requestTranslation, type FycInspection } from './fyc';
+export { ensureInspection } from './fyc';
 
 export const FICHES_BUCKET = 'fyc-fiches';
 export const FICHES_SQL_HINT = 'Fiches publiques : colle le SQL du 11/11 (bucket fyc-fiches).';
@@ -73,6 +74,20 @@ export function engineOfInspection(r: FycInspection): string | null {
   const litres = cc > 500 && cc < 9000 ? (cc / 1000).toFixed(1) : null;
   const parts = [litres, r.fuel, r.power_ch ? `${r.power_ch} ch` : null].filter((x): x is string => !!x);
   return parts.length ? parts.join(' ') : null;
+}
+
+/** Attend que le worker ait lu une inspection (statut read) ; `failed` ou délai dépassé = erreur. */
+export async function waitInspectionRead(id: string, timeoutMs = 10 * 60_000, onStatus?: (s: string) => void): Promise<FycInspection> {
+  const until = Date.now() + timeoutMs;
+  for (;;) {
+    const r = await getInspection(id);
+    if (!r) throw new Error('inspection introuvable');
+    if (r.status === 'read') return r;
+    if (r.status === 'failed') throw new Error(r.error ?? 'rapport non lu');
+    if (Date.now() > until) throw new Error('rapport toujours pas lu (worker arrêté ?)');
+    onStatus?.(r.status === 'queued' ? 'téléchargement du rapport…' : 'lecture du rapport…');
+    await new Promise((res) => setTimeout(res, 5000));
+  }
 }
 
 /** Langue de la fiche d'une inspection : celle du pays cible de son marché, sinon le français. */

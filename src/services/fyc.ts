@@ -71,6 +71,18 @@ export async function listInspections(): Promise<{ rows: FycInspection[]; error:
   return { rows: ((data ?? []) as Record<string, unknown>[]).map(normalize), error: null };
 }
 
+/** L'inspection d'un lien (archivée ou non), créée en file si elle n'existe pas (12/11 : fiches MC Export depuis Offres). */
+export async function ensureInspection(url: string, note?: string): Promise<{ row: FycInspection | null; error: string | null }> {
+  const clean = url.trim().replace(/&amp;/gi, '&');
+  const find = async () => { const { data } = await untyped.from('fyc_inspections').select('*').eq('source_url', clean).order('created_at', { ascending: false }).limit(1); const r = (data ?? [])[0]; return r ? normalize(r as Record<string, unknown>) : null; };
+  const have = await find();
+  if (have) return { row: have, error: null };
+  const { userId, displayName, email } = useAuth.getState();
+  const { error } = await untyped.from('fyc_inspections').insert({ source_url: clean, status: 'queued', created_by: userId, created_by_name: displayName || email || '', notes: note ?? '' });
+  if (error) return { row: null, error: missing(error.message) ? FYC_SQL_HINT : error.message };
+  return { row: await find(), error: null };
+}
+
 /** Un lien par ligne ; les liens déjà présents ne sont pas redéposés (rendus dans `existing`). */
 export async function addInspections(text: string): Promise<{ added: number; existing: number; error: string | null }> {
   // « &amp; » (adresse copiée depuis une page HTML, 12/11) : rétabli en « & », sinon le site rend un fichier vide.

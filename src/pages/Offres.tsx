@@ -19,6 +19,7 @@ import { supabase } from '../lib/supabase';
 import type { OfferSourceFile } from '../services/offers';
 import { buildOfferWorkbook, downloadBlob, slugFile, fmtEur, fmtKm, fmtDate } from '../lib/offers/exportOfferXlsx';
 import { buildOfferPdf } from '../lib/offers/exportOfferPdf';
+import { useOfferFiches, OfferFichesBanner, OfferFichesModal } from '../components/OfferFiches';
 import {
   ALL_BUILTIN_KEYS, BUILTIN_COLUMNS, cellValue, defaultExportColumns, displayLabel, effectiveColumns, isColumnEmpty, newCustomColumn,
   type ExportColumn, type ExportContext,
@@ -372,6 +373,9 @@ export function Offres() {
   };
 
   const setVehicle = (id: string, patch: Partial<OfferVehicle>) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => (v.id === id ? { ...v, ...patch } : v)) }));
+  // FICHES MC EXPORT À LA PLACE DES RAPPORTS FOURNISSEUR (12/11) : travail porté par la page, fenêtre refermable.
+  const fiches = useOfferFiches(setVehicle, displayName || email || '', email ?? null, () => draft?.title || 'offre');
+  const [fichesOpen, setFichesOpen] = useState(false);
   /** Correction à la main d'une valeur lue : appliquée et mémorisée (rejouée après une relecture du fichier). */
   const correctVehicle = (id: string, patch: Partial<OfferVehicle>) => update((d) => ({
     ...d, vehicles: d.vehicles.map((v) => (v.id === id ? { ...v, ...patch, manual: { ...(v.manual ?? {}), ...patch } } : v)),
@@ -1384,6 +1388,8 @@ export function Offres() {
           )}
 
           {/* ══ EXPORT ═════════════════════════════════════════════════════════ */}
+          {fiches.job && <OfferFichesBanner job={fiches.job} onDetail={() => setFichesOpen(true)} onClear={fiches.clear} />}
+          {fichesOpen && draft && <OfferFichesModal vehicles={selected} job={fiches.job} onStart={(lang) => fiches.start(selected, lang)} onClose={() => setFichesOpen(false)} />}
           {view === 'export' && (
             <div className="space-y-4">
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3 flex-wrap text-sm">
@@ -1455,6 +1461,7 @@ export function Offres() {
                   <span className="text-xs text-slate-500">{unitsLabel(selected.length, selectedUnits)} · {draft.price_rule.mode === 'none' ? 'sans prix' : `prix ${B}`}{S.lang === 'en' ? ' · export en anglais' : ''}</span>
                   <div className="ml-auto flex gap-2">
                     <button onClick={exportXlsx} disabled={selected.length === 0} className="flex items-center gap-1.5 bg-white border border-slate-300 hover:border-brand-ocean text-slate-700 px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50"><FileSpreadsheet className="w-4 h-4" /> Excel</button>
+                    <button onClick={() => setFichesOpen(true)} disabled={selected.length === 0} title="Remplacer les liens de rapport fournisseur par nos fiches PDF MC Export (anglais par défaut)" className="flex items-center gap-1.5 bg-white border border-slate-300 hover:border-brand-ocean text-slate-700 px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50">{fiches.job?.running ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />} Fiches MC Export</button>
                     <button onClick={() => void exportPdf()} disabled={selected.length === 0 || busy === 'pdf'} className="flex items-center gap-1.5 bg-slate-900 text-white px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50">{busy === 'pdf' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />} PDF MC Export</button>
                   </div>
                 </div>
