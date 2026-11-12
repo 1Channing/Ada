@@ -118,7 +118,10 @@ export async function buildFycPdf(insp: FycInspection, lang: FycLang, contact: F
         pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5); pdf.setTextColor(...GRIS);
         pdf.text(safe(r[0]), x, y + 4);
         pdf.setFont('helvetica', 'bold'); pdf.setTextColor(30, 41, 59);
-        pdf.text(pdf.splitTextToSize(safe(r[1] || '-'), colW - 42)[0] ?? '-', x + 40, y + 4);
+        // Valeur longue (« MODEL 3 LONG RANGE DUAL MOTOR », couleur à rallonge) : police réduite plutôt que tronquée.
+        const val = safe(r[1] || '-'); let vs = 8.5;
+        while (vs > 6 && pdf.getTextWidth(val) > colW - 42) { vs -= 0.5; pdf.setFontSize(vs); }
+        pdf.text(val, x + 40, y + 4); pdf.setFontSize(8.5);
       }
       y += 6.5;
     }
@@ -181,7 +184,9 @@ export async function buildFycPdf(insp: FycInspection, lang: FycLang, contact: F
   };
 
   header();
-  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(16); pdf.setTextColor(...ENCRE);
+  // Gros titre : à gauche du cartouche de prix (58 mm), police réduite si la voiture a un long nom.
+  pdf.setFont('helvetica', 'bold'); pdf.setTextColor(...ENCRE);
+  { let ts = 16; pdf.setFontSize(ts); const roomTitle = W - 2 * margin - (insp.attack_price != null ? 62 : 0); while (ts > 10 && pdf.getTextWidth(safe(car)) > roomTitle) { ts -= 0.5; pdf.setFontSize(ts); } }
   pdf.text(safe(car), margin, y + 5);
   pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9.5); pdf.setTextColor(...GRIS);
   pdf.text(safe([insp.year ? String(insp.year) : null, insp.km != null ? `${num(insp.km)} km` : null, v.fuel, v.gearbox, insp.power_ch ? `${insp.power_ch} ${t.ch}` : null].filter(Boolean).join(' - ')), margin, y + 11);
