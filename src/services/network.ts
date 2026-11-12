@@ -27,6 +27,9 @@ export interface NetworkContact {
   phone: string | null;
   email: string | null;
   website: string | null;
+  /** SECONDE VITRINE (12/11, Channing : « les concessions ont plusieurs vitrines, ici des utilitaires ») : lue avec la
+   *  première à chaque relevé, véhicules cumulés. Absente tant que le SQL du 12/11 n'est pas collé. */
+  website2?: string | null;
   relation: string;
   vehicle_types: string;
   monthly_volume: string;
@@ -114,6 +117,13 @@ export async function saveContact(input: ContactInput, userId: string | null): P
     delete row.stock_frequency;
     ({ data, error } = await sb.from('network_contacts').upsert(row, { onConflict: 'id' }).select('id').maybeSingle());
   }
+  // Seconde vitrine (12/11) : même règle.
+  let website2Dropped = false;
+  if (error && /website2/.test(error.message) && /column|schema cache/i.test(error.message)) {
+    delete row.website2; website2Dropped = true;
+    ({ data, error } = await sb.from('network_contacts').upsert(row, { onConflict: 'id' }).select('id').maybeSingle());
+  }
+  if (!error && website2Dropped && (input.website2 ?? '').trim()) return { id: (data?.id as string) ?? null, error: 'Enregistré sans la seconde vitrine : SQL du 12/11 (website2) à coller.' };
   if (error) return { id: null, error: frenchDbError(error.message) };
   if (peopleDropped && Array.isArray(input.people) && input.people.length) return { id: (data?.id as string) ?? null, error: 'Enregistré sans les interlocuteurs supplémentaires : SQL du 08/10 (network_contacts.people) à coller.' };
   if (!data?.id) return { id: null, error: 'Écriture refusée par la base (droit « Carte du réseau · édition » manquant ?).' };

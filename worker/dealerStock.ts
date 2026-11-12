@@ -2368,6 +2368,28 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
       void sb.from('network_stock_runs').update({ pages, total: vehicles }).eq('id', runId);
     };
     const stock: DealerStockResult = prefetched ? { ...prefetched, warnings: [...prefetched.warnings] } : await fetchDealerStock(url, onProgress);
+    // SECONDE VITRINE (12/11, Channing : « les concessions ont plusieurs vitrines, ici des utilitaires ») : lue
+    // après la première, ses véhicules cumulés dans le même stock (un identifiant déjà pris est préfixé par son
+    // hôte). Si elle ne se lit pas, ses véhicules du relevé précédent ne sont PAS marqués disparus.
+    const keepHosts: string[] = [];
+    if (!prefetched) {
+      const { data: c2 } = await sb.from('network_contacts').select('website2').eq('id', contactId).maybeSingle();
+      const url2 = String((c2 as { website2?: string | null } | null)?.website2 ?? '').trim();
+      if (/^https?:\/\//i.test(url2) && showcaseKey(url2) !== showcaseKey(url)) {
+        const host2 = (() => { try { return new URL(url2).hostname; } catch { return url2; } })();
+        try {
+          const s2 = await fetchDealerStock(url2, onProgress);
+          const ids = new Set(stock.vehicles.map((v) => v.external_id));
+          for (const v of s2.vehicles) stock.vehicles.push(ids.has(v.external_id) ? { ...v, external_id: `${host2}:${v.external_id}` } : v);
+          stock.pages += s2.pages;
+          if (stock.declared != null && s2.declared != null) stock.declared += s2.declared;
+          stock.warnings.push(`vitrine 2 (${host2}) : ${s2.vehicles.length} véhicules lus (${s2.provider})`, ...s2.warnings.map((w) => `vitrine 2 : ${w}`));
+        } catch (e) {
+          keepHosts.push(host2);
+          stock.warnings.push(`vitrine 2 non lue (${url2}) : ${e instanceof Error ? e.message : String(e)} — ses véhicules du relevé précédent sont gardés`);
+        }
+      }
+    }
     const currencies = prefetched ? [] : [...new Set(stock.vehicles.map((v) => (v.currency ?? 'EUR').toUpperCase()).filter((c) => c !== 'EUR'))];
     if (currencies.length > 0) {
       const fx = await getFxRates();
@@ -2475,8 +2497,10 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
       if (error) throw new Error(`écriture des véhicules : ${error.message}`);
     }
     // Disparus : vus avant, absents de ce relevé, pas encore marqués.
-    const { data: gone } = await sb.from('network_stock_vehicles').update({ gone_at: startedAt, gone_run_id: runId })
-      .eq('contact_id', contactId).is('gone_at', null).lt('last_seen_at', startedAt).select('id');
+    let goneQuery = sb.from('network_stock_vehicles').update({ gone_at: startedAt, gone_run_id: runId })
+      .eq('contact_id', contactId).is('gone_at', null).lt('last_seen_at', startedAt);
+    for (const h of keepHosts) goneQuery = goneQuery.not('url', 'ilike', `%${h}%`);
+    const { data: gone } = await goneQuery.select('id');
     const goneCount = ((gone ?? []) as unknown[]).length;
     await sb.from('network_stock_runs').update({ status: 'done', provider: stock.provider, total: stock.vehicles.length, new_count: newCount, gone_count: goneCount, price_changes: priceChanges, pages: stock.pages, warnings: stock.warnings, finished_at: new Date().toISOString() }).eq('id', runId);
     await sb.from('network_contacts').update({ stock_total: stock.vehicles.length }).eq('id', contactId);

@@ -149,6 +149,14 @@ export function FycView({ onOpenMarket, active = true }: { onOpenMarket: (f: Mar
     })();
   };
   const openOffer = (id: string) => window.history.pushState({}, '', `/offres?offer=${id}&view=export`);
+  // ARCHIVER / REMETTRE EN COURS EN LOT (12/11, Channing : « relancer en inspection en cours des véhicules qui sont
+  // dans les archives ») : la sélection de l'onglet courant bascule d'un coup.
+  const archiveChecked = async (on: boolean) => {
+    for (const r of checkedRows) await updateInspection(r.id, { archived_at: on ? new Date().toISOString() : null });
+    setNotice(`${checkedRows.length} inspection${checkedRows.length > 1 ? 's' : ''} ${on ? 'archivée' : 'remise en cours'}${checkedRows.length > 1 ? 's' : ''}.`);
+    setChecked(new Set());
+    await reload();
+  };
   const rereadChecked = async () => {
     let n = 0;
     for (const r of checkedRows) if (r.status === 'read' && r.pdf_path) { const err = await rereadInspection(r); if (!err) n++; }
@@ -248,6 +256,9 @@ export function FycView({ onOpenMarket, active = true }: { onOpenMarket: (f: Mar
             <span className="text-slate-700">{checkedRows.length} sélectionnée{checkedRows.length > 1 ? 's' : ''}{transferable.length < checkedRows.length ? ` (${checkedRows.length - transferable.length} non lue${checkedRows.length - transferable.length > 1 ? 's' : ''}, ignorée${checkedRows.length - transferable.length > 1 ? 's' : ''})` : ''}</span>
             <button onClick={() => setTransferOpen(true)} disabled={transferable.length === 0} className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white disabled:opacity-50"><Send className="w-4 h-4" /> Transférer dans Offres ({transferable.length})</button>
             <button onClick={() => void rereadChecked()} className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"><Images className="w-4 h-4" /> Relire les rapports</button>
+            {tab === 'archives'
+              ? <button onClick={() => void archiveChecked(false)} className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"><ArchiveRestore className="w-4 h-4" /> Remettre en cours ({checkedRows.length})</button>
+              : <button onClick={() => void archiveChecked(true)} className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"><Archive className="w-4 h-4" /> Archiver ({checkedRows.length})</button>}
             <button onClick={() => setChecked(new Set())} className="ml-auto text-xs text-slate-500 hover:underline">Tout décocher</button>
           </div>
         )}

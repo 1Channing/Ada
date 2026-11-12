@@ -62,7 +62,7 @@ const FLAG: Record<string, string> = { FR: '🇫🇷', NL: '🇳🇱', BE: '🇧
 
 const emptyInput = (country = 'NL'): ContactInput => ({
   name: '', kind: 'concession', role: 'vendeur', country, city: '', lat: null, lng: null,
-  contact_name: '', phone: '', email: '', website: '', relation: '', vehicle_types: '', monthly_volume: '',
+  contact_name: '', phone: '', email: '', website: '', website2: '', relation: '', vehicle_types: '', monthly_volume: '',
   opportunity: '', margin: '', reliability: '', comment: '', notes: '', market_share: null, stock_total: null, people: [],
 });
 
@@ -77,7 +77,7 @@ export function Carte() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // STOCK DE LA VITRINE (30/09) : fenêtre avec les voitures relevées et le diff.
   // VITRINE (03/11) : une seule fenêtre par contact — stock, comparer, analyse, relevés, marché en direct.
-  const [showcaseFor, setShowcaseFor] = useState<{ id: string; name: string; url: string | null; country: string | null; frequency: 'daily' | 'weekly' | 'off' | null; unreadable: string | null } | null>(null);
+  const [showcaseFor, setShowcaseFor] = useState<{ id: string; name: string; url: string | null; url2?: string | null; country: string | null; frequency: 'daily' | 'weekly' | 'off' | null; unreadable: string | null } | null>(null);
   const [hoverCountry, setHoverCountry] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'tous' | ContactRole>('tous');
@@ -366,7 +366,7 @@ export function Carte() {
   };
   const startEdit = (c: NetworkContact) => {
     const { id, name, kind, role, country, city, lat, lng, contact_name, phone, email, website, relation, vehicle_types, monthly_volume, opportunity, margin, reliability, comment, notes, market_share, stock_total } = c;
-    setEditing({ id, name, kind, role, country, city, lat, lng, contact_name, phone, email, website, relation, vehicle_types, monthly_volume, opportunity, margin, reliability, comment, notes, market_share, stock_total, stock_frequency: c.stock_frequency ?? 'daily', people: Array.isArray(c.people) ? c.people : [] });
+    setEditing({ id, name, kind, role, country, city, lat, lng, contact_name, phone, email, website, website2: c.website2 ?? '', relation, vehicle_types, monthly_volume, opportunity, margin, reliability, comment, notes, market_share, stock_total, stock_frequency: c.stock_frequency ?? 'daily', people: Array.isArray(c.people) ? c.people : [] });
     setEditModels(c.models.map((m) => ({ brand: m.brand, model: m.model, qty: m.qty, note: m.note })));
     setPanelOpen(true);
   };
@@ -536,8 +536,8 @@ export function Carte() {
         {editing ? (
           <ContactForm value={editing} models={editModels} onChange={setEditing} onModels={setEditModels} onPlace={() => setPlacing('form')} onCancel={() => { setEditing(null); setPlacing(null); }} onSubmit={submit} busy={busy} />
         ) : selected ? (<>
-          <ContactDetail c={selected} canEdit={canEdit} busy={busy} onClose={() => setSelectedId(null)} onEdit={() => startEdit(selected)} onMove={() => setPlacing(selected.id)} onDelete={() => remove(selected)} onFilterBrand={(b) => { setQuery(b); setSelectedId(null); }} onShowcase={() => setShowcaseFor({ id: selected.id, name: selected.name, url: selected.website, country: selected.country, frequency: selected.stock_frequency ?? null, unreadable: selected.showcase_unreadable ?? null })} run={lastRuns.get(selected.id)} scanning={scanningIds.has(selected.id)} />
-          {showcaseFor && <ShowcaseModal contactId={showcaseFor.id} name={showcaseFor.name} url={showcaseFor.url} country={showcaseFor.country} frequency={showcaseFor.frequency} unreadable={showcaseFor.unreadable} onClose={() => { setShowcaseFor(null); void reload(); }} />}
+          <ContactDetail c={selected} canEdit={canEdit} busy={busy} onClose={() => setSelectedId(null)} onEdit={() => startEdit(selected)} onMove={() => setPlacing(selected.id)} onDelete={() => remove(selected)} onFilterBrand={(b) => { setQuery(b); setSelectedId(null); }} onShowcase={() => setShowcaseFor({ id: selected.id, name: selected.name, url: selected.website, url2: selected.website2 ?? null, country: selected.country, frequency: selected.stock_frequency ?? null, unreadable: selected.showcase_unreadable ?? null })} run={lastRuns.get(selected.id)} scanning={scanningIds.has(selected.id)} />
+          {showcaseFor && <ShowcaseModal contactId={showcaseFor.id} name={showcaseFor.name} url={showcaseFor.url} url2={showcaseFor.url2 ?? null} country={showcaseFor.country} frequency={showcaseFor.frequency} unreadable={showcaseFor.unreadable} onClose={() => { setShowcaseFor(null); void reload(); }} />}
         </>) : (
           <>
             <div className="p-4 border-b border-slate-100 space-y-3">
@@ -787,6 +787,7 @@ function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, on
           )}
           <div className="flex items-center gap-3 flex-wrap">
             {c.website && <a href={c.website} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-brand-ocean hover:underline"><ExternalLink className="w-4 h-4 shrink-0" /> Vitrine du stock</a>}
+            {c.website2 && <a href={c.website2} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-brand-ocean hover:underline" title="Seconde vitrine, lue avec la première"><ExternalLink className="w-4 h-4 shrink-0" /> Vitrine 2</a>}
             {/* STOCK RELEVÉ PAR ADA (30/09) : la liste de leurs voitures et ce
                 qui a bougé depuis le dernier relevé (vélocité, propositions). */}
             {/* VITRINE (03/11, Channing) : une seule fenêtre — stock relevé, comparer, analyse, relevés, marché en direct. */}
@@ -932,7 +933,9 @@ function ContactForm({ value: v, models, onChange, onModels, onPlace, onCancel, 
           </div>
         </div>
         <div className="grid grid-cols-[1fr_auto] gap-2">
-          <div><label className={label}>Vitrine (URL du stock)</label><input value={v.website ?? ''} onChange={(e) => set({ website: e.target.value })} className={inp} placeholder="https://…" /></div>
+          <div><label className={label}>Vitrine (URL du stock)</label><input value={v.website ?? ''} onChange={(e) => set({ website: e.target.value })} className={inp} placeholder="https://…" />
+            {/* SECONDE VITRINE (12/11, Channing : « ici c'est pour des utilitaires ») : lue avec la première, véhicules cumulés. */}
+            <input value={v.website2 ?? ''} onChange={(e) => set({ website2: e.target.value })} className={`${inp} mt-1`} placeholder="Seconde vitrine (ex. utilitaires), optionnelle" title="Une seconde adresse de stock, lue avec la première à chaque relevé : les véhicules des deux vitrines sont cumulés" /></div>
           {/* RELEVÉ AUTOMATIQUE (03/11, Channing) : quotidien par défaut, hebdomadaire ou arrêté — lu par le worker à 1 h. */}
           <div><label className={label}>Relevé auto</label>
             <select value={v.stock_frequency ?? 'daily'} onChange={(e) => set({ stock_frequency: e.target.value as 'daily' | 'weekly' | 'off' })} className={inp} title="Relevé automatique de la vitrine par Ada, chaque nuit à 1 h">

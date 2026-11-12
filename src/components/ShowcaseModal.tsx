@@ -34,8 +34,8 @@ const STOCK_SORT_LABEL: Record<StockSort, string> = { date_desc: 'Date d\'ajout 
 type Freq = 'daily' | 'weekly' | 'off';
 const FREQ_LABEL: Record<Freq, string> = { daily: 'quotidien (1 h)', weekly: 'hebdomadaire', off: 'arrêté' };
 
-export function ShowcaseModal({ contactId, name, url, country, frequency, unreadable, onClose, onFrequencyChange }: {
-  contactId: string; name: string; url: string | null; country?: string | null; frequency?: Freq | null; unreadable?: string | null; onClose: () => void; onFrequencyChange?: (f: Freq) => void;
+export function ShowcaseModal({ contactId, name, url, url2, country, frequency, unreadable, onClose, onFrequencyChange }: {
+  contactId: string; name: string; url: string | null; /** Seconde vitrine (12/11), lue avec la première. */ url2?: string | null; country?: string | null; frequency?: Freq | null; unreadable?: string | null; onClose: () => void; onFrequencyChange?: (f: Freq) => void;
 }) {
   const { displayName, email } = useAuth();
   const [tab, setTab] = useState<Tab>('stock');
@@ -256,6 +256,7 @@ export function ShowcaseModal({ contactId, name, url, country, frequency, unread
             <h3 className="font-semibold text-slate-900 truncate text-lg">Vitrine de {name}</h3>
             <p className="text-xs text-slate-500 truncate">
               {url ? <a href={url} target="_blank" rel="noreferrer" className="hover:underline">{url}</a> : <span className="text-amber-700">pas d'adresse de vitrine sur cette fiche</span>}
+              {url2 && <> + <a href={url2} target="_blank" rel="noreferrer" className="hover:underline" title="Seconde vitrine : lue avec la première, véhicules cumulés dans ce stock">{url2}</a></>}
               {lastRun && <> · dernier relevé {new Date(lastRun.started_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} ({lastRun.provider}, {lastRun.total} véhicules)</>}
               {' · '}relevé auto : {FREQ_LABEL[freq]}{unread ? <span className="text-orange-700 font-medium"> · ⚠ vitrine non lisible par Ada — {unread}</span> : null}
             </p>
