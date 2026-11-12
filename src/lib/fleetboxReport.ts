@@ -10,7 +10,9 @@
  * en, de, es, nl, pt : le worker s'en sert pour traduire. Photos : vignettes 200×150 (extraites par pdfImages.ts).
  * Ni puissance ni énergie en clair : déduites de la ligne modèle (« 408 - Hybrid 225 e-EAT8 GT » → 408, hybride
  * rechargeable, 225 ch, automatique), marquées comme telles dans raw_fields.
- * Vérifié sur la Peugeot 408 VR3F3DGY6SY577168 dans les 7 langues (3 dommages « jante usinée », 4 pneus).
+ * Vérifié sur la Peugeot 408 VR3F3DGY6SY577168 dans les 7 langues (3 dommages « jante usinée », 4 pneus) et sur
+ * l'Alfa Tonale ZARPATAW8S3100628 (12/11) : modèle sur deux lignes, pneus en grille 2 × 2 (« Goodyear 235/50/18 V
+ * Estate 6.0 » + « mm » dessous), date « 01/01/1900 » et couleur « Inconnu » = absentes, dommage sans position ignoré.
  */
 import type { FycReportFields, FycDamage, FycLine } from './fycReport';
 
@@ -58,8 +60,8 @@ export function isFleetboxReport(input: FycLine[]): boolean {
   return /Pre-damage|Pr[ée]-dommage|Vorschaden/i.test(t) && (/Pneumatico(?:PS|PD|AS|AD)\b/.test(t) || /Condition of the car|Etat du v[ée]hicule|Fahrzeugzustand/i.test(t));
 }
 
-const isoDate = (s: string | null) => { const m = (s ?? '').match(/(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/); return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : null; };
-const dash = (s: string | undefined | null) => { const v = (s ?? '').trim(); return !v || v === '-' ? null : v; };
+const isoDate = (s: string | null) => { const m = (s ?? '').match(/(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/); if (!m || Number(m[3]) < 1980) return null; return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; };
+const dash = (s: string | undefined | null) => { const v = (s ?? '').trim(); return !v || v === '-' || /^(inconnu|unknown|sconosciuto|desconocido|unbekannt|onbekend|desconhecido)$/i.test(v) ? null : v; };
 const TYRE_POS: Record<string, string> = { AS: 'Avant gauche', AD: 'Avant droit', PS: 'Arrière gauche', PD: 'Arrière droit' };
 /** Les positions de pneus dans la langue de la fiche (le PDF ne les traduit pas). */
 export const FLEETBOX_TYRE_POS: Record<string, Record<string, string>> = {
@@ -72,7 +74,7 @@ export const FLEETBOX_TYRE_POS: Record<string, Record<string, string>> = {
 /** Énergie, puissance et boîte lues dans la ligne modèle / motorisation (jamais inventées : null si rien ne le dit). */
 export function engineHints(s: string): { fuel: string | null; power_ch: number | null; gearbox: string | null } {
   const t = s.toLowerCase();
-  const fuel = /plug-?in|phev|e-eat8|e-dct|recharge/.test(t) ? 'Hybride rechargeable' : /hybrid|hybride|ibrid|hev\b|e-tech/.test(t) ? 'Hybride' : /electri|elektr|\bev\b|e-208|e-2008|kwh/.test(t) ? 'Électrique' : /diesel|hdi|tdi|dci|cdi|crdi|\bd\b/.test(t) ? 'Diesel' : /puretech|tce|tsi|tfsi|essence|benzin|gasolin|petrol|\bvti\b/.test(t) ? 'Essence' : null;
+  const fuel = /plug-?in|phev|e-eat8|e-dct|recharge|ibrida plug/.test(t) ? 'Hybride rechargeable' : /hybrid|hybride|ibrid|hev\b|e-tech/.test(t) ? 'Hybride' : /electri|elektr|\bev\b|e-208|e-2008|kwh/.test(t) ? 'Électrique' : /diesel|hdi|tdi|dci|cdi|crdi|\bd\b/.test(t) ? 'Diesel' : /puretech|tce|tsi|tfsi|essence|benzin|gasolin|petrol|\bvti\b/.test(t) ? 'Essence' : null;
   const p = t.match(/(\d{2,3})\s*(?:cv|ch|ps|hp)\b/) ?? t.match(/hybrid\s+(\d{3})\b/) ?? t.match(/\b(\d{2,3})\s*kw/);
   const power_ch = p ? (/kw/.test(p[0]) ? Math.round(Number(p[1]) * 1.35962) : Number(p[1])) : null;
   const gearbox = /e-?eat\d|eat\d|dsg|dct|edc|cvt|automat|automatico|automatique|\bauto\b|s[- ]?tronic|tiptronic|steptronic|bva/.test(t) ? 'Automatique' : /manual|manuel|bvm|\bmt\b/.test(t) ? 'Manuelle' : null;
@@ -88,6 +90,8 @@ export function parseFleetboxReport(input: FycLine[]): FleetboxParsed {
   const devaluation: FycDamage[] = [];
   // Bloc dommages : une rangée = lignes élément / position / dommage / commentaires, deux colonnes à la fois.
   let pending: Array<Partial<{ component: string; position: string; damage: string; comment: string }>> = [];
+  let lastKey: string | null = null; // libellé de la dernière paire lue (suite d'une valeur sur la ligne d'après)
+  const gridTyres: string[] = [];     // pneus en grille (« Goodyear 235/50/18 V Estate 6.0 » puis « mm »)
   const flush = () => {
     for (const d of pending) {
       if (!dash(d.position)) continue; // un « élément » sans position (en-têtes « Elemento rimovibile », « Daños externos ») n'est pas un dommage
@@ -100,8 +104,17 @@ export function parseFleetboxReport(input: FycLine[]): FleetboxParsed {
   for (const line of lines) {
     const tyre = line.text.match(/^Pneumatico(PS|PD|AS|AD)\s+(.+)$/);
     if (tyre) { raw[`tyre_${tyre[1]}`] = tyre[2].replace(/\s*Mm$/i, ' mm').trim(); continue; }
+    // Grille de pneus : chaque morceau « Marque 235/50/18 … 6.0 » est un pneu ; la ligne « mm · mm » qui suit le complète.
+    const gridFrags = line.frags.filter((f) => /^\S+\s+\d{3}\/\d{2}\/\d{2}\b/.test(f.s.trim()));
+    if (gridFrags.length) { for (const f of gridFrags) gridTyres.push(f.s.trim()); continue; }
+    if (/^(mm\s*)+$/i.test(line.text) && gridTyres.length) { for (let i = gridTyres.length - line.frags.length; i < gridTyres.length; i++) if (i >= 0 && !/mm$/i.test(gridTyres[i])) gridTyres[i] += ' mm'; continue; }
     const pairs = pairsOf(line);
-    if (!pairs.length) continue;
+    if (!pairs.length) {
+      // Suite du modèle sur la ligne d'après (« ALFA TONALE IBRIDA PLUG- » puis « IN MY25 Q4 280CV »).
+      if (lastKey === 'model' && line.frags.length === 1 && line.frags[0].x > 60 && line.frags[0].x < 200 && v.model != null) v.model = /-$/.test(v.model) ? `${v.model}${line.text.trim()}` : `${v.model} ${line.text.trim()}`;
+      continue;
+    }
+    lastKey = pairs.some((p) => p.key === 'model') ? 'model' : pairs[pairs.length - 1].key;
     const keys = pairs.map((p) => p.key);
     if (keys.includes('component')) { flush(); pending = pairs.filter((p) => p.key === 'component').map((p) => ({ component: dash(p.value) ?? undefined })); continue; }
     if (pending.length && (keys.includes('position') || keys.includes('damage') || keys.includes('comments'))) {
@@ -123,8 +136,15 @@ export function parseFleetboxReport(input: FycLine[]): FleetboxParsed {
   }
   flush();
   const vin = (v.vin ?? '').replace(/\s+/g, '').match(/[A-HJ-NPR-Z0-9]{17}/)?.[0] ?? null;
-  const modelLine = dash(v.model) ?? '';
-  const [modelPart, ...restParts] = modelLine.split(/\s+-\s+/);
+  const brandRaw = dash(v.brand) ? v.brand.trim() : null;
+  // « ALFA » seul = Alfa Romeo (c'est ce qu'écrit fleetbox) ; sinon la marque telle quelle.
+  const brand = brandRaw && /^alfa$/i.test(brandRaw) ? 'Alfa Romeo' : brandRaw;
+  let modelLine = dash(v.model) ?? '';
+  // Ligne modèle qui répète la marque (« ALFA TONALE IBRIDA PLUG-IN MY25 Q4 280CV ») : marque retirée.
+  if (brandRaw) modelLine = modelLine.replace(new RegExp(`^(?:${brandRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s+romeo)?)\\s+`, 'i'), '');
+  let [modelPart, ...restParts] = modelLine.split(/\s+-\s+/);
+  // Sans « - » : le modèle est le premier mot, le reste est la motorisation (« TONALE | IBRIDA PLUG-IN MY25 Q4 280CV »).
+  if (!restParts.length && /\s/.test(modelPart)) { const [first, ...rest] = modelPart.split(/\s+/); modelPart = first; restParts = [rest.join(' ')]; }
   const engine = restParts.join(' - ').trim();
   const hints = engineHints(modelLine);
   const km = v.km ? Number((v.km.match(/[\d .]+(?=\s*km)/i)?.[0] ?? v.km).replace(/[^\d]/g, '')) : null;
@@ -139,10 +159,12 @@ export function parseFleetboxReport(input: FycLine[]): FleetboxParsed {
   if (engine) raw.engine = engine;
   if (hints.fuel || hints.power_ch || hints.gearbox) raw.engine_hints = 'énergie, puissance et boîte déduites de la ligne modèle';
   raw.inspector = 'DEKRA (fleetbox)';
+  // Grille 2 × 2 lue dans l'ordre avant gauche, avant droit, arrière gauche, arrière droit.
+  (['AS', 'AD', 'PS', 'PD'] as const).forEach((k, i) => { if (gridTyres[i] && !raw[`tyre_${k}`]) raw[`tyre_${k}`] = gridTyres[i]; });
   const tyres = (['AS', 'AD', 'PS', 'PD'] as const).filter((k) => raw[`tyre_${k}`]).map((k) => `${TYRE_POS[k]} : ${raw[`tyre_${k}`]}`);
   const fields: FycReportFields = {
     report_number: null, report_date: null, vin,
-    brand: dash(v.brand) ? v.brand.trim() : null, model: dash(modelPart) ? modelPart.trim() : null, version: engine || null, body: null,
+    brand, model: dash(modelPart) ? modelPart.trim() : null, version: engine || null, body: null,
     first_registration: firstReg, year: firstReg ? Number(firstReg.slice(0, 4)) : null, km: Number.isFinite(km) && km ? km : null,
     asking_price: null, repair_cost: Number.isFinite(amount) && amount > 0 ? amount : null,
     fuel: hints.fuel, gearbox: hints.gearbox, power_ch: hints.power_ch, color: dash(v.color) ? v.color.trim() : null,

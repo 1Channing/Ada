@@ -838,7 +838,8 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
         ?? ((canonFuel(cell(rec.fuel)) ?? free.fuel) === 'ELECTRIQUE' ? 'AUTOMATIQUE' : null),
       co2: toNumber(rec.co2),
       damages: toNumber(rec.damages),
-      report_url: cell(rec.report_url).startsWith('http') ? cell(rec.report_url) : null,
+      // « &amp; » dans le lien (fichiers fournisseur exportés d'une page web, 12/11 : six liens DEKRA fleetbox illisibles) : rétabli.
+      report_url: cell(rec.report_url).startsWith('http') ? cell(rec.report_url).replace(/&amp;/gi, '&') : null,
       location: cell(rec.location) || null,
       // Prix moyens d'un lot (décimales dans le catalogue du 07/10) : arrondis à l'unité
       // — dans la DEVISE du fichier (SEK, DKK… : convertis en euros par les paramètres de l'offre, 13/10).

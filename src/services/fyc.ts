@@ -72,7 +72,8 @@ export async function listInspections(): Promise<{ rows: FycInspection[]; error:
 
 /** Un lien par ligne ; les liens déjà présents ne sont pas redéposés (rendus dans `existing`). */
 export async function addInspections(text: string): Promise<{ added: number; existing: number; error: string | null }> {
-  const urls = [...new Set(text.split(/[\s,;]+/).map((u) => u.trim()).filter((u) => /^https?:\/\//i.test(u)))];
+  // « &amp; » (adresse copiée depuis une page HTML, 12/11) : rétabli en « & », sinon le site rend un fichier vide.
+  const urls = [...new Set(text.split(/[\s,;]+/).map((u) => u.trim().replace(/&amp;/gi, '&')).filter((u) => /^https?:\/\//i.test(u)))];
   if (urls.length === 0) return { added: 0, existing: 0, error: 'Aucun lien reconnu (il faut une adresse commençant par http).' };
   const { data: have } = await untyped.from('fyc_inspections').select('source_url').in('source_url', urls);
   const seen = new Set(((have ?? []) as Array<{ source_url: string }>).map((r) => r.source_url));

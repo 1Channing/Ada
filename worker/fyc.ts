@@ -58,7 +58,7 @@ export function pdfCandidates(sourceUrl: string): string[] {
 type Fetched = { buf: Buffer; from: string; kind: 'pdf' | 'html' };
 async function fetchReport(sourceUrl: string): Promise<Fetched> {
   const errors: string[] = [];
-  for (const cu of pdfCandidates(sourceUrl)) {
+  for (const cu of pdfCandidates(sourceUrl.replace(/&amp;/gi, '&'))) {
     try {
       const r = await fetch(cu, { headers: { 'User-Agent': UA, 'Accept': 'application/pdf,text/html,*/*', 'Accept-Language': 'fr-FR,fr;q=0.9' } });
       if (!r.ok) { errors.push(`${cu.slice(0, 80)} : HTTP ${r.status}`); continue; }
