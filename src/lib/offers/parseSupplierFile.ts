@@ -475,19 +475,21 @@ export function parseFreeLine(line: string): { power_ch: number | null; gearbox:
   const power_ch = p ? Number(p[1]) : kw ? Math.round(Number(kw[1]) * 1.36) : null;
   // « AT-8 » / « MT-6 » (fichiers allemands), « Automatik », « BVA »…
   // « AUT » (catalogue Record Rent a Car 07/10 : « 252CV AUT »), « E-CVT ».
-  const gearbox = /\b(bva|au?to?ma?ti?(que|c|k|co)|automaat|aut|dct\d?|eat\d|e-?dcs?\d?|edc|e-?cvt|dsg|s-?tronic|steptronic|multitronic|xtronic|automat|at-?\d)\b/i.test(s) ? 'AUTOMATIQUE'
+  // « AUTO » seul (liste Drivalia 12/11 : « 1.5T EHS PHEV LUXURY AUTO »).
+  const gearbox = /\b(bva|au?to?ma?ti?(que|c|k|co)|automaat|aut|auto|dct\d?|eat\d|e-?dcs?\d?|edc|e-?cvt|dsg|s-?tronic|steptronic|multitronic|xtronic|automat|at-?\d)\b/i.test(s) ? 'AUTOMATIQUE'
     : /\b(bvm\d?|manuel(le)?|manual|schalt|mt-?\d)\b/i.test(s) ? 'MANUELLE' : null;
   // « 300PHEV » collé (RAV4), « HEV » (Tucson), « GLP » / « ECO-G » (GPL
   // espagnol / Dacia) — catalogue du 07/10.
   // Les marqueurs FORTS d'électrique (« EV60 » = batterie 60 kWh, liste Megane
   // E-Tech 14/10 ; kWh, e-tron, ID.4…) passent AVANT l'hybride : « E-Tech »
   // chez Renault désigne aussi bien une Clio hybride qu'une Megane électrique.
-  const fuel = /phev|\b(plug-?in|e-?tense 4x4|rechargeable|tfsi e|e-?hybrid)\b/i.test(s) ? 'HYBRIDE RECHARGEABLE'
+  // « P300e » / « P400e » (Land Rover, liste Drivalia 12/11) : hybride rechargeable ; « Flex Fuel » / « E85 » : essence.
+  const fuel = /phev|\b(plug-?in|e-?tense 4x4|rechargeable|tfsi e|e-?hybrid|p[2-5]\d0e)\b/i.test(s) ? 'HYBRIDE RECHARGEABLE'
     : /\b([ée]lectri(que|c)|ev|ev\d{2}|e-?208|e-?2008|electric|kwh|e-?tron|id\.? ?[3-7]|eqa|eqb|eqc|eqe|eqs|\bbev\b)\b/i.test(s) || /\d\s?kwh\b/i.test(s) ? 'ELECTRIQUE' // « 45KWH » collé (MG ZS 15/10)
     : /\b(hybrid|hybride|hev|e-?tech|e-?power|mhev|bsg)\b/i.test(s) ? 'HYBRIDE'
     : /\b(gpl|glp|lpg|eco-?g)\b/i.test(s) ? 'GPL'
     : /\b(diesel|hdi|bluehdi|dci|tdi|cdi|crdi|d\b|multijet)/i.test(s) ? 'DIESEL'
-    : /\b(essence|petrol|benzin|puretech|tce|tsi|tfsi|turbo|1\.[0-9]|dig-t)\b/i.test(s) ? 'ESSENCE' : null;
+    : /\b(essence|petrol|benzin|puretech|tce|tsi|tfsi|turbo|1\.[0-9]|dig-t|flex ?fuel|e85)\b/i.test(s) ? 'ESSENCE' : null;
   const e = s.match(/\b(\d\.\d\s?(?:turbo|puretech|tce|tsi|hybrid|hdi|bluehdi|dci|e-?hybrid|t\d)?[^,|]{0,20}?)(?=\s\d{2,3}\s?(?:ch|cv|kw|hk|hp|ps)|$)/i);
   return { power_ch, gearbox, fuel, engine: e ? e[1].trim() : null };
 }
@@ -830,12 +832,14 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
       km: km != null ? Math.round(km) : null,
       quantity: qty,
       color: cell(rec.color) || null,
-      fuel: canonFuel(cell(rec.fuel)) ?? free.fuel,
-      engine: cell(rec.engine) || free.engine,
+      // Marques 100 % électriques (Tesla, Polestar) : énergie connue même si la ligne ne la dit pas ; leur « motorisation »
+      // est la version (« Long Range Dual Motor », « Standard RWD ») — liste Drivalia 12/11.
+      fuel: canonFuel(cell(rec.fuel)) ?? free.fuel ?? (/^(tesla|polestar)$/i.test(brand) ? 'ELECTRIQUE' : null),
+      engine: cell(rec.engine) || free.engine || (/^(tesla|polestar)$/i.test(brand) && /long range|standard|performance|dual motor|rwd|awd|plaid/i.test(versionLine) ? versionLine.trim() : null),
       power_ch: power != null ? Math.round(power) : free.power_ch,
       // Une électrique n'a pas de boîte manuelle : automatique quand rien n'est dit.
       gearbox: (cell(rec.gearbox) ? parseFreeLine(cell(rec.gearbox)).gearbox ?? cell(rec.gearbox).toUpperCase() : free.gearbox)
-        ?? ((canonFuel(cell(rec.fuel)) ?? free.fuel) === 'ELECTRIQUE' ? 'AUTOMATIQUE' : null),
+        ?? ((canonFuel(cell(rec.fuel)) ?? free.fuel) === 'ELECTRIQUE' || /^(tesla|polestar)$/i.test(brand) ? 'AUTOMATIQUE' : null),
       co2: toNumber(rec.co2),
       damages: toNumber(rec.damages),
       // « &amp; » dans le lien (fichiers fournisseur exportés d'une page web, 12/11 : six liens DEKRA fleetbox illisibles) : rétabli.

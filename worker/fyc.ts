@@ -25,6 +25,7 @@ import { translationSource, translationSystem, translationFits, FYC_TRANSLATION_
 import { isDekraReport, parseDekraReport, dekraLanguageUrls, dekraTranslationFrom, type DekraPhoto, type FycDefectPhoto } from '../src/lib/dekraReport';
 import { isFleetboxReport, parseFleetboxReport, fleetboxTranslationFrom } from '../src/lib/fleetboxReport';
 import { parseFycReport } from '../src/lib/fycReport';
+import { isMacadamReport, parseMacadamReport, macadamGeneralPhotos, macadamAssessmentId, macadamUrls } from '../src/lib/macadamReport';
 import { groupLines } from '../src/lib/pdfLines';
 
 const POLL_MS = 20_000;
@@ -58,6 +59,19 @@ export function pdfCandidates(sourceUrl: string): string[] {
 type Fetched = { buf: Buffer; from: string; kind: 'pdf' | 'html' };
 async function fetchReport(sourceUrl: string): Promise<Fetched> {
   const errors: string[] = [];
+  // MACADAM (12/11) : quel que soit le lien de la liste (ShowSelectedReport, Report17Pdf_OLD…), la fiche est la page
+  // AppraisalWebview du même assessmentFileId, en français (libellés lus par le lecteur).
+  const mid = macadamAssessmentId(sourceUrl.replace(/&amp;/gi, '&'));
+  if (mid) {
+    const wv = macadamUrls(mid).webview;
+    try {
+      const r = await fetch(wv, { headers: { 'User-Agent': UA, 'Accept': 'text/html,*/*', 'Accept-Language': 'fr-FR,fr;q=0.9' } });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const buf = Buffer.from(await r.arrayBuffer());
+      if (!isMacadamReport(buf.toString('utf8'))) throw new Error('page sans fiche Macadam (rapport retiré ou lien périmé ?)');
+      return { buf, from: wv, kind: 'html' };
+    } catch (e) { errors.push(`${wv.slice(0, 80)} : ${e instanceof Error ? e.message : String(e)}`); }
+  }
   for (const cu of pdfCandidates(sourceUrl.replace(/&amp;/gi, '&'))) {
     try {
       const r = await fetch(cu, { headers: { 'User-Agent': UA, 'Accept': 'application/pdf,text/html,*/*', 'Accept-Language': 'fr-FR,fr;q=0.9' } });
@@ -67,7 +81,7 @@ async function fetchReport(sourceUrl: string): Promise<Fetched> {
       const ct = r.headers.get('content-type') ?? '';
       if (/html/i.test(ct) || /^\s*<(!doctype|html)/i.test(buf.subarray(0, 200).toString('utf8'))) {
         const html = buf.toString('utf8');
-        if (isDekraReport(html)) return { buf, from: cu, kind: 'html' };
+        if (isDekraReport(html) || isMacadamReport(html)) return { buf, from: cu, kind: 'html' };
         errors.push(`${cu.slice(0, 80)} : page HTML sans rapport reconnu (seul DEKRA est lu en HTML ; la visionneuse VTI passe par son API)`);
         continue;
       }
@@ -198,7 +212,20 @@ async function tick(): Promise<void> {
         const extra: Record<string, unknown> = {};
         let status: 'fetched' | 'read' = 'fetched';
         try {
-          if (kind === 'html') {
+          if (kind === 'html' && isMacadamReport(buf.toString('utf8'))) {
+            // Macadam : la fiche (webview) + les photos générales de la page Report17Pdf_OLD, pleine taille.
+            const html = buf.toString('utf8');
+            const parsed = parseMacadamReport(html);
+            let general: string[] = [];
+            const mid = macadamAssessmentId(row.source_url.replace(/&amp;/gi, '&'));
+            if (mid) {
+              try { const r = await fetch(macadamUrls(mid).pictures, { headers: { 'User-Agent': UA, 'Accept': 'text/html,*/*' } }); if (r.ok) general = macadamGeneralPhotos(await r.text()); } catch (e) { console.warn(`[FYC] photos générales Macadam non lues : ${e instanceof Error ? e.message : String(e)}`); }
+            }
+            const got = await downloadPhotos(row.id, [...general.map((url, i) => ({ url, caption: `Photo ${i + 1}`, list: null, idx: null })), ...parsed.photos]);
+            extra.photos = got.photos; extra.defect_photos = got.defect_photos;
+            console.warn(`[FYC] rapport Macadam : ${got.photos.length} photos, ${got.defect_photos.length} photos de dommages`);
+            if (parsed.fields.brand || parsed.fields.vin) { Object.assign(extra, parsed.fields); status = 'read'; }
+          } else if (kind === 'html') {
             const html = buf.toString('utf8');
             const parsed = parseDekraReport(html);
             const got = await downloadPhotos(row.id, parsed.photos);

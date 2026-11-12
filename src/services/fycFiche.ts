@@ -14,15 +14,18 @@ import { getInspection, requestTranslation, type FycInspection } from './fyc';
 export const FICHES_BUCKET = 'fyc-fiches';
 export const FICHES_SQL_HINT = 'Fiches publiques : colle le SQL du 11/11 (bucket fyc-fiches).';
 
-/** Une photo du storage en data URL : JPEG tel quel ; PNG/WebP (DEKRA, 400 Ko) ré-encodés en JPEG. */
+/** Une photo du storage en data URL : JPEG de taille raisonnable tel quel ; PNG/WebP (DEKRA, 400 Ko) ré-encodés en
+ *  JPEG ; grandes photos (Macadam 2048 px, 1,3 Mo) réduites à 1 280 px — une fiche de 20 photos reste sous 4 Mo. */
+const MAX_PHOTO_PX = 1280;
 export async function photoData(path: string): Promise<string | null> {
   try {
     const r = await fetch(await signedUrl(path)); if (!r.ok) return null;
     const b = await r.blob();
-    if (b.type === 'image/jpeg') return await new Promise<string>((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result)); fr.onerror = rej; fr.readAsDataURL(b); });
+    if (b.type === 'image/jpeg' && b.size < 350_000) return await new Promise<string>((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result)); fr.onerror = rej; fr.readAsDataURL(b); });
     const bmp = await createImageBitmap(b);
-    const canvas = document.createElement('canvas'); canvas.width = bmp.width; canvas.height = bmp.height;
-    canvas.getContext('2d')?.drawImage(bmp, 0, 0); bmp.close();
+    const k = Math.min(1, MAX_PHOTO_PX / Math.max(bmp.width, bmp.height));
+    const canvas = document.createElement('canvas'); canvas.width = Math.round(bmp.width * k); canvas.height = Math.round(bmp.height * k);
+    canvas.getContext('2d')?.drawImage(bmp, 0, 0, canvas.width, canvas.height); bmp.close();
     const out = canvas.toDataURL('image/jpeg', 0.85); canvas.width = 0; canvas.height = 0;
     return out;
   } catch { return null; }

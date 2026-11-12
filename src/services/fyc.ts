@@ -16,6 +16,7 @@ import { extractPdfPhotos } from '../lib/pdfImages';
 import type { FycTranslation } from '../lib/fycTranslation';
 import { isDekraReport, parseDekraReport, type FycDefectPhoto } from '../lib/dekraReport';
 import { isFleetboxReport, parseFleetboxReport } from '../lib/fleetboxReport';
+import { isMacadamReport, parseMacadamReport } from '../lib/macadamReport';
 import { htmlToLines } from '../lib/docxText';
 import { ADMIN_BUCKET } from './storageAccess';
 import { parseFycReport, type FycReportFields } from '../lib/fycReport';
@@ -189,7 +190,7 @@ export async function readInspection(row: FycInspection): Promise<string | null>
     // PDF : rapport DEKRA « fleetbox » (lecteur dédié, 11/11) ou rapport VTI / VWFS (lecteur générique).
     const pdfLines = html == null && !docx ? (await pdfToLinesEx(blob)).lines : null;
     const fields = html != null
-      ? (isDekraReport(html) ? parseDekraReport(html).fields : parseFycReport(htmlToLines(html)))
+      ? (isDekraReport(html) ? parseDekraReport(html).fields : isMacadamReport(html) ? parseMacadamReport(html).fields : parseFycReport(htmlToLines(html)))
       : docx ? parseFycReport(docx.lines)
         : isFleetboxReport(pdfLines!) ? parseFleetboxReport(pdfLines!).fields : parseFycReport(pdfLines!);
     if (!fields.brand && !fields.vin) throw new Error('rapport lu mais sans marque ni VIN : format inconnu');
