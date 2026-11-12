@@ -35,8 +35,9 @@ export const sourceReportUrl = (v: OfferVehicle): string | null => {
 /** Le travail, porté par la page : `start` lance, `job` suit. */
 export function useOfferFiches(setVehicle: (id: string, patch: Partial<OfferVehicle>) => void, author: string, authorEmail: string | null, offerTitle: () => string) {
   const [job, setJob] = useState<FicheJob | null>(null);
-  const start = (vehicles: OfferVehicle[], lang: FycLang, reread = false) => {
-    const targets = vehicles.filter((v) => sourceReportUrl(v));
+  const start = (vehicles: OfferVehicle[], lang: FycLang, reread = false, onlyIds?: string[]) => {
+    // `onlyIds` (12/11) : seules les fiches cochées dans la fenêtre sont refaites.
+    const targets = vehicles.filter((v) => sourceReportUrl(v) && (!onlyIds || onlyIds.includes(v.id)));
     const init: FicheJob = { lang, ids: targets.map((v) => v.id), progress: {}, done: 0, failed: 0, running: true, error: null };
     setJob(init);
     const set = (f: (j: FicheJob) => FicheJob) => setJob((j) => (j ? f(j) : j));
@@ -98,12 +99,18 @@ export function OfferFichesBanner({ job, onDetail, onClear }: { job: FicheJob; o
   );
 }
 
-export function OfferFichesModal({ vehicles, job, onStart, onClose }: { vehicles: OfferVehicle[]; job: FicheJob | null; onStart: (lang: FycLang, reread: boolean) => void; onClose: () => void }) {
+/** Les fiches à faire se cochent (12/11, Channing : « sélectionner les fiches à refaire plutôt que de toutes les refaire ») :
+ *  au départ, seules celles qui n'ont pas encore de fiche sont cochées ; « Tout » / « Aucune » / « À faire » pour aller vite. */
+export function OfferFichesModal({ vehicles, job, onStart, onClose }: { vehicles: OfferVehicle[]; job: FicheJob | null; onStart: (lang: FycLang, reread: boolean, ids: string[]) => void; onClose: () => void }) {
   const [lang, setLang] = useState<FycLang>('en');
   const [reread, setReread] = useState(false);
   const withLink = vehicles.filter((v) => sourceReportUrl(v));
+  const isDone = (v: OfferVehicle) => !!v.extras?.[SUPPLIER_REPORT_KEY];
+  const [picked, setPicked] = useState<Set<string>>(() => new Set(withLink.filter((v) => !isDone(v)).map((v) => v.id)));
   const running = !!job?.running;
   const rows = job ? vehicles.filter((v) => job.ids.includes(v.id)) : withLink;
+  const toggle = (id: string, on: boolean) => setPicked((cur) => { const n = new Set(cur); if (on) n.add(id); else n.delete(id); return n; });
+  const pickedIds = withLink.filter((v) => picked.has(v.id)).map((v) => v.id);
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
@@ -120,15 +127,24 @@ export function OfferFichesModal({ vehicles, job, onStart, onClose }: { vehicles
           <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer" title="Le worker retélécharge et relit chaque rapport avant de refaire la fiche (données et photos à jour)"><input type="checkbox" checked={reread} onChange={(e) => setReread(e.target.checked)} disabled={running} className="rounded border-slate-300" /> Refaire les inspections (relire les rapports)</label>
         </div>
         {running && <p className="text-xs text-sky-900 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2">{job!.done} / {job!.ids.length} fiches publiées. Les rapports sont lus par le worker (3 toutes les 20 s), puis chaque fiche est construite : compte une à deux minutes pour dix véhicules. Tu peux fermer cette fenêtre.</p>}
+        {!job && withLink.length > 0 && (
+          <div className="flex items-center gap-2 text-xs text-slate-600">
+            <span>{pickedIds.length} fiche{pickedIds.length > 1 ? 's' : ''} à faire sur {withLink.length}</span>
+            <button onClick={() => setPicked(new Set(withLink.map((v) => v.id)))} className="px-2 py-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-50">Tout</button>
+            <button onClick={() => setPicked(new Set())} className="px-2 py-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-50">Aucune</button>
+            <button onClick={() => setPicked(new Set(withLink.filter((v) => !isDone(v)).map((v) => v.id)))} className="px-2 py-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-50" title="Seulement les véhicules sans fiche MC Export">À faire seulement</button>
+          </div>
+        )}
         <table className="w-full text-sm">
-          <thead><tr className="text-left text-xs text-slate-400"><th className="py-1.5 pr-3">Véhicule</th><th className="py-1.5 pr-3">VIN</th><th className="py-1.5 pr-3">Rapport</th><th className="py-1.5 pr-3">État</th></tr></thead>
+          <thead><tr className="text-left text-xs text-slate-400">{!job && <th className="py-1.5 pr-2"><input type="checkbox" aria-label="Cocher toutes les fiches" checked={withLink.length > 0 && pickedIds.length === withLink.length} onChange={(e) => setPicked(e.target.checked ? new Set(withLink.map((v) => v.id)) : new Set())} /></th>}<th className="py-1.5 pr-3">Véhicule</th><th className="py-1.5 pr-3">VIN</th><th className="py-1.5 pr-3">Rapport</th><th className="py-1.5 pr-3">État</th></tr></thead>
           <tbody className="divide-y divide-slate-100">
             {rows.map((v) => (
-              <tr key={v.id}>
+              <tr key={v.id} className={!job && !picked.has(v.id) ? 'text-slate-400' : ''}>
+                {!job && <td className="py-1.5 pr-2"><input type="checkbox" aria-label={`Refaire la fiche de ${v.brand} ${v.model}`} checked={picked.has(v.id)} onChange={(e) => toggle(v.id, e.target.checked)} /></td>}
                 <td className="py-1.5 pr-3 font-medium text-slate-900">{v.brand} {v.model}</td>
                 <td className="py-1.5 pr-3 text-xs text-slate-500">{v.vin ?? '—'}</td>
                 <td className="py-1.5 pr-3 text-xs text-slate-500 truncate max-w-[220px]">{(sourceReportUrl(v) ?? '').replace(/^https?:\/\//, '').slice(0, 50)}</td>
-                <td className={`py-1.5 pr-3 text-xs whitespace-nowrap ${/^échec/.test(job?.progress[v.id] ?? '') ? 'text-red-700' : 'text-slate-600'}`}>{job?.progress[v.id] ?? (v.extras?.[SUPPLIER_REPORT_KEY] ? 'déjà remplacé (sera refait)' : 'à faire')}</td>
+                <td className={`py-1.5 pr-3 text-xs whitespace-nowrap ${/^échec/.test(job?.progress[v.id] ?? '') ? 'text-red-700' : 'text-slate-600'}`}>{job?.progress[v.id] ?? (isDone(v) ? (picked.has(v.id) ? 'déjà remplacé (sera refait)' : 'déjà remplacé (gardé)') : picked.has(v.id) ? 'à faire' : 'non coché')}</td>
               </tr>
             ))}
           </tbody>
@@ -136,7 +152,7 @@ export function OfferFichesModal({ vehicles, job, onStart, onClose }: { vehicles
         {job?.error && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{job.error}</p>}
         <div className="flex items-center gap-2 justify-end">
           <button onClick={onClose} className="text-sm px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50">{running ? 'Fermer (continue en arrière-plan)' : 'Fermer'}</button>
-          <button onClick={() => onStart(lang, reread)} disabled={running || withLink.length === 0} className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white disabled:opacity-50">{running ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />} {running ? `En cours… ${job!.done} / ${job!.ids.length}` : `Créer les fiches (${withLink.length})`}</button>
+          <button onClick={() => onStart(lang, reread, pickedIds)} disabled={running || pickedIds.length === 0} className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white disabled:opacity-50">{running ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />} {running ? `En cours… ${job!.done} / ${job!.ids.length}` : `Créer les fiches (${pickedIds.length})`}</button>
         </div>
       </div>
     </div>
