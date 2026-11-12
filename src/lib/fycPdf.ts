@@ -83,7 +83,12 @@ export async function buildFycPdf(insp: FycInspection, lang: FycLang, contact: F
     if (logo) { try { pdf.addImage(logo, 'PNG', margin, 8, 14, 11); } catch { /* logo illisible */ } }
     pdf.setTextColor(...ENCRE); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(10);
     pdf.text('MC EXPORT', margin + (logo ? 17 : 0), 15);
-    pdf.setFontSize(15); pdf.text(safe(`${t.title} - ${car}`), W / 2, 15, { align: 'center' });
+    // Titre = la voiture seule (12/11, Channing : « Vehicle sheet, je veux le supprimer, ça se chevauche ») ; la police
+    // se réduit pour tenir entre « MC EXPORT » et la date (TESLA MODEL 3 LONG RANGE).
+    const room = W - 2 * margin - 2 * 52;
+    let size = 15; pdf.setFontSize(size);
+    while (size > 9 && pdf.getTextWidth(safe(car)) > room) { size -= 0.5; pdf.setFontSize(size); }
+    pdf.text(safe(car), W / 2, 15, { align: 'center' });
     pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9); pdf.setTextColor(...GRIS);
     pdf.text(safe(t.subtitle), W / 2, 21, { align: 'center' });
     pdf.text(safe(today).toUpperCase(), W - margin, 15, { align: 'right' });

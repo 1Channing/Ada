@@ -1389,7 +1389,7 @@ export function Offres() {
 
           {/* ══ EXPORT ═════════════════════════════════════════════════════════ */}
           {fiches.job && <OfferFichesBanner job={fiches.job} onDetail={() => setFichesOpen(true)} onClear={fiches.clear} />}
-          {fichesOpen && draft && <OfferFichesModal vehicles={selected} job={fiches.job} onStart={(lang) => fiches.start(selected, lang)} onClose={() => setFichesOpen(false)} />}
+          {fichesOpen && draft && <OfferFichesModal vehicles={selected} job={fiches.job} onStart={(lang, reread) => fiches.start(selected, lang, reread)} onClose={() => setFichesOpen(false)} />}
           {view === 'export' && (
             <div className="space-y-4">
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3 flex-wrap text-sm">

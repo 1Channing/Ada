@@ -13,7 +13,7 @@ import { Loader2, X, FileDown, AlertTriangle, Check } from 'lucide-react';
 import type { OfferVehicle } from '../lib/offers/parseSupplierFile';
 import type { FycLang } from '../lib/fycPdf';
 import { buildFiche, publishFiche, prefetchTranslations, ensureInspection, waitInspectionRead } from '../services/fycFiche';
-import { updateInspection, type FycInspection } from '../services/fyc';
+import { updateInspection, retryInspection, type FycInspection } from '../services/fyc';
 
 export const FICHE_LANGS: Array<{ code: FycLang; label: string }> = [
   { code: 'en', label: 'Anglais' }, { code: 'fr', label: 'Français' }, { code: 'nl', label: 'Néerlandais' }, { code: 'de', label: 'Allemand' },
@@ -22,12 +22,14 @@ export const FICHE_LANGS: Array<{ code: FycLang; label: string }> = [
 export const SUPPLIER_REPORT_KEY = 'Rapport fournisseur';
 
 export interface FicheJob { lang: FycLang; ids: string[]; progress: Record<string, string>; done: number; failed: number; running: boolean; error: string | null }
+/** Le lien de rapport d'ORIGINE d'un véhicule : celui gardé en colonne libre quand une fiche l'a déjà remplacé. */
+export const sourceReportUrl = (v: OfferVehicle): string | null => { const u = v.extras?.[SUPPLIER_REPORT_KEY] || v.report_url; return u && /^https?:\/\//i.test(u) ? u : null; };
 
 /** Le travail, porté par la page : `start` lance, `job` suit. */
 export function useOfferFiches(setVehicle: (id: string, patch: Partial<OfferVehicle>) => void, author: string, authorEmail: string | null, offerTitle: () => string) {
   const [job, setJob] = useState<FicheJob | null>(null);
-  const start = (vehicles: OfferVehicle[], lang: FycLang) => {
-    const targets = vehicles.filter((v) => v.report_url && /^https?:\/\//i.test(v.report_url));
+  const start = (vehicles: OfferVehicle[], lang: FycLang, reread = false) => {
+    const targets = vehicles.filter((v) => sourceReportUrl(v));
     const init: FicheJob = { lang, ids: targets.map((v) => v.id), progress: {}, done: 0, failed: 0, running: true, error: null };
     setJob(init);
     const set = (f: (j: FicheJob) => FicheJob) => setJob((j) => (j ? f(j) : j));
@@ -37,8 +39,10 @@ export function useOfferFiches(setVehicle: (id: string, patch: Partial<OfferVehi
         // 1. Inspections : créées ou retrouvées, toutes d'un coup (le worker en lit 3 toutes les 20 s).
         const insps = new Map<string, FycInspection>();
         for (const v of targets) {
-          const r = await ensureInspection(v.report_url!, `Créée depuis l'offre « ${offerTitle()} »`);
+          const r = await ensureInspection(sourceReportUrl(v)!, `Créée depuis l'offre « ${offerTitle()} »`);
           if (r.error || !r.row) { prog(v.id, `échec : ${r.error ?? 'inspection non créée'}`); set((j) => ({ ...j, failed: j.failed + 1 })); continue; }
+          // « Refaire les inspections » (12/11) : le rapport est relu par le worker (données et photos à jour).
+          if (reread && r.row.status !== 'queued') { await retryInspection(r.row.id); r.row = { ...r.row, status: 'queued' }; }
           insps.set(v.id, r.row); prog(v.id, r.row.status === 'read' ? 'rapport lu' : 'rapport en file…');
         }
         // 2. Attendre les lectures.
@@ -57,10 +61,10 @@ export function useOfferFiches(setVehicle: (id: string, patch: Partial<OfferVehi
             prog(v.id, 'publication…');
             const pub = await publishFiche(insp, lang, blob);
             if (pub.error || !pub.url) throw new Error(pub.error ?? 'fiche non publiée');
-            const original = v.report_url!;
+            const original = sourceReportUrl(v)!;
             setVehicle(v.id, {
               report_url: pub.url,
-              extras: { ...v.extras, [SUPPLIER_REPORT_KEY]: v.extras?.[SUPPLIER_REPORT_KEY] ?? original },
+              extras: { ...v.extras, [SUPPLIER_REPORT_KEY]: original },
               ...(v.damages == null && insp.repair_cost != null ? { damages: insp.repair_cost } : {}),
             });
             void updateInspection(insp.id, { archived_at: insp.archived_at ?? new Date().toISOString() });
@@ -87,9 +91,10 @@ export function OfferFichesBanner({ job, onDetail, onClear }: { job: FicheJob; o
   );
 }
 
-export function OfferFichesModal({ vehicles, job, onStart, onClose }: { vehicles: OfferVehicle[]; job: FicheJob | null; onStart: (lang: FycLang) => void; onClose: () => void }) {
+export function OfferFichesModal({ vehicles, job, onStart, onClose }: { vehicles: OfferVehicle[]; job: FicheJob | null; onStart: (lang: FycLang, reread: boolean) => void; onClose: () => void }) {
   const [lang, setLang] = useState<FycLang>('en');
-  const withLink = vehicles.filter((v) => v.report_url && /^https?:\/\//i.test(v.report_url));
+  const [reread, setReread] = useState(false);
+  const withLink = vehicles.filter((v) => sourceReportUrl(v));
   const running = !!job?.running;
   const rows = job ? vehicles.filter((v) => job.ids.includes(v.id)) : withLink;
   return (
@@ -105,6 +110,7 @@ export function OfferFichesModal({ vehicles, job, onStart, onClose }: { vehicles
             <select value={job?.lang ?? lang} onChange={(e) => setLang(e.target.value as FycLang)} disabled={running} className="ml-2 px-2 py-1.5 rounded-lg border border-slate-300 text-sm bg-white">{FICHE_LANGS.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}</select>
           </label>
           <span className="text-xs text-slate-500">{withLink.length} véhicule{withLink.length > 1 ? 's' : ''} avec un lien de rapport sur {vehicles.length} retenu{vehicles.length > 1 ? 's' : ''}</span>
+          <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer" title="Le worker retélécharge et relit chaque rapport avant de refaire la fiche (données et photos à jour)"><input type="checkbox" checked={reread} onChange={(e) => setReread(e.target.checked)} disabled={running} className="rounded border-slate-300" /> Refaire les inspections (relire les rapports)</label>
         </div>
         {running && <p className="text-xs text-sky-900 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2">{job!.done} / {job!.ids.length} fiches publiées. Les rapports sont lus par le worker (3 toutes les 20 s), puis chaque fiche est construite : compte une à deux minutes pour dix véhicules. Tu peux fermer cette fenêtre.</p>}
         <table className="w-full text-sm">
@@ -114,7 +120,7 @@ export function OfferFichesModal({ vehicles, job, onStart, onClose }: { vehicles
               <tr key={v.id}>
                 <td className="py-1.5 pr-3 font-medium text-slate-900">{v.brand} {v.model}</td>
                 <td className="py-1.5 pr-3 text-xs text-slate-500">{v.vin ?? '—'}</td>
-                <td className="py-1.5 pr-3 text-xs text-slate-500 truncate max-w-[220px]">{(v.extras?.[SUPPLIER_REPORT_KEY] ?? v.report_url ?? '').replace(/^https?:\/\//, '').slice(0, 50)}</td>
+                <td className="py-1.5 pr-3 text-xs text-slate-500 truncate max-w-[220px]">{(sourceReportUrl(v) ?? '').replace(/^https?:\/\//, '').slice(0, 50)}</td>
                 <td className={`py-1.5 pr-3 text-xs whitespace-nowrap ${/^échec/.test(job?.progress[v.id] ?? '') ? 'text-red-700' : 'text-slate-600'}`}>{job?.progress[v.id] ?? (v.extras?.[SUPPLIER_REPORT_KEY] ? 'déjà remplacé (sera refait)' : 'à faire')}</td>
               </tr>
             ))}
@@ -123,7 +129,7 @@ export function OfferFichesModal({ vehicles, job, onStart, onClose }: { vehicles
         {job?.error && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{job.error}</p>}
         <div className="flex items-center gap-2 justify-end">
           <button onClick={onClose} className="text-sm px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50">{running ? 'Fermer (continue en arrière-plan)' : 'Fermer'}</button>
-          <button onClick={() => onStart(lang)} disabled={running || withLink.length === 0} className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white disabled:opacity-50">{running ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />} {running ? `En cours… ${job!.done} / ${job!.ids.length}` : `Créer les fiches (${withLink.length})`}</button>
+          <button onClick={() => onStart(lang, reread)} disabled={running || withLink.length === 0} className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg bg-brand-ocean hover:bg-brand-encre text-white disabled:opacity-50">{running ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />} {running ? `En cours… ${job!.done} / ${job!.ids.length}` : `Créer les fiches (${withLink.length})`}</button>
         </div>
       </div>
     </div>
