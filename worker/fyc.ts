@@ -163,7 +163,7 @@ async function translate(sb: { from: (t: string) => any }, row: { id: string; tr
     const r = await callClaude<FycTranslation>({
       agent: 'ada', budgetUsd: TRANSLATION_BUDGET_USD, purpose: 'fyc_traduction', model: HAIKU,
       system: translationSystem(lang), user: JSON.stringify(src), schema: FYC_TRANSLATION_SCHEMA as unknown as Record<string, unknown>,
-      maxTokens: 6000, effort: 'low',
+      maxTokens: 16000, effort: 'low',
     });
     if (!translationFits(src, r.data)) { await done(null, 'réponse incomplète (listes de longueur différente)'); console.warn(`[FYC] traduction ${lang} incomplète pour ${row.id}`); return; }
     await done(r.data, null);
