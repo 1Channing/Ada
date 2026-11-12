@@ -24,6 +24,7 @@ import { HAIKU } from '../src/lib/agents/aiCost';
 import { translationSource, translationSystem, translationFits, FYC_TRANSLATION_SCHEMA, FYC_LANG_NAMES, type FycTranslation, type FycTranslatable } from '../src/lib/fycTranslation';
 import { isDekraReport, parseDekraReport, dekraLanguageUrls, dekraTranslationFrom, type DekraPhoto, type FycDefectPhoto } from '../src/lib/dekraReport';
 import { isFleetboxReport, parseFleetboxReport, fleetboxTranslationFrom } from '../src/lib/fleetboxReport';
+import { parseFycReport } from '../src/lib/fycReport';
 import { groupLines } from '../src/lib/pdfLines';
 
 const POLL_MS = 20_000;
@@ -182,23 +183,39 @@ async function tick(): Promise<void> {
     // Traductions demandées (fiche PDF client) : avant les téléchargements, quelqu'un attend devant l'écran.
     const tr = await sb.from('fyc_inspections').select('id, translate_to, translations, pdf_path, source_url, fuel, gearbox, body, color, equipment, tyres, damages').eq('status', 'read').not('translate_to', 'is', null).order('updated_at', { ascending: true }).limit(3);
     if (!tr.error) for (const row of (tr.data ?? []) as Array<Parameters<typeof translate>[1]>) await translate(sb, row);
-    const { data, error } = await sb.from('fyc_inspections').select('id, source_url').eq('status', 'queued').order('created_at', { ascending: true }).limit(3);
+    const { data, error } = await sb.from('fyc_inspections').select('id, source_url, purchase_price').eq('status', 'queued').order('created_at', { ascending: true }).limit(3);
     if (error) { if (!warned && !/does not exist|schema cache/i.test(error.message)) console.warn(`[FYC] file illisible : ${error.message}`); warned = true; return; }
-    for (const row of (data ?? []) as Array<{ id: string; source_url: string }>) {
+    for (const row of (data ?? []) as Array<{ id: string; source_url: string; purchase_price: number | null }>) {
       try {
         const { buf, from, kind } = await fetchReport(row.source_url);
         const path = `fyc/${row.id}.${kind}`;
         const up = await supabase.storage.from(BUCKET).upload(path, buf, { contentType: kind === 'pdf' ? 'application/pdf' : 'text/html; charset=utf-8', upsert: true });
         if (up.error) throw new Error(`storage : ${up.error.message}`);
-        // Page HTML (DEKRA) : ses photos sont téléchargées ici, le navigateur ne lira que les champs.
+        // LES CHAMPS SONT LUS ICI (12/11, Channing : « pourquoi si on sait les lire Ada ne sait pas les lire ? » — six
+        // rapports VTI en échec chez Achille : la lecture se faisait dans le navigateur, et Safari n'exécute pas la
+        // bibliothèque PDF). Mêmes lecteurs que le navigateur ; la ligne passe directement à « read ». Le navigateur
+        // n'ajoute plus que les photos des PDF (canvas). Si la lecture rate ici, « fetched » : le navigateur essaie.
         const extra: Record<string, unknown> = {};
-        if (kind === 'html') {
-          const got = await downloadPhotos(row.id, parseDekraReport(buf.toString('utf8')).photos);
-          extra.photos = got.photos; extra.defect_photos = got.defect_photos;
-          console.warn(`[FYC] rapport DEKRA : ${got.photos.length} photos, ${got.defect_photos.length} photos de dommages`);
-        }
-        await sb.from('fyc_inspections').update({ status: 'fetched', pdf_path: path, error: null, updated_at: new Date().toISOString(), ...extra }).eq('id', row.id);
-        console.warn(`[FYC] rapport téléchargé (${Math.round(buf.length / 1024)} Ko, ${kind}) depuis ${from.slice(0, 60)}…`);
+        let status: 'fetched' | 'read' = 'fetched';
+        try {
+          if (kind === 'html') {
+            const html = buf.toString('utf8');
+            const parsed = parseDekraReport(html);
+            const got = await downloadPhotos(row.id, parsed.photos);
+            extra.photos = got.photos; extra.defect_photos = got.defect_photos;
+            console.warn(`[FYC] rapport DEKRA : ${got.photos.length} photos, ${got.defect_photos.length} photos de dommages`);
+            if (parsed.fields.brand || parsed.fields.vin) { Object.assign(extra, parsed.fields); status = 'read'; }
+          } else {
+            const lines = await pdfLinesOf(buf);
+            const fields = isFleetboxReport(lines) ? parseFleetboxReport(lines).fields : parseFycReport(lines);
+            if (fields.brand || fields.vin) {
+              Object.assign(extra, fields); status = 'read';
+              if (row.purchase_price == null && fields.asking_price != null) extra.purchase_price = fields.asking_price;
+            }
+          }
+        } catch (e) { console.warn(`[FYC] champs non lus côté worker (le navigateur essaiera) : ${e instanceof Error ? e.message : String(e)}`); }
+        await sb.from('fyc_inspections').update({ status, pdf_path: path, error: null, updated_at: new Date().toISOString(), ...extra }).eq('id', row.id);
+        console.warn(`[FYC] rapport téléchargé (${Math.round(buf.length / 1024)} Ko, ${kind}, ${status === 'read' ? 'champs lus' : 'champs à lire par le navigateur'}) depuis ${from.slice(0, 60)}…`);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         await sb.from('fyc_inspections').update({ status: 'failed', error: msg.slice(0, 800), updated_at: new Date().toISOString() }).eq('id', row.id);

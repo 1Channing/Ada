@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ClipboardList, ExternalLink, FileDown, FileUp, Loader2, RefreshCw, Trash2, Search, AlertTriangle, Check, Archive, ArchiveRestore, Images, Send, X, Pencil } from 'lucide-react';
 import { useAuth } from '../services/auth';
-import { listInspections, addInspections, addInspectionFile, updateInspection, deleteInspection, retryInspection, rereadInspection, readInspection, filtersFromInspection, fuelTokenOf, type FycInspection } from '../services/fyc';
+import { listInspections, addInspections, addInspectionFile, updateInspection, deleteInspection, retryInspection, rereadInspection, readInspection, attachPhotos, photosPending, filtersFromInspection, fuelTokenOf, type FycInspection } from '../services/fyc';
 import { useSignedUrls } from '../services/storageAccess';
 import { buildFiche, publishFiche, prefetchTranslations, engineOfInspection, ficheLangOf, ficheFileName } from '../services/fycFiche';
 import type { FycEditableField } from '../services/fyc';
@@ -65,6 +65,14 @@ export function FycView({ onOpenMarket, active = true }: { onOpenMarket: (f: Mar
       if (row.status === 'fetched' && !reading.current.has(row.id)) {
         reading.current.add(row.id);
         void readInspection(row).finally(() => { reading.current.delete(row.id); void reload(); });
+        break;
+      }
+    }
+    // Photos des PDF lus par le worker (12/11) : ajoutées ici, une ligne à la fois, jamais bloquant.
+    for (const row of r.rows) {
+      if (photosPending(row) && !reading.current.has(row.id)) {
+        reading.current.add(row.id);
+        void attachPhotos(row).finally(() => { reading.current.delete(row.id); void reload(); });
         break;
       }
     }

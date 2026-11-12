@@ -156,6 +156,23 @@ export async function addInspectionFile(file: File): Promise<{ id: string | null
   return { id, error: null };
 }
 
+/** PHOTOS D'UN PDF DÉJÀ LU PAR LE WORKER (12/11) : le worker lit les champs mais n'a pas de canvas ; le navigateur
+ *  ajoute les photos une fois (marque `_photos` dans raw_fields : 'ok', 'aucune' ou l'erreur), sans jamais mettre la
+ *  ligne en échec — un navigateur qui ne sait pas lire le PDF (Safari) laisse simplement la fiche sans photos. */
+export const photosPending = (r: FycInspection): boolean => r.status === 'read' && !!r.pdf_path && /\.pdf$/i.test(r.pdf_path) && r.photos.length === 0 && !r.raw_fields._photos;
+export async function attachPhotos(row: FycInspection): Promise<void> {
+  let mark = 'ok';
+  let photos: string[] = [];
+  try {
+    const res = await fetch(await signedUrl(row.pdf_path!));
+    if (!res.ok) throw new Error(`fichier illisible (HTTP ${res.status})`);
+    const blobs = await extractPdfPhotos(await res.blob(), { maxCount: 40, minWidth: 180, maxRatio: 2.2 });
+    photos = blobs.length ? await storePhotos(row.id, blobs) : [];
+    if (!photos.length) mark = 'aucune';
+  } catch (e) { mark = `échec : ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`; }
+  await untyped.from('fyc_inspections').update({ ...(photos.length ? { photos } : {}), raw_fields: { ...row.raw_fields, _photos: mark }, updated_at: new Date().toISOString() }).eq('id', row.id);
+}
+
 /** Le rapport est dans le storage (worker, ou dépôt direct) : le navigateur en lit les champs et les enregistre. */
 export async function readInspection(row: FycInspection): Promise<string | null> {
   if (!row.pdf_path) return 'PDF absent';
