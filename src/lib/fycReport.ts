@@ -72,9 +72,14 @@ export function parseFycReport(input: FycLine[]): FycReportFields {
   const equipment: string[] = [];
   const tyres: string[] = [];
   { let inEq = false, inTy = false; const cols: [string[], string[]] = [[], []]; let mid: number | null = null;
+    let lastHead = '';
     for (const l of src) {
-      if (/^»/.test(l.text) || EQUIP_HEAD.test(l.text) || TYRES_HEAD.test(l.text) || ANY_SECTION.test(l.text)) { inEq = EQUIP_HEAD.test(l.text); inTy = TYRES_HEAD.test(l.text); continue; }
+      if (/^»/.test(l.text) || EQUIP_HEAD.test(l.text) || TYRES_HEAD.test(l.text) || ANY_SECTION.test(l.text)) { inEq = EQUIP_HEAD.test(l.text); inTy = TYRES_HEAD.test(l.text); lastHead = l.text; continue; }
       if (PAGE_NOISE.test(l.text)) continue;
+      // ÉQUIPEMENTS SANS EN-TÊTE (12/11, Audi Q5 VTI 11247824) : certains rapports enchaînent la liste sur deux colonnes
+      // juste après « Documents & Maintenance », sans « » Vehicle Equipment » — une ligne à deux morceaux sans « : »
+      // à cet endroit ouvre la section.
+      if (!inEq && !inTy && /Documents|Maintenance|Vehicle Data/i.test(lastHead) && (l.frags ?? []).filter((f) => f.s.trim()).length === 2 && !l.text.includes(':')) inEq = true;
       if (inTy) {
         if (/^(Permitted|Roadworthy|SPARE|Toolkit|Autoris|Roulable|Trousse)/i.test(l.text)) { inTy = false; continue; }
         if (/\d{3}\/\d{2}\s*R\s*\d{2}/.test(l.text) && /\d+([.,]\d)?\s*mm\b/.test(l.text)) tyres.push(l.text);
@@ -203,7 +208,7 @@ export function shortModel(model: string | null, brand: string | null): string |
 export function damageSummary(d: FycReportFields['damages']): string[] {
   const out: string[] = [];
   const tyres = d.devaluation.filter((x) => /tyre|pneu|reifen|band/i.test(x.zone)).length;
-  const rims = d.devaluation.filter((x) => /rim|jante|felge|velg/i.test(x.zone)).length;
+  const rims = d.devaluation.filter((x) => /\b(rims?|jantes?|felgen?|velgen?)\b/i.test(x.zone)).length; // \b : « Wing trim » n'est pas une jante
   const bodyDev = d.devaluation.length - tyres - rims;
   if (tyres) out.push(`${tyres} pneu${tyres > 1 ? 's' : ''} à remplacer`);
   if (rims) out.push(`${rims} jante${rims > 1 ? 's' : ''} à retoucher`);
