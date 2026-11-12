@@ -240,8 +240,9 @@ export async function buildFycPdf(insp: FycInspection, lang: FycLang, contact: F
   // PLUS DE PRIX SUR LA FICHE (12/11, Channing : « on enlève la ligne prix, comme on a dit ») : ni cartouche en tête,
   // ni bloc « Notre prix » — le prix se discute dans l'offre, pas sur l'inspection.
 
-  section(t.contact);
-  kv([['MC Export', contact.name], ['E-mail', contact.email ?? '-'], ['Web', 'mc-export.com'], [t.date, today]]);
+  // PLUS DE BLOC « VOTRE CONTACT MC EXPORT » (12/11, Channing : « enlever cette case dans nos inspections pour les
+  // prochaines ») : l'en-tête (MC EXPORT, date) et le pied de page (mc-export.com) suffisent.
+  void contact;
 
   if (photos.length > 2) { section(t.photos); photoGrid(photos.slice(2), photos.length > 12 ? 3 : 2); }
 
