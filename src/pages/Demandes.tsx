@@ -160,6 +160,9 @@ function LeadDetail({ lead, onPatch, onMailed }: { lead: SiteLeadRow; onPatch: (
     setSending(false);
     if (r.error) { setErr(r.error); return; }
     setComposeOpen(false); onMailed(); await loadMails();
+    // Une réponse envoyée = demande traitée (13/11, Channing : « quand un mail est envoyé via ADA, cela range la
+    // demande dans traitée directement ») ; une demande écartée le reste.
+    if (lead.status === 'nouvelle') await setStatus('traitee');
   };
 
   const d = lead.details ?? {};
