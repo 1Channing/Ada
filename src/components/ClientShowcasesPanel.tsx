@@ -5,7 +5,7 @@
  * Graphiques : équivalents en stock / vendus par client ; prix des équivalents face à notre prix TTC du pays.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ScatterChart, Scatter, ReferenceLine, ZAxis } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Store, Loader2, ExternalLink, ChevronDown, ChevronRight, BadgeCheck, Info } from 'lucide-react';
 import { loadNetwork, type NetworkContact } from '../services/network';
 import { listRefBrandModels } from '../services/workflow';
@@ -20,8 +20,7 @@ import type { OfferVehicle } from '../lib/offers/parseSupplierFile';
 import { ShowcaseModal } from './ShowcaseModal';
 
 const OCEAN = '#2C5F9E'; // en stock
-const AMBER = '#A16207'; // vendus (palette validée : chroma, CVD, contraste)
-const ENCRE = '#22346E';
+const AMBER = '#B45309'; // vendus — seules couleurs du panneau (palette validée : chroma, CVD, contraste)
 const GRID = '#e2e8f0'; const AXIS = '#64748b';
 const tooltipStyle = { fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' };
 const eur = (n: number | null | undefined) => (n == null ? '—' : `${Math.round(n).toLocaleString('fr-FR')} €`);
@@ -76,15 +75,6 @@ export function ClientShowcasesPanel({ lots, vehicles, countries, priceHtOf }: {
 
   const totals = useMemo(() => rows ? { clients: rows.length, inStock: rows.reduce((a, r) => a + r.inStock.length, 0), sold: rows.reduce((a, r) => a + r.sold.length, 0), soldOut: rows.filter((r) => r.soldOut).length } : null, [rows]);
   const bars = useMemo(() => (rows ?? []).slice(0, 14).map((r) => ({ name: r.contact.name.length > 22 ? `${r.contact.name.slice(0, 21)}…` : r.contact.name, 'en stock': r.inStock.length, vendus: r.sold.length })), [rows]);
-  const dots = useMemo(() => {
-    const list = (rows ?? []).slice(0, 14);
-    const inStock: Array<{ x: number; y: number; name: string; title: string }> = []; const sold: typeof inStock = [];
-    list.forEach((r, i) => {
-      for (const m of r.inStock) if (m.priceEur != null) inStock.push({ x: m.priceEur, y: i, name: r.contact.name, title: m.theirs.title ?? '' });
-      for (const m of r.sold) if (m.lastEur != null) sold.push({ x: m.lastEur, y: i, name: r.contact.name, title: m.theirs.title ?? '' });
-    });
-    return { inStock, sold, names: list.map((r) => r.contact.name) };
-  }, [rows]);
   const countryName = (c: string) => OFFER_COUNTRIES.find((x) => x.code === c)?.label ?? c;
 
   return (
@@ -117,20 +107,20 @@ export function ClientShowcasesPanel({ lots, vehicles, countries, priceHtOf }: {
             <p className="text-sm text-slate-500">Aucun client {countryName(cc)} n'a d'équivalent {lot.brand} {lot.model} dans sa vitrine relevée, ni en stock ni vendu.</p>
           ) : (
             <>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <Tile label="Clients avec des équivalents" value={String(totals!.clients)} />
-                <Tile label="Équivalents en stock" value={String(totals!.inStock)} tone="ocean" />
-                <Tile label="Équivalents vendus" value={String(totals!.sold)} hint="disparus de la vitrine" tone="amber" />
-                <Tile label="Ont tout vendu" value={String(totals!.soldOut)} hint="plus rien en stock, à proposer" tone={totals!.soldOut > 0 ? 'ok' : undefined} />
-              </div>
-              <div className="grid md:grid-cols-2 gap-3">
-                <div className="rounded-xl border border-slate-200 p-3">
+              <div className="rounded-xl border border-slate-200 divide-y divide-slate-100">
+                <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-slate-100">
+                  <Tile label="Clients avec des équivalents" value={String(totals!.clients)} />
+                  <Tile label="Équivalents en stock" value={String(totals!.inStock)} />
+                  <Tile label="Équivalents vendus" value={String(totals!.sold)} hint="disparus de la vitrine" />
+                  <Tile label="Ont tout vendu" value={String(totals!.soldOut)} hint="plus rien en stock : à proposer" />
+                </div>
+                <div className="px-3 py-2">
                   <p className="text-xs font-semibold text-slate-800 mb-1">Équivalents par client <span className="font-normal text-slate-500">· en stock et vendus{rows.length > 14 ? ' · 14 premiers' : ''}</span></p>
-                  <ResponsiveContainer width="100%" height={Math.max(140, 26 * bars.length + 40)}>
+                  <ResponsiveContainer width="100%" height={Math.max(120, 26 * bars.length + 40)}>
                     <BarChart data={bars} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 8 }} barGap={2}>
                       <CartesianGrid stroke={GRID} strokeDasharray="3 3" horizontal={false} />
                       <XAxis type="number" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} allowDecimals={false} />
-                      <YAxis type="category" dataKey="name" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={130} />
+                      <YAxis type="category" dataKey="name" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={150} />
                       <Tooltip contentStyle={tooltipStyle} cursor={{ fill: '#0f172a0a' }} />
                       <Legend wrapperStyle={{ fontSize: 11 }} />
                       <Bar dataKey="en stock" fill={OCEAN} radius={[0, 4, 4, 0]} />
@@ -138,26 +128,11 @@ export function ClientShowcasesPanel({ lots, vehicles, countries, priceHtOf }: {
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="rounded-xl border border-slate-200 p-3">
-                  <p className="text-xs font-semibold text-slate-800 mb-1">Prix des équivalents <span className="font-normal text-slate-500">· en stock (prix affiché) et vendus (dernier prix){ourTtc ? ` · trait = notre TTC ${cc}` : ''}</span></p>
-                  <ResponsiveContainer width="100%" height={Math.max(140, 26 * dots.names.length + 40)}>
-                    <ScatterChart margin={{ top: 4, right: 16, bottom: 4, left: 8 }}>
-                      <CartesianGrid stroke={GRID} strokeDasharray="3 3" horizontal={false} />
-                      <XAxis type="number" dataKey="x" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} tickFormatter={(v: number) => `${Math.round(v / 1000)} k€`} domain={['auto', 'auto']} />
-                      <YAxis type="number" dataKey="y" tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} width={130} domain={[-0.5, Math.max(0.5, dots.names.length - 0.5)]} ticks={dots.names.map((_, i) => i)} tickFormatter={(i: number) => { const n = dots.names[i] ?? ''; return n.length > 22 ? `${n.slice(0, 21)}…` : n; }} reversed />
-                      <ZAxis range={[48, 48]} />
-                      <Tooltip contentStyle={tooltipStyle} cursor={{ strokeDasharray: '3 3' }} formatter={(v, _n, p) => [eur(typeof v === 'number' ? v : null), String((p?.payload as { title?: string } | undefined)?.title ?? '')]} labelFormatter={() => ''} />
-                      <Legend wrapperStyle={{ fontSize: 11 }} />
-                      {ourTtc && <ReferenceLine x={ourTtc} stroke={ENCRE} strokeDasharray="4 4" label={{ value: `notre TTC ${eur(ourTtc)}`, fill: ENCRE, fontSize: 10, position: 'insideTopRight' }} />}
-                      <Scatter name="en stock" data={dots.inStock} fill={OCEAN} />
-                      <Scatter name="vendus" data={dots.sold} fill={AMBER} shape="diamond" />
-                    </ScatterChart>
-                  </ResponsiveContainer>
-                </div>
               </div>
+              <div className="rounded-xl border border-slate-200 overflow-hidden">
               <table className="w-full text-xs">
-                <thead><tr className="text-left text-slate-500 border-b border-slate-200">
-                  <th className="py-2 pr-3 font-medium">Client</th>
+                <thead><tr className="text-left text-slate-500 bg-slate-50 border-b border-slate-200">
+                  <th className="py-2 pl-3 pr-3 font-medium">Client</th>
                   <th className="py-2 pr-3 font-medium text-right">En stock</th>
                   <th className="py-2 pr-3 font-medium text-right">Prix mini · médian</th>
                   <th className="py-2 pr-3 font-medium text-right">Jours de stock</th>
@@ -172,6 +147,7 @@ export function ClientShowcasesPanel({ lots, vehicles, countries, priceHtOf }: {
                   ))}
                 </tbody>
               </table>
+              </div>
               <p className="text-[11px] text-slate-400 flex items-start gap-1"><Info className="w-3 h-3 mt-0.5 shrink-0" /> « Vendus » = équivalents présents à un relevé puis disparus de la vitrine (vendus ou retirés) ; le prix de vente est le dernier prix vu avant disparition, la baisse compare au premier prix vu. « Stock moyen » = nombre d'équivalents présents en moyenne aux relevés des 90 derniers jours. « Même modèle » compte toutes les voitures de ce modèle, sans condition d'année ni de km.</p>
             </>
           )}
@@ -182,13 +158,12 @@ export function ClientShowcasesPanel({ lots, vehicles, countries, priceHtOf }: {
   );
 }
 
-function Tile({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: 'ok' | 'ocean' | 'amber' }) {
-  const cls = tone === 'ok' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : tone === 'ocean' ? 'border-blue-200 bg-blue-50 text-brand-encre' : tone === 'amber' ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-slate-200 bg-slate-50 text-slate-800';
+function Tile({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className={`rounded-lg border px-3 py-2 ${cls}`}>
-      <p className="text-[11px] opacity-80">{label}</p>
-      <p className="text-lg font-semibold tabular-nums">{value}</p>
-      {hint && <p className="text-[10px] opacity-70">{hint}</p>}
+    <div className="px-3 py-2">
+      <p className="text-[11px] text-slate-500">{label}</p>
+      <p className="text-lg font-semibold tabular-nums text-slate-900">{value}</p>
+      {hint && <p className="text-[10px] text-slate-400">{hint}</p>}
     </div>
   );
 }
@@ -196,13 +171,13 @@ function Tile({ label, value, hint, tone }: { label: string; value: string; hint
 function ClientRows({ r, open, onToggle, onShowcase }: { r: ClientRow; open: boolean; onToggle: () => void; onShowcase: () => void }) {
   return (
     <>
-      <tr className={`${r.soldOut ? 'bg-emerald-50/40' : ''} hover:bg-slate-50/60`}>
-        <td className="py-2 pr-3 align-top">
+      <tr className="hover:bg-slate-50/60">
+        <td className="py-2 pl-3 pr-3 align-top">
           <button type="button" onClick={onToggle} className="inline-flex items-center gap-1 font-medium text-slate-800 hover:text-brand-ocean" aria-expanded={open}>
             {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />} {r.contact.name}
           </button>
           <span className="block text-slate-500 pl-5">{r.contact.city ?? ''}{r.lastRunAt ? ` · relevé ${d(r.lastRunAt)}` : ''} · même modèle : {r.sameModelInStock} en stock, {r.sameModelSold} vendus</span>
-          {r.soldOut && <span className="ml-5 mt-0.5 inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800"><BadgeCheck className="w-3 h-3" /> tout vendu — à proposer</span>}
+          {r.soldOut && <span className="ml-5 mt-0.5 inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-full border border-slate-300 text-slate-700"><BadgeCheck className="w-3 h-3" /> tout vendu — à proposer</span>}
         </td>
         <td className="py-2 pr-3 align-top text-right tabular-nums font-semibold text-slate-800">{r.inStock.length || '—'}</td>
         <td className="py-2 pr-3 align-top text-right tabular-nums">{r.priceMin != null ? <>{eur(r.priceMin)}<span className="text-slate-400"> · {eur(r.priceMedian)}</span></> : '—'}</td>
@@ -213,44 +188,43 @@ function ClientRows({ r, open, onToggle, onShowcase }: { r: ClientRow; open: boo
         <td className="py-2 pr-3 align-top text-right whitespace-nowrap"><button type="button" onClick={onShowcase} className="text-[11px] px-2 py-1 rounded-lg border border-slate-300 bg-white text-slate-600 hover:bg-slate-50">Vitrine</button></td>
       </tr>
       {open && (
-        <tr className="bg-slate-50/60">
-          <td colSpan={8} className="px-3 py-2">
-            <div className="grid md:grid-cols-2 gap-3">
-              <MatchList title={`En stock · ${r.inStock.length}`} list={r.inStock} sold={false} />
-              <MatchList title={`Vendus · ${r.sold.length}`} list={r.sold} sold />
-            </div>
-          </td>
-        </tr>
+        <>
+          <tr className="bg-slate-50 text-[11px] text-slate-500">
+            <td className="py-1 pl-8 pr-3">Véhicule</td>
+            <td className="py-1 pr-3 text-right">Statut</td>
+            <td className="py-1 pr-3 text-right">Prix</td>
+            <td className="py-1 pr-3 text-right">Jours de stock</td>
+            <td className="py-1 pr-3 text-right">Premier prix vu</td>
+            <td className="py-1 pr-3 text-right">Baisse</td>
+            <td className="py-1 pr-3 text-right">Disparu le</td>
+            <td className="py-1 pr-3"></td>
+          </tr>
+          {[...r.inStock, ...r.sold].map((m) => <MatchRow key={m.theirs.id} m={m} />)}
+        </>
       )}
     </>
   );
 }
 
-function MatchList({ title, list, sold }: { title: string; list: ClientMatch[]; sold: boolean }) {
+function MatchRow({ m }: { m: ClientMatch }) {
+  const t = m.theirs; const sold = !!t.gone_at;
+  const price = sold ? m.lastEur : m.priceEur;
+  const drop = m.firstEur != null && price != null && m.firstEur !== price ? price - m.firstEur : null;
+  const pct = drop != null && m.firstEur ? Math.round((drop / m.firstEur) * 1000) / 10 : null;
   return (
-    <div>
-      <p className="text-[11px] font-semibold text-slate-700 mb-1">{title}</p>
-      {list.length === 0 ? <p className="text-[11px] text-slate-400">aucun</p> : (
-        <ul className="space-y-1">
-          {list.slice(0, 30).map((m) => {
-            const t = m.theirs;
-            return (
-              <li key={t.id} className="flex items-start gap-2 text-[11px]">
-                <div className="min-w-0 flex-1">
-                  <span className="font-medium text-slate-800">{t.title || `${t.brand ?? ''} ${t.model ?? ''}`}</span>
-                  {t.url && <a href={t.url} target="_blank" rel="noreferrer" className="ml-1 inline-flex text-brand-ocean align-middle" aria-label="Ouvrir l'annonce"><ExternalLink className="w-3 h-3" /></a>}
-                  <span className="block text-slate-500">{t.year ?? '—'} · {km(t.km)}{m.fuel ? ` · ${FUEL_LABEL[m.fuel]}` : ''}{m.power ? ` · ${m.power} ch` : ''}{m.trim ? ` · ${m.trim}` : ''}{m.trimState === 'different' ? ' · finition ≠' : ''}{sold ? ` · disparu le ${d(t.gone_at)}` : ''}{m.days != null ? ` · ${m.days} j` : ''}</span>
-                </div>
-                <div className="text-right tabular-nums whitespace-nowrap">
-                  <span className="font-semibold text-slate-800">{eur(sold ? m.lastEur : m.priceEur)}</span>
-                  {m.firstEur != null && m.lastEur != null && m.firstEur !== m.lastEur && <span className="block text-[10px] text-slate-400">vu d'abord à {eur(m.firstEur)}</span>}
-                </div>
-              </li>
-            );
-          })}
-          {list.length > 30 && <li className="text-[11px] text-slate-400">+ {list.length - 30} autres</li>}
-        </ul>
-      )}
-    </div>
+    <tr className="bg-slate-50/40 text-[11px]">
+      <td className="py-1.5 pl-8 pr-3 align-top">
+        <span className="font-medium text-slate-800">{t.title || `${t.brand ?? ''} ${t.model ?? ''}`}</span>
+        {t.url && <a href={t.url} target="_blank" rel="noreferrer" className="ml-1 inline-flex text-brand-ocean align-middle" aria-label="Ouvrir l'annonce"><ExternalLink className="w-3 h-3" /></a>}
+        <span className="block text-slate-500">{t.year ?? '—'} · {km(t.km)}{m.fuel ? ` · ${FUEL_LABEL[m.fuel]}` : ''}{m.gearbox ? ` · ${m.gearbox === 'auto' ? 'auto' : 'manuelle'}` : ' · boîte ?'}{m.power ? ` · ${m.power} ch` : ''}{m.trim ? ` · ${m.trim}` : ''}{m.trimState === 'different' ? ' · finition ≠' : ''}</span>
+      </td>
+      <td className="py-1.5 pr-3 align-top text-right whitespace-nowrap"><span className={`px-1.5 py-0.5 rounded-full border ${sold ? 'border-slate-300 text-slate-600' : 'border-blue-200 text-brand-encre bg-blue-50'}`}>{sold ? 'vendu' : 'en stock'}</span></td>
+      <td className="py-1.5 pr-3 align-top text-right tabular-nums font-semibold text-slate-800">{eur(price)}</td>
+      <td className="py-1.5 pr-3 align-top text-right tabular-nums">{m.days != null ? `${m.days} j` : '—'}</td>
+      <td className="py-1.5 pr-3 align-top text-right tabular-nums text-slate-600">{m.firstEur != null ? eur(m.firstEur) : '—'}</td>
+      <td className="py-1.5 pr-3 align-top text-right tabular-nums whitespace-nowrap">{drop != null ? <span className={drop < 0 ? 'text-amber-800 font-semibold' : 'text-slate-700'}>{drop > 0 ? '+' : ''}{eur(drop)}{pct != null ? ` (${pct > 0 ? '+' : ''}${pct.toLocaleString('fr-FR')} %)` : ''}</span> : <span className="text-slate-400">—</span>}</td>
+      <td className="py-1.5 pr-3 align-top text-right tabular-nums text-slate-600">{sold ? d(t.gone_at) : '—'}</td>
+      <td className="py-1.5 pr-3"></td>
+    </tr>
   );
 }

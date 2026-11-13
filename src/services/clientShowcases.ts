@@ -3,7 +3,8 @@
  * marché, une analyse par rapport aux vitrines de nos clients : on choisit un pays, puis un des modèles sélectionnés,
  * et ça propose les clients de ce pays qui en ont — combien, à quels prix, jours de stock ; combien ils en ont vendu,
  * stock moyen, évolution du prix jusqu'à la vente (dernier prix avant disparition). Équivalent = marque, modèle,
- * carburant, année exacte, km ± 15 000, finition si possible (les noms diffèrent d'un pays à l'autre). Proposer aussi
+ * carburant, année exacte, km ± 15 000, finition si possible (les noms diffèrent d'un pays à l'autre), boîte quand
+ * elle est connue. Proposer aussi
  * les clients qui n'en ont plus en stock parce qu'ils ont tout vendu. »).
  *
  * Deux parties : le CHARGEMENT ciblé (les relevés de vitrine des contacts d'un pays, pour UNE marque — jamais tout le
@@ -20,15 +21,34 @@ import type { OfferVehicle } from '../lib/offers/parseSupplierFile';
 
 const untyped = supabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
 
+export type GearboxFamily = 'auto' | 'manual';
+/** Boîte lue dans une colonne de relevé (« Automaat », « Handgeschakeld », « Automatique ») ou un titre (« *Automaat »). */
+export function gearboxFamily(text: string | null | undefined): GearboxFamily | null {
+  const t = (text ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  if (!t.trim()) return null;
+  if (/automa|automaat|\bauto\b|\baut\.?\b|\bcvt\b|\bdsg\b|\bdct\b|e-?cvt|steptronic|tiptronic|s-?tronic|\bbva\b|\beat\d\b|\bedc\b/.test(t)) return 'auto';
+  if (/handgeschakeld|handbak|manual|manuel|schalt|\bbvm\b|\bmt\b/.test(t)) return 'manual';
+  return null;
+}
+/** Énergie d'une voiture du client : le TITRE prime quand il dit hybride / rechargeable / électrique (13/11 : les
+ *  vitrines néerlandaises classent une « Ignis Smart Hybrid » en « Benzine » — hybride léger), sinon la colonne. */
+export function theirsFuel(t: { fuel: string | null; title: string | null }): FuelFamily | null {
+  const fromTitle = fuelFamily(t.title);
+  if (fromTitle === 'hybrid' || fromTitle === 'phev' || fromTitle === 'electric') return fromTitle;
+  return fuelFamily(t.fuel) ?? fromTitle;
+}
+/** Énergies compatibles : identiques, ou hybride léger ↔ essence (même voiture selon la vitrine qui la décrit). */
+export const fuelCompatible = (a: FuelFamily | null, b: FuelFamily | null): boolean => !a || !b || a === b || (new Set([a, b]).size === 2 && ['hybrid', 'petrol'].includes(a) && ['hybrid', 'petrol'].includes(b));
+
 /** Un véhicule de l'offre, prêt à être comparé. */
-export interface LotVehicle { id: string; year: number | null; km: number | null; fuel: FuelFamily | null; trim: string | null; power: number | null; priceHt: number | null }
+export interface LotVehicle { id: string; year: number | null; km: number | null; fuel: FuelFamily | null; gearbox: GearboxFamily | null; trim: string | null; power: number | null; priceHt: number | null }
 
 export const yearOfDate = (iso: string | null | undefined): number | null => { if (!iso) return null; const y = Number(iso.slice(0, 4)); return Number.isFinite(y) && y > 1900 ? y : null; };
 
 export function lotVehiclesOf(vehicles: OfferVehicle[], priceHtOf: (v: OfferVehicle) => number | null): LotVehicle[] {
   return vehicles.map((v) => ({
     id: v.id, year: v.year ?? yearOfDate(v.reg_date), km: v.km,
-    fuel: fuelFamily(v.fuel) ?? fuelFamily(v.version), trim: trimOf(v.version), power: v.power_ch ?? powerFromText(v.version), priceHt: priceHtOf(v),
+    fuel: fuelFamily(v.fuel) ?? fuelFamily(v.version), gearbox: gearboxFamily(v.gearbox) ?? gearboxFamily(v.version), trim: trimOf(v.version), power: v.power_ch ?? powerFromText(v.version), priceHt: priceHtOf(v),
   }));
 }
 
@@ -42,6 +62,8 @@ export interface ClientMatch {
   /** Jours en stock : jusqu'à aujourd'hui (en stock) ou jusqu'à la disparition (vendu). */
   days: number | null;
   fuel: FuelFamily | null; trim: string | null; power: number | null;
+  /** Boîte de la voiture du client (colonne ou titre) ; null = la vitrine ne le dit pas (gardée, marquée « boîte ? »). */
+  gearbox: GearboxFamily | null;
   /** Finition comparée : identique, différente (les noms changent d'un pays à l'autre, on garde l'équivalent) ou inconnue. */
   trimState: 'same' | 'different' | 'unknown';
   ourId: string;
@@ -77,10 +99,13 @@ const daysBetween = (from: string | null | undefined, to: string | null | undefi
 
 /** Équivalence voiture du client ↔ véhicule du lot : marque, modèle normalisé, année exacte, km ± 15 000, énergie
  *  quand connue des deux côtés, puissance à 10 % quand connue ; la finition est comparée mais ne bloque pas. */
-export function matchOne(t: StockVehicle, tf: { fuel: FuelFamily | null; trim: string | null; power: number | null }, o: LotVehicle): ClientMatch['trimState'] | null {
+export function matchOne(t: StockVehicle, tf: { fuel: FuelFamily | null; trim: string | null; power: number | null; gearbox: GearboxFamily | null }, o: LotVehicle): ClientMatch['trimState'] | null {
   if (t.year == null || o.year == null || t.year !== o.year) return null;
   if (t.km == null || o.km == null || Math.abs(t.km - o.km) > KM_TOLERANCE) return null;
-  if (tf.fuel && o.fuel && tf.fuel !== o.fuel) return null;
+  if (!fuelCompatible(tf.fuel, o.fuel)) return null;
+  // Boîte (13/11, Channing : « la première annonce est une boîte manuelle alors que nous avons des automatiques ») :
+  // bloquante quand elle est connue des deux côtés.
+  if (tf.gearbox && o.gearbox && tf.gearbox !== o.gearbox) return null;
   if (samePower(tf.power, o.power) === false) return null;
   if (!tf.trim || !o.trim) return 'unknown';
   return tf.trim === o.trim ? 'same' : 'different';
@@ -103,7 +128,7 @@ export function analyzeClients(
     if (!same.length) continue;
     const inStock: ClientMatch[] = []; const sold: ClientMatch[] = [];
     for (const t of same) {
-      const tf = { fuel: fuelFamily(t.fuel) ?? fuelFamily(t.title), trim: trimOf(t.title), power: t.power_ch ?? powerFromText(t.title) };
+      const tf = { fuel: theirsFuel(t), trim: trimOf(t.title), power: t.power_ch ?? powerFromText(t.title), gearbox: gearboxFamily(t.gearbox) ?? gearboxFamily(t.title) };
       let best: { state: ClientMatch['trimState']; ourId: string } | null = null;
       for (const o of ours) {
         const st = matchOne(t, tf, o);
@@ -118,7 +143,7 @@ export function analyzeClients(
       const m: ClientMatch = {
         theirs: t, priceEur: t.price != null && t.price > 0 ? toEur(t.price, cur) : null,
         lastEur: last != null && last > 0 ? toEur(last, cur) : null, firstEur: first != null && first > 0 ? toEur(first, cur) : null,
-        days: daysBetween(t.listed_at ?? t.first_seen_at, t.gone_at), fuel: tf.fuel, trim: tf.trim, power: tf.power, trimState: best.state, ourId: best.ourId,
+        days: daysBetween(t.listed_at ?? t.first_seen_at, t.gone_at), fuel: tf.fuel, trim: tf.trim, power: tf.power, gearbox: tf.gearbox, trimState: best.state, ourId: best.ourId,
       };
       (t.gone_at ? sold : inStock).push(m);
     }
