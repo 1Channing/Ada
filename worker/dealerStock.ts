@@ -134,7 +134,7 @@ let zyteCallsThisRun = 0;
 const isChallenge = (status: number, headers: Headers, text: string) =>
   (status === 403 || status === 503) && (headers.get('cf-mitigated') === 'challenge' || /just a moment|cf-chl|challenge-platform|_cf_chl/i.test(text.slice(0, 20_000)));
 
-async function getText(url: string, init?: RequestInit): Promise<{ status: number; text: string; headers: Headers }> {
+async function getText(url: string, init?: RequestInit, opts?: { noZyte?: boolean }): Promise<{ status: number; text: string; headers: Headers }> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 30_000);
   let direct: { status: number; text: string; headers: Headers };
@@ -143,7 +143,7 @@ async function getText(url: string, init?: RequestInit): Promise<{ status: numbe
     direct = { status: res.status, text: await res.text(), headers: res.headers };
   } finally { clearTimeout(t); }
   const method = (init?.method ?? 'GET').toUpperCase();
-  if (method !== 'GET' || !isChallenge(direct.status, direct.headers, direct.text)) return direct;
+  if (method !== 'GET' || opts?.noZyte || !isChallenge(direct.status, direct.headers, direct.text)) return direct;
   // Repli Zyte : brut (débloqueur, le plus efficace sur les pages servies),
   // puis navigateur. Chaque appel est compté pour le bilan.
   for (const override of [{ httpResponseBody: true as const, geolocation: 'NL' }, { javascript: true as const, geolocation: 'NL' }]) {
@@ -2369,6 +2369,30 @@ export async function showcaseSiblings(contactId: string, url: string): Promise<
     .map((c) => ({ id: c.id, name: c.name }));
 }
 
+/** Ce qu'une fiche détail rend : un champ absent ou null = inconnu (jamais un écrasement d'une valeur connue). */
+export interface DetailFields { gearbox?: string | null; fuel?: string | null; km?: number | null; year?: number | null; price?: number | null }
+export type DetailField = keyof DetailFields;
+/** Un lecteur de fiche : les champs qu'il sait rendre (un véhicule n'est relu que si l'un d'eux manque), et la lecture. */
+export interface DetailReader { fields: DetailField[]; read: (html: string) => DetailFields }
+/** Fiches lues au plus par relevé (le reste au relevé suivant, nouveaux d'abord) et pause entre deux fiches d'un site. */
+export const DETAIL_MAX_PER_RUN = 200;
+const DETAIL_DELAY_MS = 350;
+/** Boîte de la fiche DMD (13/11) : « Boîte de vitesse : Manuelle / Auto Séquent. / Rob Double Embray ». */
+export function readDmdDetail(html: string): DetailFields {
+  const v = unesc(html.match(/Bo[iî]te de vitesses?<\/span>\s*<span>([^<]+)<\/span>/i)?.[1] ?? '').trim();
+  // « Rob Double Embray » (robotisée à double embrayage, DMD 13/11) = automatique.
+  return { gearbox: /manu/i.test(v) ? 'Manuelle' : /auto|s[ée]quent|cvt|dsg|robot|\brob\b|embray|edc|eat\d?/i.test(v) ? 'Automatique' : v || null };
+}
+/**
+ * ENRICHISSEMENT PAR FICHE DÉTAIL (14/11, mission « 100 % des vitrines lues, et lues en entier ») — généralise la
+ * boîte lue sur la fiche DMD du 13/11 : pour un lecteur dont la liste ne donne pas tout, la fiche de chaque véhicule
+ * rend ce qui manque (boîte, énergie, km, année, prix). Nouveaux véhicules d'abord, DETAIL_MAX_PER_RUN fiches par
+ * relevé, une à la fois avec une pause, jamais par Zyte ; une valeur lue n'écrase jamais une valeur de la liste.
+ */
+export const DETAIL_READERS: Partial<Record<DealerProvider, DetailReader>> = {
+  catalogpager: { fields: ['gearbox'], read: readDmdDetail },
+};
+
 /** Relève le stock d'une concession de la carte et le compare au relevé précédent. Avec `prefetched` (vitrine
  *  partagée), la lecture du site est réutilisée : seul l'enregistrement et le diff sont faits pour cette fiche. */
 export async function runDealerStock(contactId: string, url: string, submittedBy: string, prefetched?: DealerStockResult): Promise<DealerStockSummary> {
@@ -2396,6 +2420,7 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
     // après la première, ses véhicules cumulés dans le même stock (un identifiant déjà pris est préfixé par son
     // hôte). Si elle ne se lit pas, ses véhicules du relevé précédent ne sont PAS marqués disparus.
     const keepHosts: string[] = [];
+    const providerOf = new Map<string, DealerProvider>(); // véhicules de la vitrine 2 → leur lecteur
     if (!prefetched) {
       const { data: c2 } = await sb.from('network_contacts').select('website2').eq('id', contactId).maybeSingle();
       const url2 = String((c2 as { website2?: string | null } | null)?.website2 ?? '').trim();
@@ -2404,7 +2429,11 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
         try {
           const s2 = await fetchDealerStock(url2, onProgress);
           const ids = new Set(stock.vehicles.map((v) => v.external_id));
-          for (const v of s2.vehicles) stock.vehicles.push(ids.has(v.external_id) ? { ...v, external_id: `${host2}:${v.external_id}` } : v);
+          for (const v of s2.vehicles) {
+            const v2 = ids.has(v.external_id) ? { ...v, external_id: `${host2}:${v.external_id}` } : v;
+            stock.vehicles.push(v2);
+            providerOf.set(v2.external_id, s2.provider);
+          }
           stock.pages += s2.pages;
           if (stock.declared != null && s2.declared != null) stock.declared += s2.declared;
           stock.warnings.push(`vitrine 2 (${host2}) : ${s2.vehicles.length} véhicules lus (${s2.provider})`, ...s2.warnings.map((w) => `vitrine 2 : ${w}`));
@@ -2441,18 +2470,7 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
     // Prix précédents : pour compter les changements et garder price_prev.
     // Historique des prix (SQL du 01/10 soir) : lu s'il existe, sinon reconstruit
     // depuis price_prev / price — la lecture ne doit jamais bloquer le relevé.
-    type Prev = { external_id: string; gearbox?: string | null; price: number | null; price_prev: number | null; first_seen_at: string; price_first?: number | null; price_history?: Array<{ at: string; price: number }> | null };
-    // BOÎTE LUE SUR LA FICHE DÉTAIL (13/11, Channing : « Mustière (DMD), Ada dit ne pas connaître les boîtes, elles
-    // sont bien affichées sur le site ») : quand la liste ne la donne pas, la fiche de chaque véhicule la porte
-    // (« Boîte de vitesse : Manuelle / Auto Séquent. »). Lue pour les véhicules sans boîte connue, nouveaux d'abord,
-    // 200 fiches par relevé au plus (le reste au relevé suivant) ; une boîte déjà connue en base est gardée.
-    const DETAIL_GEARBOX: Partial<Record<DealerProvider, (html: string) => string | null>> = {
-      catalogpager: (html) => {
-        const v = unesc(html.match(/Bo[iî]te de vitesses?<\/span>\s*<span>([^<]+)<\/span>/i)?.[1] ?? '').trim();
-        // « Rob Double Embray » (robotisée à double embrayage, DMD 13/11) = automatique.
-        return /manu/i.test(v) ? 'Manuelle' : /auto|s[ée]quent|cvt|dsg|robot|\brob\b|embray|edc|eat\d?/i.test(v) ? 'Automatique' : v || null;
-      },
-    };
+    type Prev = { external_id: string; gearbox?: string | null; fuel?: string | null; km?: number | null; year?: number | null; price: number | null; price_prev: number | null; first_seen_at: string; price_first?: number | null; price_history?: Array<{ at: string; price: number }> | null };
     // PAR PAGES DE 1 000 (constat Channing 02/10 : « deuxième relevé Louwman,
     // aucun véhicule disparu ») : PostgREST ne rend jamais plus de 1 000
     // lignes. Le relevé précédent lu tronqué → 2 904 véhicules connus pris
@@ -2470,21 +2488,43 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
     };
     let prevRows: Prev[] | null = null;
     {
-      const full = await readPrev('external_id, gearbox, price, price_prev, first_seen_at, price_first, price_history');
-      if (full.error) prevRows = (await readPrev('external_id, gearbox, price, price_prev, first_seen_at')).rows;
+      const full = await readPrev('external_id, gearbox, fuel, km, year, price, price_prev, first_seen_at, price_first, price_history');
+      if (full.error) prevRows = (await readPrev('external_id, gearbox, fuel, km, year, price, price_prev, first_seen_at')).rows;
       else prevRows = full.rows;
     }
     const prev = new Map<string, Prev>(((prevRows ?? []) as Prev[]).map((r) => [r.external_id, r]));
-    const readDetailGearbox = DETAIL_GEARBOX[stock.provider];
-    if (readDetailGearbox) {
-      const todo = stock.vehicles.filter((v) => v.gearbox == null && v.url && prev.get(v.external_id)?.gearbox == null)
-        .sort((a, b) => Number(prev.has(a.external_id)) - Number(prev.has(b.external_id))).slice(0, 200);
-      let got = 0;
-      for (const v of todo) {
-        try { const r = await getText(v.url!); if (r.status === 200) { const g = readDetailGearbox(r.text); if (g) { v.gearbox = g; got++; } } } catch { /* fiche illisible : boîte inconnue */ }
-        await sleep(350);
+    // FICHES DÉTAIL (14/11) : les véhicules dont un champ que la fiche sait rendre manque à la fois dans la liste et en
+    // base, nouveaux d'abord ; chaque véhicule avec le lecteur de sa vitrine (vitrine 2 comprise).
+    {
+      const missing = (v: DealerVehicle, r: DetailReader) => { const p = prev.get(v.external_id); return r.fields.some((f) => v[f] == null && (p?.[f] ?? null) == null); };
+      const queue = stock.vehicles
+        .map((v) => ({ v, r: DETAIL_READERS[providerOf.get(v.external_id) ?? stock.provider] }))
+        .filter((x): x is { v: DealerVehicle; r: DetailReader } => !!x.r && !!x.v.url && missing(x.v, x.r))
+        .sort((a, b) => Number(prev.has(a.v.external_id)) - Number(prev.has(b.v.external_id)));
+      const batch = queue.slice(0, DETAIL_MAX_PER_RUN);
+      let read = 0, filled = 0;
+      for (const { v, r } of batch) {
+        try {
+          const page = await getText(v.url!, undefined, { noZyte: true });
+          if (page.status === 200) {
+            read++;
+            const got = r.read(page.text);
+            for (const f of r.fields) {
+              if (v[f] != null || got[f] == null) continue;
+              (v as unknown as Record<DetailField, unknown>)[f] = got[f];
+              filled++;
+            }
+          }
+        } catch { /* fiche illisible : ses champs restent inconnus, le relevé continue */ }
+        await sleep(DETAIL_DELAY_MS);
       }
-      if (todo.length) console.warn(`[DEALER_STOCK] boîtes lues sur ${got} fiche(s) détail sur ${todo.length} (${stock.provider})`);
+      if (batch.length) {
+        const fields = [...new Set(batch.flatMap((x) => x.r.fields))].join(', ');
+        const rest = queue.length - batch.length;
+        console.warn(`[DEALER_STOCK] fiches détail : ${read} lue(s) sur ${batch.length}, ${filled} valeur(s) complétée(s) (${fields}) — ${stock.provider}${rest ? ` ; ${rest} au prochain relevé` : ''}`);
+        if (rest > 0) stock.warnings.push(`Fiches détail : ${read} lues ce relevé (${fields}) ; ${rest} véhicule(s) à compléter aux prochains relevés.`);
+        if (read < batch.length) stock.warnings.push(`Fiches détail : ${batch.length - read} fiche(s) illisible(s) sur ${batch.length} — champs laissés inconnus.`);
+      }
     }
     let newCount = 0, priceChanges = 0;
     // MÊMES CLÉS SUR TOUTES LES LIGNES (constat Channing 01/10 : « null value
@@ -2514,7 +2554,11 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
       const priceFirst = p?.price_first ?? history[0]?.price ?? null;
       return {
         contact_id: contactId, external_id: v.external_id, url: v.url, title: v.title, brand: v.brand, model: v.model,
-        price: v.price, price_prev: changed ? before : (p?.price_prev ?? null), km: v.km, year: v.year, fuel: v.fuel, gearbox: v.gearbox ?? p?.gearbox ?? null,
+        // Une liste qui ne donne pas un champ n'efface jamais la valeur connue (14/11) ; un prix absent parce que le
+        // site le dit (« sur demande », « bientôt ») reste absent.
+        price: v.price ?? (v.status === 'price_on_request' || v.status === 'expected' ? null : p?.price ?? null),
+        price_prev: changed ? before : (p?.price_prev ?? null),
+        km: v.km ?? p?.km ?? null, year: v.year ?? p?.year ?? null, fuel: v.fuel ?? p?.fuel ?? null, gearbox: v.gearbox ?? p?.gearbox ?? null,
         plate: v.plate, vin: v.vin, body: v.body, image: v.image, listed_at: v.listed_at,
         first_seen_at: p?.first_seen_at ?? startedAt, last_seen_at: startedAt, gone_at: null, last_run_id: runId,
         status: v.status, price_first: priceFirst, price_history: history,
