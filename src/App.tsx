@@ -134,8 +134,7 @@ function App() {
   const workflowOk = canSeeWorkflow(allowedTabs, isAdmin);
   const activeKey = rawKey === 'workflow' ? (workflowOk ? rawKey : 'home')
     : rawKey === 'stats' ? (isManager || isAdmin ? rawKey : 'home')
-      // Demandes du site (07/11) : administrateurs seulement.
-      : rawKey === 'demandes' ? (isAdmin ? rawKey : 'home')
+      // Demandes du site (07/11, puis 13/11) : droit « demandes » sur autorisation explicite, admins compris (gateTab).
       : gateTab && !canSeeTab(allowedTabs, isAdmin, gateTab) ? 'home' : rawKey;
   const [visited, setVisited] = useState<string[]>([activeKey]);
   useEffect(() => {

@@ -127,8 +127,8 @@ export function Layout({ children }: LayoutProps) {
     { path: '/agents', label: 'Agents', icon: <Bot className="w-4 h-4" />, tab: 'agents' },
     // Statistiques (12/10 soir) : le manager d'une organisation voit la prospection de ses commerciaux ; les admins aussi.
     { path: '/statistiques', label: 'Statistiques', icon: <BarChart3 className="w-4 h-4" />, manager: true },
-    // Demandes du site mc-export.com (07/11) : les traiter et y répondre par e-mail — administrateurs seulement.
-    { path: '/demandes', label: 'Demandes', icon: <Inbox className="w-4 h-4" />, admin: true },
+    // Demandes du site mc-export.com (07/11) : les traiter et y répondre par e-mail — droit « demandes » (13/11), admins compris.
+    { path: '/demandes', label: 'Demandes', icon: <Inbox className="w-4 h-4" />, tab: 'demandes' },
   ];
   // Le Workflow reste visible dès qu'un de ses cinq onglets est permis —
   // la page masque elle-même les autres.

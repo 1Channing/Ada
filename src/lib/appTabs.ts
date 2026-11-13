@@ -39,6 +39,10 @@ export const APP_TABS = [
   // Agents Ada et Dana (16/10) : leurs boîtes ada@ / dana@, la file de
   // validation, le journal — sur autorisation explicite (la base lit ce même droit).
   { key: 'agents', label: 'Agents (Ada et Dana)', hint: 'Boîtes d’Ada (acheteurs) et Dana (vendeurs), messages à valider, journal — sur autorisation explicite' },
+  // Demandes du site mc-export.com (13/11, Channing : « ajoute la case pour l'onglet Demandes afin que je puisse
+  // l'ajouter pour les gars ») : les lire, les traiter et y répondre par e-mail — sur autorisation explicite
+  // (la politique RLS des e-mails de réponse lit ce même droit, SQL du 13/11).
+  { key: 'demandes', label: 'Demandes du site', hint: 'Demandes reçues sur mc-export.com : les traiter et y répondre par e-mail — sur autorisation explicite' },
 ] as const;
 
 export type AppTabKey = (typeof APP_TABS)[number]['key'];
@@ -57,7 +61,7 @@ const LEGACY_GRANTS: Record<string, AppTabKey[]> = {
 /** Droits SUR AUTORISATION EXPLICITE (demande Channing 07/09 : « je ne veux
  *  pas que tout le monde ait accès aux opportunités ») : « rien d'enregistré
  *  = tout » ne les inclut PAS — seule une liste qui les nomme les accorde. */
-export const OPT_IN_TABS: AppTabKey[] = ['opportunites', 'carte:edition', 'offres', 'agents'];
+export const OPT_IN_TABS: AppTabKey[] = ['opportunites', 'carte:edition', 'offres', 'agents', 'demandes'];
 
 /** Droits effectifs d'un compte non admin : NULL = tout sauf les droits sur
  *  autorisation explicite ; liste = ses clés fines (historiques développées). */
@@ -94,6 +98,7 @@ export function tabKeyOfPageKey(pageKey: string): AppTabKey | null {
     case 'carte': return 'carte';
     case 'offres': return 'offres';
     case 'agents': return 'agents';
+    case 'demandes': return 'demandes';
     default: return null;
   }
 }

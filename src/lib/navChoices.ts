@@ -26,7 +26,7 @@ export function useMyTabChoices(): NavChoice[] {
     { path: '/offres', label: 'Offres', tab: 'offres' },
     { path: '/agents', label: 'Agents', tab: 'agents' },
     { path: '/statistiques', label: 'Statistiques', manager: true },
-    { path: '/demandes', label: 'Demandes du site', admin: true },
+    { path: '/demandes', label: 'Demandes du site', tab: 'demandes' },
   ];
   return permittedNavItems(all, allowedTabs, isAdmin, isManager).map((it) => ({ path: it.path, label: it.label }));
 }

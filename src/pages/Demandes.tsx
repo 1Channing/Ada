@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Inbox, Phone, Mail, Loader2, Check, AlertTriangle, RefreshCw, ExternalLink, Send } from 'lucide-react';
 import { useAuth } from '../services/auth';
+import { canSeeTab } from '../lib/appTabs';
 import { listSiteLeads, setLeadStatus, saveLeadNotes, queueLeadEmail, listLeadEmails, leadsWithEmail, LEAD_STATUS_LABEL, type SiteLeadRow, type LeadStatus, type LeadEmail } from '../services/siteLeads';
 import { leadTemplates, leadTemplate, leadTemplateFr, leadLang, renderLeadMail, leadCar, LEAD_TEMPLATE_LABEL, type LeadTemplateKey } from '../lib/leadMail';
 import { notifyRemindersChanged } from '../services/userTasks';
@@ -21,7 +22,9 @@ const fmt = (iso: string) => new Date(iso).toLocaleString('fr-FR', { timeZone: '
 const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : typeof v === 'number' && Number.isFinite(v) ? String(v) : '');
 
 export function Demandes() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, allowedTabs } = useAuth();
+  // Droit « demandes » sur autorisation explicite (13/11) ; les admins l'ont toujours.
+  const allowed = canSeeTab(allowedTabs, isAdmin, 'demandes');
   const [leads, setLeads] = useState<SiteLeadRow[]>([]);
   const [mailed, setMailed] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -35,15 +38,15 @@ export function Demandes() {
     const [r, m] = await Promise.all([listSiteLeads(), leadsWithEmail()]);
     setLeads(r.leads); setError(r.error); setMailed(m); setLoading(false);
   };
-  useEffect(() => { if (isAdmin) void reload(); }, [isAdmin]);
+  useEffect(() => { if (allowed) void reload(); }, [allowed]);
 
   const filtered = useMemo(() => leads.filter((l) => (statusFilter === 'toutes' || l.status === statusFilter) && (!kindFilter || l.kind === kindFilter)), [leads, statusFilter, kindFilter]);
   const selected = leads.find((l) => l.id === selectedId) ?? null;
   const counts = useMemo(() => ({ nouvelle: leads.filter((l) => l.status === 'nouvelle').length, traitee: leads.filter((l) => l.status === 'traitee').length, ecartee: leads.filter((l) => l.status === 'ecartee').length }), [leads]);
   const kinds = useMemo(() => Object.keys(KIND_LABEL).filter((k) => leads.some((l) => l.kind === k)), [leads]);
 
-  if (!isAdmin) {
-    return <div className="p-6 text-sm text-slate-600">Cette page est réservée aux administrateurs.</div>;
+  if (!allowed) {
+    return <div className="p-6 text-sm text-slate-600">Cette page demande le droit « Demandes du site » (page Équipe).</div>;
   }
 
   const patch = (id: string, p: Partial<SiteLeadRow>) => setLeads((ls) => ls.map((l) => (l.id === id ? { ...l, ...p } : l)));
