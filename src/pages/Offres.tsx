@@ -24,6 +24,7 @@ import { SingleUnitModal, type SingleUnitOptions } from '../components/SingleUni
 import { unitToVehicle, type SingleUnit } from '../lib/offers/singleUnit';
 import { publishUnitDossier } from '../services/unitPhotos';
 import { mergeOffers } from '../lib/offers/mergeOffers';
+import { ClientShowcasesPanel } from '../components/ClientShowcasesPanel';
 import { gridToXlsxBlob, xlsxStorageName, isSpreadsheetName } from '../lib/offers/gridXlsx';
 import {
   ALL_BUILTIN_KEYS, BUILTIN_COLUMNS, cellValue, defaultExportColumns, displayLabel, effectiveColumns, isColumnEmpty, newCustomColumn,
@@ -1541,6 +1542,10 @@ export function Offres() {
                 </p>
               </details>
             </div>
+          )}
+          {/* ══ VITRINES DE NOS CLIENTS (13/11) : sous les relevés marché, un pays et un modèle retenu face aux vitrines relevées. */}
+          {view === 'analyse' && lots.length > 0 && (
+            <ClientShowcasesPanel lots={lots} vehicles={draft.vehicles} countries={draft.countries} priceHtOf={(v) => supHt(v) ?? v.sale_price ?? null} />
           )}
 
           {/* ══ EXPORT ═════════════════════════════════════════════════════════ */}
