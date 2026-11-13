@@ -171,9 +171,9 @@ function Tile({ label, value, hint }: { label: string; value: string; hint?: str
 function ClientRows({ r, open, onToggle, onShowcase }: { r: ClientRow; open: boolean; onToggle: () => void; onShowcase: () => void }) {
   return (
     <>
-      <tr className="hover:bg-slate-50/60">
-        <td className="py-2 pl-3 pr-3 align-top">
-          <button type="button" onClick={onToggle} className="inline-flex items-center gap-1 font-medium text-slate-800 hover:text-brand-ocean" aria-expanded={open}>
+      <tr className={`border-t-2 border-slate-200 ${open ? 'bg-blue-50/50' : 'bg-white hover:bg-slate-50/60'}`}>
+        <td className="py-2.5 pl-3 pr-3 align-top">
+          <button type="button" onClick={onToggle} className="inline-flex items-center gap-1 text-sm font-semibold text-slate-900 hover:text-brand-ocean" aria-expanded={open}>
             {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />} {r.contact.name}
           </button>
           <span className="block text-slate-500 pl-5">{r.contact.city ?? ''}{r.lastRunAt ? ` · relevé ${d(r.lastRunAt)}` : ''} · même modèle : {r.sameModelInStock} en stock, {r.sameModelSold} vendus</span>
@@ -189,7 +189,7 @@ function ClientRows({ r, open, onToggle, onShowcase }: { r: ClientRow; open: boo
       </tr>
       {open && (
         <>
-          <tr className="bg-slate-50 text-[11px] text-slate-500">
+          <tr className="bg-slate-100 text-[11px] uppercase tracking-wide text-slate-500 border-l-4 border-brand-ocean">
             <td className="py-1 pl-8 pr-3">Véhicule</td>
             <td className="py-1 pr-3 text-right">Statut</td>
             <td className="py-1 pr-3 text-right">Prix</td>
@@ -200,6 +200,7 @@ function ClientRows({ r, open, onToggle, onShowcase }: { r: ClientRow; open: boo
             <td className="py-1 pr-3"></td>
           </tr>
           {[...r.inStock, ...r.sold].map((m) => <MatchRow key={m.theirs.id} m={m} />)}
+          <tr className="border-l-4 border-brand-ocean/40 bg-slate-50"><td colSpan={8} className="py-1" /></tr>
         </>
       )}
     </>
@@ -212,7 +213,7 @@ function MatchRow({ m }: { m: ClientMatch }) {
   const drop = m.firstEur != null && price != null && m.firstEur !== price ? price - m.firstEur : null;
   const pct = drop != null && m.firstEur ? Math.round((drop / m.firstEur) * 1000) / 10 : null;
   return (
-    <tr className="bg-slate-50/40 text-[11px]">
+    <tr className="bg-slate-50 text-[11px] border-l-4 border-brand-ocean/40">
       <td className="py-1.5 pl-8 pr-3 align-top">
         <span className="font-medium text-slate-800">{t.title || `${t.brand ?? ''} ${t.model ?? ''}`}</span>
         {t.url && <a href={t.url} target="_blank" rel="noreferrer" className="ml-1 inline-flex text-brand-ocean align-middle" aria-label="Ouvrir l'annonce"><ExternalLink className="w-3 h-3" /></a>}

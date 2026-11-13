@@ -81,6 +81,22 @@ export interface DealerVehicle {
 
 /** Prix > 0 sinon null — un 0 € de site est un prix absent, pas un prix. */
 const priceOrNull = (v: unknown): number | null => { const n = num(v); return n != null && n > 0 ? n : null; };
+/** Chemin d'une adresse (« https://www.vanmossel.nl/voorraad/3473-… » → « /voorraad/3473-… »). */
+const pathOfUrl = (u: string): string => { try { return new URL(u).pathname; } catch { return u.replace(/^https?:\/\/[^/]+/, ''); } };
+/** Prix lu dans chaque CARTE d'une liste : la page est découpée au premier lien de chaque véhicule (« /voorraad/… »),
+ *  le premier montant « € 24.740 » du segment est celui de la carte (13/11, Van Mossel : 22 cartes, 22 prix). */
+export function cardPricesByHref(html: string): Map<string, number> {
+  const firsts = new Map<string, number>();
+  for (const m of html.matchAll(/href="(\/[a-z-]+\/\d{5,}[^"]*)"/g)) if (!firsts.has(m[1])) firsts.set(m[1], m.index ?? 0);
+  const order = [...firsts.entries()].sort((a, b) => a[1] - b[1]);
+  const out = new Map<string, number>();
+  for (let i = 0; i < order.length; i++) {
+    const seg = html.slice(order[i][1], i + 1 < order.length ? order[i + 1][1] : order[i][1] + 12_000);
+    const m = seg.match(/€\s?(\d{1,3}(?:[.\s]\d{3})+|\d{4,6})(?![\d,.])/);
+    if (m) out.set(order[i][0], Number(m[1].replace(/[.\s]/g, '')));
+  }
+  return out;
+}
 
 /** Statut depuis un texte libre du site (libellé de sticker, texte de carte). */
 function statusFromText(text: string | null | undefined): DealerVehicleStatus | null {
@@ -449,14 +465,14 @@ async function scrapeDatamotive(url: string, firstHtml: string, onProgress?: Sto
   // Une page qui échoue (HTTP ≠ 200, JSON-LD absent) est relue une fois après
   // une pause ; sinon on s'arrête EN LE DISANT (constat 02/10 : Century lu à
   // 986 / 1 189, arrêt muet à la page 84 alors que la page sert 12 items).
-  const readPage = async (page: number): Promise<{ parsed: ReturnType<typeof parseItemList>; status: number }> => {
+  const readPage = async (page: number): Promise<{ parsed: ReturnType<typeof parseItemList>; status: number; html?: string }> => {
     let status = 0;
     for (let attempt = 0; attempt < 2; attempt++) {
       if (attempt > 0) await sleep(1500);
       const r = await getText(withPage(url, page));
       status = r.status;
       const parsed = r.status === 200 ? parseItemList(r.text) : null;
-      if (parsed) return { parsed, status };
+      if (parsed) return { parsed, status, html: r.text };
     }
     return { parsed: null, status };
   };
@@ -466,9 +482,12 @@ async function scrapeDatamotive(url: string, firstHtml: string, onProgress?: Sto
   const PARALLEL = 4;
   let stop = false;
   const pagesTotal = total != null && perPage > 0 ? Math.min(pagesCap, Math.ceil(total / perPage)) : null;
-  const handlePage = (page: number, got: { parsed: ReturnType<typeof parseItemList>; status: number }): boolean => {
+  const handlePage = (page: number, got: { parsed: ReturnType<typeof parseItemList>; status: number; html?: string }): boolean => {
     const parsed = got.parsed;
     pages = page;
+    // PRIX DE LA CARTE (13/11, Channing : Van Mossel « les prix de vente n'ont pas été enregistrés ») : le JSON-LD de
+    // vanmossel.nl n'a pas d'offre, mais chaque carte affiche « Kopen € 24.740 » — lu à côté du lien du véhicule.
+    const cardPrices = got.html ? cardPricesByHref(got.html) : new Map<string, number>();
     // 404 = au-delà de la dernière page (Century : page 101 sur 100), fin normale.
     if (!parsed) { if (got.status !== 404) warnings.push(`arrêt à la page ${page} : HTTP ${got.status} ou JSON-LD absent — relevé partiel`); return false; }
     if (parsed.items.length === 0) return false;
@@ -491,7 +510,7 @@ async function scrapeDatamotive(url: string, firstHtml: string, onProgress?: Sto
       const year = yearFromUrl ?? (modelDate != null && modelDate > 1980 ? modelDate : null);
       out.push({
         external_id: id, url: u || null, title: name, brand: brand || splitTitle(name).brand, model: item.model ? String(item.model) : splitTitle(name).model,
-        price: priceOrNull(offers.price), km, year, fuel: item.fuelType ? String(item.fuelType) : null,
+        price: priceOrNull(offers.price) ?? cardPrices.get(pathOfUrl(u)) ?? null, km, year, fuel: item.fuelType ? String(item.fuelType) : null,
         gearbox: item.vehicleTransmission ? String(item.vehicleTransmission) : null, plate: null,
         vin: item.vehicleIdentificationNumber ? String(item.vehicleIdentificationNumber) : null, body: item.bodyType ? String(item.bodyType) : null,
         image: Array.isArray(item.image) ? String(item.image[0] ?? '') || null : item.image ? String(item.image) : null, listed_at: null,
@@ -499,14 +518,14 @@ async function scrapeDatamotive(url: string, firstHtml: string, onProgress?: Sto
         // OutOfStock = vendue ; prix absent = sur demande.
         status: /preorder/i.test(String(offers.availability ?? '')) ? 'expected'
           : /soldout|outofstock|discontinued/i.test(String(offers.availability ?? '')) ? 'sold'
-            : priceOrNull(offers.price) == null ? 'price_on_request' : null,
+            : priceOrNull(offers.price) == null && cardPrices.get(pathOfUrl(u)) == null ? 'price_on_request' : null,
       });
     }
     if (added === 0) { if (total != null && out.length < total) warnings.push(`page ${page} : aucun véhicule nouveau — arrêt à ${out.length} / ${total}`); return false; }
     if (total != null && out.length >= total) return false;
     return true;
   };
-  if (!handlePage(1, { parsed: first, status: 200 })) stop = true;
+  if (!handlePage(1, { parsed: first, status: 200, html: firstHtml })) stop = true;
   first = null;
   onProgress?.(pages, out.length, pagesTotal);
   for (let page = 2; page <= pagesCap && !stop; page += PARALLEL) {
@@ -921,7 +940,12 @@ export function parseHexonCards(html: string, origin: string): DealerVehicle[] {
     const variant = text(card.match(/<\/h3>\s*<span[^>]*>([\s\S]*?)<\/span>/)?.[1] ?? '');
     // « 52.517 km | 2022 | Hybride | Automaat » — la première ligne grise sans icône.
     const grey = [...card.matchAll(/card_content__grey"[^>]*>([\s\S]*?)<\/span>/g)].map((m) => text(m[1])).find((t) => /\|/.test(t)) ?? '';
-    const [kmRaw, yearRaw, fuelRaw, gearRaw] = grey.split('|').map((s) => s.trim());
+    const [kmRaw, yearRaw, fuelRaw, gearRaw0] = grey.split('|').map((s) => s.trim());
+    // BOÎTE MANUELLE DÉDUITE (13/11, Channing : « Oostendorp, on voit bien boîte mécanique sur le site ») : la carte
+    // hexon n'affiche le 4e segment que pour les automatiques (« … | Hybride | Automaat ») ; une carte à trois
+    // segments (« 105.225 km | 2017 | Benzine ») est une manuelle. Preuve Oostendorp 13/11 : filtre Automaat 911 /
+    // Handgeschakeld 247, et 6 cartes sur 21 sans 4e segment sur la première page.
+    const gearRaw = gearRaw0 ?? (kmRaw && yearRaw && fuelRaw ? 'handgeschakeld' : undefined);
     const cur = card.match(/car-offer__price[^>]*>([\s\S]*?)<\/span>/)?.[1] ?? '';
     const price = priceOrNull(text(cur).replace(/[^\d]/g, ''));
     const t = text(card);
@@ -2417,7 +2441,17 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
     // Prix précédents : pour compter les changements et garder price_prev.
     // Historique des prix (SQL du 01/10 soir) : lu s'il existe, sinon reconstruit
     // depuis price_prev / price — la lecture ne doit jamais bloquer le relevé.
-    type Prev = { external_id: string; price: number | null; price_prev: number | null; first_seen_at: string; price_first?: number | null; price_history?: Array<{ at: string; price: number }> | null };
+    type Prev = { external_id: string; gearbox?: string | null; price: number | null; price_prev: number | null; first_seen_at: string; price_first?: number | null; price_history?: Array<{ at: string; price: number }> | null };
+    // BOÎTE LUE SUR LA FICHE DÉTAIL (13/11, Channing : « Mustière (DMD), Ada dit ne pas connaître les boîtes, elles
+    // sont bien affichées sur le site ») : quand la liste ne la donne pas, la fiche de chaque véhicule la porte
+    // (« Boîte de vitesse : Manuelle / Auto Séquent. »). Lue pour les véhicules sans boîte connue, nouveaux d'abord,
+    // 120 fiches par relevé au plus (le reste au relevé suivant) ; une boîte déjà connue en base est gardée.
+    const DETAIL_GEARBOX: Partial<Record<DealerProvider, (html: string) => string | null>> = {
+      catalogpager: (html) => {
+        const v = unesc(html.match(/Bo[iî]te de vitesses?<\/span>\s*<span>([^<]+)<\/span>/i)?.[1] ?? '').trim();
+        return /manu/i.test(v) ? 'Manuelle' : /auto|s[ée]quent|cvt|dsg|robot/i.test(v) ? 'Automatique' : v || null;
+      },
+    };
     // PAR PAGES DE 1 000 (constat Channing 02/10 : « deuxième relevé Louwman,
     // aucun véhicule disparu ») : PostgREST ne rend jamais plus de 1 000
     // lignes. Le relevé précédent lu tronqué → 2 904 véhicules connus pris
@@ -2435,11 +2469,22 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
     };
     let prevRows: Prev[] | null = null;
     {
-      const full = await readPrev('external_id, price, price_prev, first_seen_at, price_first, price_history');
-      if (full.error) prevRows = (await readPrev('external_id, price, price_prev, first_seen_at')).rows;
+      const full = await readPrev('external_id, gearbox, price, price_prev, first_seen_at, price_first, price_history');
+      if (full.error) prevRows = (await readPrev('external_id, gearbox, price, price_prev, first_seen_at')).rows;
       else prevRows = full.rows;
     }
     const prev = new Map<string, Prev>(((prevRows ?? []) as Prev[]).map((r) => [r.external_id, r]));
+    const readDetailGearbox = DETAIL_GEARBOX[stock.provider];
+    if (readDetailGearbox) {
+      const todo = stock.vehicles.filter((v) => v.gearbox == null && v.url && prev.get(v.external_id)?.gearbox == null)
+        .sort((a, b) => Number(prev.has(a.external_id)) - Number(prev.has(b.external_id))).slice(0, 120);
+      let got = 0;
+      for (const v of todo) {
+        try { const r = await getText(v.url!); if (r.status === 200) { const g = readDetailGearbox(r.text); if (g) { v.gearbox = g; got++; } } } catch { /* fiche illisible : boîte inconnue */ }
+        await sleep(350);
+      }
+      if (todo.length) console.warn(`[DEALER_STOCK] boîtes lues sur ${got} fiche(s) détail sur ${todo.length} (${stock.provider})`);
+    }
     let newCount = 0, priceChanges = 0;
     // MÊMES CLÉS SUR TOUTES LES LIGNES (constat Channing 01/10 : « null value
     // in column first_seen_at »). Un upsert groupé prend l'union des clés du
@@ -2468,7 +2513,7 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
       const priceFirst = p?.price_first ?? history[0]?.price ?? null;
       return {
         contact_id: contactId, external_id: v.external_id, url: v.url, title: v.title, brand: v.brand, model: v.model,
-        price: v.price, price_prev: changed ? before : (p?.price_prev ?? null), km: v.km, year: v.year, fuel: v.fuel, gearbox: v.gearbox,
+        price: v.price, price_prev: changed ? before : (p?.price_prev ?? null), km: v.km, year: v.year, fuel: v.fuel, gearbox: v.gearbox ?? p?.gearbox ?? null,
         plate: v.plate, vin: v.vin, body: v.body, image: v.image, listed_at: v.listed_at,
         first_seen_at: p?.first_seen_at ?? startedAt, last_seen_at: startedAt, gone_at: null, last_run_id: runId,
         status: v.status, price_first: priceFirst, price_history: history,
