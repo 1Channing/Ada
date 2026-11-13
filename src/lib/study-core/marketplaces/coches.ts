@@ -23,7 +23,9 @@
  *   st=1 pro / st=2 particulier · hasPriceDrop=true · KeyWords= (texte)
  *   fi=Price&or=1 (prix croissant) · or=-1 · fi=SortDate · pg=N (30/page)
  *
- * PAGE : tout est dans `window.__INITIAL_PROPS__ = JSON.parse("…")` —
+ * PAGE : tout est dans `window.__INITIAL_PROPS__ = JSON.parse("…")` (jusqu'au
+ * 04/11/2026) puis `window.__staticRouterHydrationData` → loaderData[route]
+ * (constaté 13/11/2026, mêmes clés — voir extractCochesProps) —
  * initialResults {items[30], totalResults, totalPages}, listFiltersOptions
  * .vehicles (165 marques × modèles avec ids : la TAXONOMIE ENTIÈRE en une
  * page). Par annonce : price, km, year, fuelType(+Id), make/makeId,
@@ -136,15 +138,39 @@ interface CnProps {
   initialSearch?: Record<string, unknown>;
 }
 
-/** `window.__INITIAL_PROPS__ = JSON.parse("…")` : chaîne JSON échappée dans un littéral JS — deux décodages. */
-function extractInitialProps(html: string): CnProps | null {
-  const m = html.match(/window\.__INITIAL_PROPS__\s*=\s*JSON\.parse\("((?:[^"\\]|\\.)*)"\)/);
-  if (!m) return null;
+/** Marqueurs des deux formats de page connus — un seul suffit pour dire que la page est bien celle du site. */
+export const COCHES_PAGE_MARKERS = ['__INITIAL_PROPS__', '__staticRouterHydrationData'] as const;
+export const hasCochesPageData = (html: string): boolean => COCHES_PAGE_MARKERS.some((m) => html.includes(m));
+
+/** Deux décodages : chaîne JSON échappée dans un littéral JS (`JSON.parse("…")`). */
+function decodeJsonParseLiteral(escaped: string): unknown {
+  return JSON.parse(JSON.parse(`"${escaped}"`) as string);
+}
+
+/**
+ * DONNÉES DE LA PAGE, deux formats (lecteur UNIQUE pour tout ADA — étude, snapshots, preuve carburant) :
+ *  - `window.__INITIAL_PROPS__ = JSON.parse("…")` : format du site du 21/09 au 04/11/2026 ;
+ *  - `window.__staticRouterHydrationData = JSON.parse("…")` : React Router, constaté le 13/11/2026
+ *    (page directe 366 Ko) — les MÊMES props (initialResults, listFiltersOptions, initialSearch) sous
+ *    `loaderData[<id de route, ex. "0-119">]`. Depuis le ~05/11, les études ES rendaient 0 annonce sur des
+ *    recherches à 18 résultats (BZ4X 2025) : total lu par le worker, annonces jamais lues.
+ */
+export function extractCochesProps<T extends object = CnProps>(html: string): T | null {
+  const legacy = html.match(/window\.__INITIAL_PROPS__\s*=\s*JSON\.parse\("((?:[^"\\]|\\.)*)"\)/);
+  if (legacy) {
+    try { return decodeJsonParseLiteral(legacy[1]) as T; } catch { /* on tente l'autre format */ }
+  }
+  const hydration = html.match(/window\.__staticRouterHydrationData\s*=\s*JSON\.parse\("((?:[^"\\]|\\.)*)"\)/);
+  if (!hydration) return null;
   try {
-    const literal = JSON.parse(`"${m[1]}"`) as string;
-    return JSON.parse(literal) as CnProps;
+    const data = decodeJsonParseLiteral(hydration[1]) as { loaderData?: Record<string, unknown> } | null;
+    for (const v of Object.values(data?.loaderData ?? {})) {
+      if (v && typeof v === 'object' && ('initialResults' in v || 'listFiltersOptions' in v)) return v as T;
+    }
+    return null;
   } catch { return null; }
 }
+const extractInitialProps = (html: string): CnProps | null => extractCochesProps<CnProps>(html);
 
 function parseSearchResults(html: string): ScrapedListing[] {
   const props = extractInitialProps(html);
@@ -445,7 +471,7 @@ export const cochesAdapter: SiteAdapter = {
       : { geolocation: 'ES', actions: [{ action: 'waitForTimeout', timeout: 5 }] },
 
   detectBlocked: (html: string, hasListings: boolean): boolean =>
-    !hasListings && !html.includes('__INITIAL_PROPS__'),
+    !hasListings && !hasCochesPageData(html),
 
   // totalResults 0 = marché vide déclaré par le site (prouvé : Clase C
   // « Monovolumen » → total 0, items []) ; total > 0 sans annonce parsée =

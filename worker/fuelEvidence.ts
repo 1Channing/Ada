@@ -21,6 +21,7 @@ import { sharedSupabase as supabase } from '../src/lib/supabaseShared';
 import { fetchHtmlWithZyte } from './scraper';
 import { brandKey } from '../src/services/marketData';
 import { modelFamilyKey } from '../src/lib/study-core/business-logic';
+import { extractCochesProps } from '../src/lib/study-core/marketplaces/coches';
 
 const YEAR_MIN = 2023;
 const FUEL = 'ELECTRIQUE';
@@ -52,11 +53,8 @@ interface CnProps {
   initialResults?: { aggregations?: CnAgg[] };
   listFiltersOptions?: { vehicles?: { options?: Array<{ id: string | number; label: string; models?: Array<{ id: string | number; label: string }> }> } };
 }
-function cochesProps(html: string): CnProps | null {
-  const m = html.match(/__INITIAL_PROPS__\s*=\s*JSON\.parse\("(.*?)"\)\s*;?\s*</s);
-  if (!m) return null;
-  try { return JSON.parse(JSON.parse(`"${m[1]}"`)) as CnProps; } catch { return null; }
-}
+// Lecteur unique des deux formats de page (__INITIAL_PROPS__ puis __staticRouterHydrationData depuis le 13/11/2026).
+const cochesProps = (html: string): CnProps | null => extractCochesProps<CnProps>(html);
 async function fetchCoches(url: string): Promise<CnProps | null> {
   for (let attempt = 1; attempt <= 3; attempt++) {
     const r = await fetchHtmlWithZyte(url, attempt);
