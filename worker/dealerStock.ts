@@ -2445,11 +2445,12 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
     // BOÎTE LUE SUR LA FICHE DÉTAIL (13/11, Channing : « Mustière (DMD), Ada dit ne pas connaître les boîtes, elles
     // sont bien affichées sur le site ») : quand la liste ne la donne pas, la fiche de chaque véhicule la porte
     // (« Boîte de vitesse : Manuelle / Auto Séquent. »). Lue pour les véhicules sans boîte connue, nouveaux d'abord,
-    // 120 fiches par relevé au plus (le reste au relevé suivant) ; une boîte déjà connue en base est gardée.
+    // 200 fiches par relevé au plus (le reste au relevé suivant) ; une boîte déjà connue en base est gardée.
     const DETAIL_GEARBOX: Partial<Record<DealerProvider, (html: string) => string | null>> = {
       catalogpager: (html) => {
         const v = unesc(html.match(/Bo[iî]te de vitesses?<\/span>\s*<span>([^<]+)<\/span>/i)?.[1] ?? '').trim();
-        return /manu/i.test(v) ? 'Manuelle' : /auto|s[ée]quent|cvt|dsg|robot/i.test(v) ? 'Automatique' : v || null;
+        // « Rob Double Embray » (robotisée à double embrayage, DMD 13/11) = automatique.
+        return /manu/i.test(v) ? 'Manuelle' : /auto|s[ée]quent|cvt|dsg|robot|\brob\b|embray|edc|eat\d?/i.test(v) ? 'Automatique' : v || null;
       },
     };
     // PAR PAGES DE 1 000 (constat Channing 02/10 : « deuxième relevé Louwman,
@@ -2477,7 +2478,7 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
     const readDetailGearbox = DETAIL_GEARBOX[stock.provider];
     if (readDetailGearbox) {
       const todo = stock.vehicles.filter((v) => v.gearbox == null && v.url && prev.get(v.external_id)?.gearbox == null)
-        .sort((a, b) => Number(prev.has(a.external_id)) - Number(prev.has(b.external_id))).slice(0, 120);
+        .sort((a, b) => Number(prev.has(a.external_id)) - Number(prev.has(b.external_id))).slice(0, 200);
       let got = 0;
       for (const v of todo) {
         try { const r = await getText(v.url!); if (r.status === 200) { const g = readDetailGearbox(r.text); if (g) { v.gearbox = g; got++; } } } catch { /* fiche illisible : boîte inconnue */ }
