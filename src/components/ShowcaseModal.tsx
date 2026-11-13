@@ -16,7 +16,7 @@ import { toEur, loadFxRates } from '../services/fxRates';
 import { fmtMoney } from '../lib/fx';
 import { FUEL_LABEL, compareStock, commonModels, loadOurOffers, loadOurSales, theirsFuelTrim, SALES_THRESHOLD_EUR, OFFERS_THRESHOLD_EUR, KM_TOLERANCE, type FuelFamily, type OurVehicle, type KnownModels } from '../services/stockCompare';
 import { PriceDistribution, PriceCell, PriceMovesLine, fmtStockDate, daysBetween } from './DealerStockModal';
-import { MatchRows, Kpi, sortMatches, SORT_LABEL, type SortKey, type Mode } from './StockCompareModal';
+import { MatchRows, Kpi, sortMatches, SORT_LABEL, FaceToFace, groupByOurs, type SortKey, type Mode } from './StockCompareModal';
 import { LiveMarketColumn, type LivePick } from './LiveMarketColumn';
 import { OFFER_COUNTRIES } from '../services/offers';
 import { COUNTRY_VAT, countryVat } from '../lib/offers/vat';
@@ -60,6 +60,8 @@ export function ShowcaseModal({ contactId, name, url, url2, country, frequency, 
   const [stockSort, setStockSort] = useState<StockSort>('date_desc');
   // Comparer.
   const [mode, setMode] = useState<Mode>('sales');
+  /** OFFRE PRÉCISE (13/11) : '' = toutes nos offres ; un id = seulement les véhicules retenus de cette offre, en face-à-face. */
+  const [offerPick, setOfferPick] = useState('');
   const [onlyOk, setOnlyOk] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>('gap');
   const [sortAsc, setSortAsc] = useState(false);
@@ -179,7 +181,24 @@ export function ShowcaseModal({ contactId, name, url, url2, country, frequency, 
 
   // Comparer : leur stock FILTRÉ face à nos ventes ou nos offres.
   const threshold = thresholds[mode];
-  const result = useMemo(() => { const ours = mode === 'sales' ? sales : offers; return ours ? compareStock(stockFiltered, ours, threshold, vat, known) : null; }, [stockFiltered, sales, offers, mode, threshold, vat, known]);
+  /** Les offres disponibles (id → titre · fournisseur, la plus récente d'abord) pour le choix d'une offre précise. */
+  const offerChoices = useMemo(() => {
+    const m = new Map<string, { label: string; date: string | null; count: number }>();
+    for (const o of offers ?? []) { if (!o.offerId) continue; const c = m.get(o.offerId); if (c) c.count++; else m.set(o.offerId, { label: o.detail, date: o.date, count: 1 }); }
+    return [...m.entries()].map(([id, c]) => ({ id, ...c })).sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''));
+  }, [offers]);
+  const pickedOffer = mode === 'offers' && offerPick ? offerPick : null;
+  /** Nos véhicules à comparer : ventes, toutes les offres, ou les véhicules retenus de l'offre choisie (tous s'il n'y en a aucun de retenu). */
+  const oursForCompare = useMemo(() => {
+    if (mode === 'sales') return sales;
+    if (!offers) return offers;
+    if (!pickedOffer) return offers;
+    const of = offers.filter((o) => o.offerId === pickedOffer);
+    const kept = of.filter((o) => o.selected);
+    return kept.length ? kept : of;
+  }, [mode, sales, offers, pickedOffer]);
+  const result = useMemo(() => (oursForCompare ? compareStock(stockFiltered, oursForCompare, threshold, vat, known) : null), [stockFiltered, oursForCompare, threshold, vat, known]);
+  const faceToFace = useMemo(() => (pickedOffer && result ? groupByOurs(result.matches, onlyOk) : []), [pickedOffer, result, onlyOk]);
   // Modèles en commun (04/11) : sans condition d'année ni de km — « ce genre de modèles ».
   const common = useMemo(() => (sales && offers ? commonModels(stockFiltered, sales, offers, known) : []), [stockFiltered, sales, offers, known]);
   const [commonOpen, setCommonOpen] = useState(true);
@@ -348,6 +367,14 @@ export function ShowcaseModal({ contactId, name, url, url2, country, frequency, 
                       <button key={id} role="tab" aria-selected={mode === id} onClick={() => setMode(id)} className={`px-3 py-1.5 rounded-md text-sm ${mode === id ? 'bg-white shadow text-slate-900 font-semibold' : 'text-slate-600 hover:text-slate-900'}`}>{label} <span className="text-xs text-slate-400 font-normal">· seuil {fmtMoney(thresholds[id], 'EUR')}</span></button>
                     ))}
                   </div>
+                  {mode === 'offers' && (
+                    <label className="flex items-center gap-1.5 text-slate-600">Offre
+                      <select value={offerPick} onChange={(e) => setOfferPick(e.target.value)} className="max-w-[320px] px-2 py-1.5 rounded-lg border border-slate-300 bg-white text-xs" title="Comparer leur stock avec une offre précise (ses véhicules retenus)">
+                        <option value="">toutes nos offres</option>
+                        {offerChoices.map((c) => <option key={c.id} value={c.id}>{c.label.slice(0, 70)} · {c.count} véh.</option>)}
+                      </select>
+                    </label>
+                  )}
                   <label className="flex items-center gap-1.5 text-slate-600">Seuil <input type="number" step={500} min={0} value={threshold} onChange={(e) => setThreshold(mode, Number(e.target.value) || 0)} className="w-24 px-2 py-1.5 rounded-lg border border-slate-300 text-right text-sm tabular-nums" /> €{(thresholds.sales !== SALES_THRESHOLD_EUR || thresholds.offers !== OFFERS_THRESHOLD_EUR) && <button onClick={() => { setThreshold('sales', SALES_THRESHOLD_EUR); setThreshold('offers', OFFERS_THRESHOLD_EUR); }} className="text-brand-ocean hover:underline">défauts</button>}</label>
                   <label className="flex items-center gap-1.5 text-slate-600 cursor-pointer"><input type="checkbox" checked={onlyOk} onChange={(e) => setOnlyOk(e.target.checked)} /> <Filter className="w-3.5 h-3.5" /> Au-dessus du seuil seulement</label>
                   <label className="ml-auto flex items-center gap-1.5 text-slate-600">Trier par
@@ -362,12 +389,12 @@ export function ShowcaseModal({ contactId, name, url, url2, country, frequency, 
                 {result && (
                   <div className="px-5 pt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
                     <Kpi label="Leur stock (filtres)" value={String(result.theirsTotal)} hint={result.theirsPriced < result.theirsTotal ? `${result.theirsPriced} avec prix` : 'tous avec prix'} />
-                    <Kpi label={mode === 'sales' ? 'Nos ventes connues' : 'Véhicules de nos offres'} value={String(result.oursTotal)} hint={result.oursUndated > 0 ? `dont ${result.oursUndated} sans année ou km : hors appariement` : undefined} />
+                    <Kpi label={mode === 'sales' ? 'Nos ventes connues' : pickedOffer ? 'Véhicules retenus de l\'offre' : 'Véhicules de nos offres'} value={String(result.oursTotal)} hint={result.oursUndated > 0 ? `dont ${result.oursUndated} sans année ou km : hors appariement` : undefined} />
                     <Kpi label="Leurs voitures appariées" value={String(result.matches.length)} hint={result.pairs > result.matches.length ? `${result.pairs} paires, la meilleure des nôtres en face` : undefined} />
                     <Kpi label="Au-dessus du seuil" value={String(okCount)} tone={okCount > 0 ? 'ok' : undefined} />
                   </div>
                 )}
-                {common.length > 0 && (
+                {common.length > 0 && !pickedOffer && (
                   <div className="mx-5 mt-3 rounded-xl border border-slate-200 bg-white">
                     <button type="button" onClick={() => setCommonOpen((v) => !v)} className="w-full flex items-center justify-between px-4 py-2 text-left">
                       <span className="text-sm font-semibold text-slate-800">Modèles en commun <span className="text-slate-400 font-normal">· {common.length} — ce qu'ils ont en stock et que nous vendons ou avons en offre, sans condition d'année ni de km</span></span>
@@ -395,6 +422,14 @@ export function ShowcaseModal({ contactId, name, url, url2, country, frequency, 
                 {result?.warnings.map((w) => <p key={w} className="px-5 pt-1 text-xs text-amber-700">{w}</p>)}
                 <div className="px-5 py-3">
                   {!result ? <p className="text-sm text-slate-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture des ventes et des offres…</p>
+                    : pickedOffer ? (
+                      faceToFace.length === 0
+                        ? <p className="text-sm text-slate-500">{result.matches.length > 0 && onlyOk ? `Aucune correspondance au-dessus du seuil pour cette offre (${result.matches.length} en dessous — décoche le filtre).` : 'Aucun véhicule de cette offre n\'a d\'équivalent dans leur stock (même modèle, même année, km à ± ' + KM_TOLERANCE.toLocaleString('fr-FR') + ').'}</p>
+                        : <>
+                            <p className="text-xs text-slate-500 mb-2">{(() => { const n = faceToFace.reduce((a, g) => a + g.count, 0); return <>{n} véhicule{n > 1 ? 's' : ''} de l'offre avec un équivalent chez eux{faceToFace.length < n ? ` (${faceToFace.length} bloc${faceToFace.length > 1 ? 's' : ''}, jumeaux regroupés)` : ''}{result.oursTotal > n ? ` · ${result.oursTotal - n} sans équivalent (non listés)` : ''}.</>; })()}</p>
+                            <FaceToFace groups={faceToFace} vatLabel={`TTC ${cc || ''} ${Math.round(vat * 100)} %`} pickedId={picked?.theirs.id ?? null} onPick={(m) => pick(m)} />
+                          </>
+                    )
                     : compareRows.length === 0 ? <p className="text-sm text-slate-500">{result.matches.length > 0 && onlyOk ? `Aucune correspondance au-dessus du seuil (${result.matches.length} en dessous — décoche le filtre).` : 'Aucune voiture commune avec ces filtres.'}</p>
                       : (
                         <table className="w-full text-xs">

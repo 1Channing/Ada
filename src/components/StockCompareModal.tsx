@@ -343,6 +343,85 @@ function Row({ m, mode, othersCount = 0, open = false, onToggle, alt = false, pi
 }
 
 /** Voiture du stock sans correspondance chez nous : juste elle, et le bouton « Marché » (02/11). */
+/** FACE-À-FACE D'UNE OFFRE PRÉCISE (13/11, Channing : « comparer avec une offre qu'on sélectionnerait de manière
+ *  précise, Ada présente les modèles du stock en face de l'offre, seulement ceux qui matchent, un UI propre ») :
+ *  un bloc par véhicule de l'offre qui a au moins une voiture équivalente chez le partenaire, leurs voitures en
+ *  dessous du meilleur écart au moins bon. Les véhicules sans équivalent ne sont pas listés (comptés à part). */
+export interface FaceToFaceGroup { ours: OurVehicle; theirs: CompareMatch[]; /** Jumeaux de l'offre regroupés (même libellé, année, prix) : nombre et étendue de km. */ count: number; kmMin: number | null; kmMax: number | null }
+export function groupByOurs(matches: CompareMatch[], onlyOk: boolean): FaceToFaceGroup[] {
+  const map = new Map<string, FaceToFaceGroup>();
+  for (const m of matches) for (const x of [m, ...m.others]) {
+    if (onlyOk && !x.ok) continue;
+    const g = map.get(x.ours.id) ?? map.set(x.ours.id, { ours: x.ours, theirs: [], count: 1, kmMin: x.ours.km, kmMax: x.ours.km }).get(x.ours.id)!;
+    if (!g.theirs.some((y) => y.theirs.id === x.theirs.id)) g.theirs.push(x);
+  }
+  for (const g of map.values()) g.theirs.sort((a, b) => b.gap - a.gap);
+  // Jumeaux (une offre de 11 Bigster identiques face aux 4 mêmes voitures) : un seul bloc « × 11 », km de… à….
+  const merged = new Map<string, FaceToFaceGroup>();
+  for (const g of map.values()) {
+    const o = g.ours;
+    const k = [o.label, o.year, o.price, o.fuel, o.trim, o.power, g.theirs.map((t) => t.theirs.id).join(',')].join('|');
+    const m = merged.get(k);
+    if (!m) merged.set(k, g);
+    else { m.count++; if (o.km != null) { m.kmMin = m.kmMin == null ? o.km : Math.min(m.kmMin, o.km); m.kmMax = m.kmMax == null ? o.km : Math.max(m.kmMax, o.km); } }
+  }
+  const groups = [...merged.values()];
+  groups.sort((a, b) => b.theirs[0].gap - a.theirs[0].gap);
+  return groups;
+}
+export function FaceToFace({ groups, vatLabel, pickedId, onPick }: { groups: FaceToFaceGroup[]; vatLabel: string; pickedId: string | null; onPick: (m: CompareMatch) => void }) {
+  return (
+    <div className="space-y-3">
+      {groups.map((g) => {
+        const o = g.ours;
+        return (
+          <div key={o.id} className="rounded-xl border border-slate-200 overflow-hidden">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 bg-slate-50 border-b border-slate-200">
+              <div className="min-w-0">
+                <span className="text-sm font-semibold text-slate-900">{o.label}{g.count > 1 && <span className="ml-2 text-[11px] font-semibold px-1.5 py-0.5 rounded-full bg-brand-ocean text-white align-middle">× {g.count}</span>}</span>
+                <span className="block text-xs text-slate-500">{o.year ?? '—'} · {g.count > 1 && g.kmMin != null && g.kmMax != null && g.kmMin !== g.kmMax ? `${g.kmMin.toLocaleString('fr-FR')} à ${g.kmMax.toLocaleString('fr-FR')} km` : fmtKm(o.km)}{o.fuel ? ` · ${FUEL_LABEL[o.fuel]}` : ''}{o.power ? ` · ${o.power} ch` : ''}{o.trim ? ` · ${o.trim}` : ''}</span>
+              </div>
+              <div className="ml-auto text-right whitespace-nowrap">
+                <span className="text-sm font-semibold text-slate-900">{fmtMoney(g.theirs[0].ourTtc, 'EUR')} <span className="text-[11px] font-normal text-slate-500">{vatLabel}</span></span>
+                <span className="block text-[11px] text-slate-500">notre achat HT {fmtMoney(o.price, 'EUR')}</span>
+              </div>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-600 whitespace-nowrap">{g.theirs.length} chez eux</span>
+            </div>
+            <table className="w-full text-xs">
+              <tbody className="divide-y divide-slate-100">
+                {g.theirs.map((m) => {
+                  const t = m.theirs;
+                  return (
+                    <tr key={t.id} className={`${m.ok ? '' : 'opacity-70'} ${pickedId === t.id ? 'bg-blue-50/60' : 'hover:bg-slate-50/60'}`}>
+                      <td className="py-2 pl-4 pr-3 align-top">
+                        <span className="font-medium text-slate-800">{t.title || `${t.brand ?? ''} ${t.model ?? ''}`}</span>
+                        {t.url && <a href={t.url} target="_blank" rel="noreferrer" className="ml-1 inline-flex text-brand-ocean align-middle" aria-label="Ouvrir l'annonce"><ExternalLink className="w-3 h-3" /></a>}
+                        <span className="block text-slate-500">{t.year ?? '—'} · {fmtKm(t.km)}{t.plate ? ` · ${t.plate}` : ''}{m.theirsFuel ? ` · ${FUEL_LABEL[m.theirsFuel]}` : ''}{m.theirsPower ? ` · ${m.theirsPower} ch` : ''}{m.theirsTrim ? ` · ${m.theirsTrim}` : ''}</span>
+                      </td>
+                      <td className="py-2 pr-3 align-top text-right tabular-nums whitespace-nowrap">
+                        <span className="font-semibold text-slate-800">{fmtMoney(m.theirsEur, 'EUR')}</span>
+                        {t.currency && t.currency !== 'EUR' && t.price != null && <span className="block text-[10px] text-slate-400">{fmtMoney(t.price, t.currency)}</span>}
+                      </td>
+                      <td className="py-2 pr-3 align-top text-right whitespace-nowrap">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-semibold tabular-nums ${m.ok ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : m.gap >= 0 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
+                          {m.ok && <BadgeCheck className="w-3 h-3" />}{m.gap >= 0 ? '+' : ''}{fmtMoney(m.gap, 'EUR')}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-4 align-top text-right whitespace-nowrap">
+                        <button type="button" onClick={() => onPick(m)} className={`text-[11px] px-2 py-1 rounded-lg border ${pickedId === t.id ? 'border-brand-ocean text-brand-encre bg-blue-50' : 'border-slate-300 text-slate-600 bg-white hover:bg-slate-50'}`}>Marché</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function StockOnlyRow({ p, picked, onPick }: { p: LivePick; picked: boolean; onPick: () => void }) {
   const t = p.theirs;
   return (

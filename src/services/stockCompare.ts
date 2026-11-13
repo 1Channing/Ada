@@ -95,6 +95,8 @@ export interface OurVehicle {
   date: string | null;
   plate?: string | null;
   offerId?: string;
+  /** Offre : véhicule retenu (case cochée) dans l'offre — le face-à-face d'une offre précise (13/11) ne prend que ceux-là. */
+  selected?: boolean;
 }
 
 export interface CompareMatch {
@@ -212,7 +214,7 @@ export async function loadOurOffers(): Promise<{ rows: OurVehicle[]; error: stri
         kind: 'offer', id: v.id, label: `${v.brand} ${v.model}${v.version ? ` · ${v.version}` : ''}`, brand: v.brand, model: v.model,
         year: v.year ?? yearOf(v.reg_date), km: v.km, price: buy,
         fuel: fuelFamily(v.fuel) ?? fuelFamily(v.version), trim: trimOf(v.version), power: v.power_ch ?? powerFromText(v.version),
-        detail: [o.title || o.source_filename, o.supplier].filter(Boolean).join(' · '), date: o.updated_at ?? null, offerId: o.id,
+        detail: [o.title || o.source_filename, o.supplier].filter(Boolean).join(' · '), date: o.updated_at ?? null, offerId: o.id, selected: !!v.selected,
       });
     }
   }
