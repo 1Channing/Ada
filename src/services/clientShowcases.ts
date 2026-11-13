@@ -13,6 +13,8 @@
 import { supabase } from '../lib/supabase';
 import { brandKey, refModelKey } from './marketData';
 import { fuelFamily, trimOf, normalizeModel, KM_TOLERANCE, type FuelFamily, type KnownModels } from './stockCompare';
+import { gearboxFamily, type GearboxFamily } from '../lib/vehicleFamilies';
+export { gearboxFamily, type GearboxFamily };
 import { powerFromText, samePower } from '../lib/powerText';
 import { toEur } from './fxRates';
 import type { StockVehicle } from './dealerStock';
@@ -21,15 +23,6 @@ import type { OfferVehicle } from '../lib/offers/parseSupplierFile';
 
 const untyped = supabase as unknown as { from: (t: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
 
-export type GearboxFamily = 'auto' | 'manual';
-/** Boîte lue dans une colonne de relevé (« Automaat », « Handgeschakeld », « Automatique ») ou un titre (« *Automaat »). */
-export function gearboxFamily(text: string | null | undefined): GearboxFamily | null {
-  const t = (text ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
-  if (!t.trim()) return null;
-  if (/automa|automaat|\bauto\b|\baut\.?\b|\bcvt\b|\bdsg\b|\bdct\b|e-?cvt|steptronic|tiptronic|s-?tronic|\bbva\b|\beat\d\b|\bedc\b/.test(t)) return 'auto';
-  if (/handgeschakeld|handbak|manual|manuel|schalt|\bbvm\b|\bmt\b/.test(t)) return 'manual';
-  return null;
-}
 /** Énergie d'une voiture du client : le TITRE prime quand il dit hybride / rechargeable / électrique (13/11 : les
  *  vitrines néerlandaises classent une « Ignis Smart Hybrid » en « Benzine » — hybride léger), sinon la colonne. */
 export function theirsFuel(t: { fuel: string | null; title: string | null }): FuelFamily | null {

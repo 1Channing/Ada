@@ -83,5 +83,20 @@ ok(readDmdDetail(box('Rob Double Embray')).gearbox === 'Automatique' && readDmdD
   && readDmdDetail('<p>rien</p>').gearbox === null, 'DMD : robotisée double embrayage = Automatique, Manuelle, rien = inconnu');
 ok(Object.values(DETAIL_READERS).every((r) => r && r.fields.length > 0), 'chaque lecteur de fiche dit les champs qu\'il rend');
 
+console.log('\n=== LES ÉCRANS LISENT LES MOTS DES SITES (valeurs réelles en base, 14/11) ===\n');
+const { fuelFamily, gearboxFamily } = await import('../src/lib/vehicleFamilies');
+const fuels: Array<[string, string | null]> = [
+  ['Híbrido no enchufable', 'hybrid'], ['Híbrido enchufable', 'phev'], ['Hibrido enchufable', 'phev'], ['Electra', 'electric'], ['GLP', 'gas'],
+  ['Ibrida', 'hybrid'], ['Erdgas', 'gas'], ['Metano', 'gas'], ['Hibrido', 'hybrid'], ['E85', 'petrol'], ['Super Plus', 'petrol'], ['Gasolio', 'diesel'],
+  ['Benzine', 'petrol'], ['Gasolina', 'petrol'], ['Diésel', 'diesel'], ['Hybride rechargeable', 'phev'], ['Elettrica', 'electric'], ['Plug-in Hybrid', 'phev'],
+  ['Waterstof', null], ['autre', null],
+];
+const fuelBad = fuels.filter(([v, want]) => fuelFamily(v) !== want);
+ok(fuelBad.length === 0, `énergie : ${fuels.length} mots de sites (es, it, de, nl, fr) classés`, fuelBad.map(([v]) => `${v} → ${fuelFamily(v)}`));
+const gears: Array<[string, string]> = [['Autom. 7-Gang', 'auto'], ['A Var Continu', 'auto'], ['Rob Double Embray', 'auto'], ['Rob Simple Embray', 'auto'],
+  ['Automaat', 'auto'], ['Handgeschakeld', 'manual'], ['Manuelle', 'manual'], ['Schaltgetriebe', 'manual']];
+const gearBad = gears.filter(([v, want]) => gearboxFamily(v) !== want);
+ok(gearBad.length === 0, `boîte : ${gears.length} mots de sites classés`, gearBad.map(([v]) => `${v} → ${gearboxFamily(v)}`));
+
 console.log(`\n${fails === 0 ? 'Tout est bon.' : `${fails} échec(s).`}`);
 if (fails) process.exit(1);

@@ -38,23 +38,11 @@ export function normalizeModel(brand: string | null | undefined, model: string |
   return list.map((x) => x.toUpperCase()).includes(g) ? g : m;
 }
 import { powerFromText, samePower } from '../lib/powerText';
+import { fuelFamily, type FuelFamily } from '../lib/vehicleFamilies';
+export { fuelFamily, type FuelFamily };
 import { resolveSettings, supplierHtWith } from '../lib/offers/offerSettings';
 
-/** Famille d'énergie, lue dans n'importe quelle langue des sites (Kamux « Hybride rechargeable essence »,
- *  dvnl « Benzine », Bilbasen « benzin / el », nos offres « HYBRIDE RECHARGEABLE », ventes « RAV4 PLUG IN »). */
-export type FuelFamily = 'phev' | 'hybrid' | 'electric' | 'diesel' | 'petrol' | 'gas';
 export const FUEL_LABEL: Record<FuelFamily, string> = { phev: 'hybride rechargeable', hybrid: 'hybride', electric: 'électrique', diesel: 'diesel', petrol: 'essence', gas: 'gaz' };
-export function fuelFamily(text: string | null | undefined): FuelFamily | null {
-  const t = (text ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
-  if (!t.trim()) return null;
-  if (/plug[- ]?in|rechargeable|phev|e-?hybrid|\bplugin\b/.test(t)) return 'phev';
-  if (/hybrid|hybride|hybridi|\bhev\b|mhev|e-tech|\bh\b|\d{2,3}h\b/.test(t)) return 'hybrid';
-  if (/electri|elektr|sahko|\bev\b|\bbev\b|\bel\b|elettric|electric/.test(t)) return 'electric';
-  if (/diesel|\btdi\b|\bhdi\b|\bdci\b|\bcdi\b|\bcrdi\b|\bd4d\b|bluehdi|\bgazole\b/.test(t)) return 'diesel';
-  if (/essence|benzin|bensin|bensiini|petrol|gasolin|\btsi\b|\btfsi\b|\btce\b|puretech|\bvti\b/.test(t)) return 'petrol';
-  if (/\bgpl\b|\blpg\b|\bcng\b|\bgnv\b|kaasu|\bgaz\b|\bgas\b/.test(t)) return 'gas';
-  return null;
-}
 
 /** Finition lue dans une ligne libre (version d'offre, titre d'annonce, libellé de vente) : la première
  *  finition connue rencontrée, les composées d'abord (« GR SPORT » avant « GR », « GT LINE » avant « GT »). */
