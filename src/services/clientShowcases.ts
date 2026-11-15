@@ -104,24 +104,75 @@ export function matchOne(t: StockVehicle, tf: { fuel: FuelFamily | null; trim: s
   return tf.trim === o.trim ? 'same' : 'different';
 }
 
+/** Les voitures d'un client du même modèle que le lot (marque + modèle normalisés), sans condition d'année ni de km. */
+function sameModelOf(list: StockVehicle[], lot: { brand: string; model: string }, known: KnownModels | null): StockVehicle[] {
+  const bKey = brandKey(lot.brand);
+  const mKey = refModelKey(lot.brand, normalizeModel(lot.brand, lot.model, known));
+  return list.filter((v) => v.brand && v.model && brandKey(v.brand) === bKey && refModelKey(v.brand, normalizeModel(v.brand, v.model, known)) === mKey);
+}
+const theirsFields = (t: StockVehicle) => ({ fuel: theirsFuel(t), trim: trimOf(t.title), power: t.power_ch ?? powerFromText(t.title), gearbox: gearboxFamily(t.gearbox) ?? gearboxFamily(t.title) });
+
+const FUEL_SHORT: Record<FuelFamily, string> = { petrol: 'essence', diesel: 'diesel', hybrid: 'hybride légère', phev: 'rechargeable', electric: 'électrique', gas: 'gaz' };
+const fmtKm = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} km`;
+
+/** Pourquoi une voiture du client N'EST PAS l'équivalente d'un véhicule du lot : une raison par critère bloquant
+ *  (liste vide = équivalente). Même règle que `matchOne`, écrite pour être lue. */
+export function mismatchReasons(t: StockVehicle, tf: ReturnType<typeof theirsFields>, o: LotVehicle): string[] {
+  const r: string[] = [];
+  if (t.year == null) r.push('année inconnue');
+  else if (o.year == null) r.push('année du lot inconnue');
+  else if (t.year !== o.year) r.push(`année ${t.year} ≠ ${o.year}`);
+  if (t.km == null) r.push('km inconnus');
+  else if (o.km == null) r.push('km du lot inconnus');
+  else if (Math.abs(t.km - o.km) > KM_TOLERANCE) r.push(`${fmtKm(t.km)} contre ${fmtKm(o.km)} (écart > ${fmtKm(KM_TOLERANCE)})`);
+  if (!fuelCompatible(tf.fuel, o.fuel) && tf.fuel && o.fuel) r.push(`${FUEL_SHORT[tf.fuel]} ≠ ${FUEL_SHORT[o.fuel]}`);
+  if (tf.gearbox && o.gearbox && tf.gearbox !== o.gearbox) r.push(`boîte ${tf.gearbox === 'auto' ? 'automatique' : 'manuelle'} ≠ ${o.gearbox === 'auto' ? 'automatique' : 'manuelle'}`);
+  if (samePower(tf.power, o.power) === false) r.push(`${tf.power} ch ≠ ${o.power} ch`);
+  return r;
+}
+
+export interface NearMiss { contact: NetworkContact; theirs: StockVehicle; priceEur: number | null; reasons: string[] }
+export interface SameModelSummary { clients: number; inStock: number; sold: number; nearest: NearMiss[] }
+
+/** Quand aucun client n'a d'équivalent (15/11, Channing : « on ne trouve aucune 408 dans les vitrines aux Pays-Bas,
+ *  j'ai comme un doute ») : ce que les clients ont QUAND MÊME du même modèle, et les plus proches avec la raison
+ *  qui les écarte — pour que « aucune équivalente » se lise comme un constat, pas comme un trou. */
+export function sameModelSummary(
+  contacts: NetworkContact[], vehicles: StockVehicle[], lot: { brand: string; model: string }, ours: LotVehicle[], known: KnownModels | null, limit = 6,
+): SameModelSummary {
+  const byId = new Map(contacts.map((c) => [c.id, c]));
+  const same = sameModelOf(vehicles.filter((v) => byId.has(v.contact_id)), lot, known);
+  const near: NearMiss[] = [];
+  for (const t of same) {
+    const tf = theirsFields(t);
+    let best: string[] | null = null;
+    for (const o of ours) {
+      const r = mismatchReasons(t, tf, o);
+      if (!best || r.length < best.length) best = r;
+    }
+    if (!best) continue;
+    near.push({ contact: byId.get(t.contact_id)!, theirs: t, priceEur: t.price != null && t.price > 0 ? toEur(t.price, t.currency ?? 'EUR') : null, reasons: best });
+  }
+  // Les moins écartées d'abord (une seule raison avant deux), en stock avant vendues, puis les plus récentes.
+  near.sort((a, b) => a.reasons.length - b.reasons.length || Number(!!a.theirs.gone_at) - Number(!!b.theirs.gone_at) || (b.theirs.year ?? 0) - (a.theirs.year ?? 0));
+  return { clients: new Set(same.map((v) => v.contact_id)).size, inStock: same.filter((v) => !v.gone_at).length, sold: same.filter((v) => !!v.gone_at).length, nearest: near.slice(0, limit) };
+}
+
 export function analyzeClients(
   contacts: NetworkContact[], vehicles: StockVehicle[], runs: Array<{ contact_id: string; started_at: string }>,
   lot: { brand: string; model: string }, ours: LotVehicle[], known: KnownModels | null,
 ): ClientRow[] {
-  const bKey = brandKey(lot.brand);
-  const mKey = refModelKey(lot.brand, normalizeModel(lot.brand, lot.model, known));
   const byContact = new Map<string, StockVehicle[]>();
   for (const v of vehicles) (byContact.get(v.contact_id) ?? byContact.set(v.contact_id, []).get(v.contact_id)!).push(v);
   const runsBy = new Map<string, string[]>();
   for (const r of runs) (runsBy.get(r.contact_id) ?? runsBy.set(r.contact_id, []).get(r.contact_id)!).push(r.started_at);
   const rows: ClientRow[] = [];
   for (const c of contacts) {
-    const list = byContact.get(c.id) ?? [];
-    const same = list.filter((v) => v.brand && v.model && brandKey(v.brand) === bKey && refModelKey(v.brand, normalizeModel(v.brand, v.model, known)) === mKey);
+    const same = sameModelOf(byContact.get(c.id) ?? [], lot, known);
     if (!same.length) continue;
     const inStock: ClientMatch[] = []; const sold: ClientMatch[] = [];
     for (const t of same) {
-      const tf = { fuel: theirsFuel(t), trim: trimOf(t.title), power: t.power_ch ?? powerFromText(t.title), gearbox: gearboxFamily(t.gearbox) ?? gearboxFamily(t.title) };
+      const tf = theirsFields(t);
       let best: { state: ClientMatch['trimState']; ourId: string } | null = null;
       for (const o of ours) {
         const st = matchOne(t, tf, o);

@@ -11,7 +11,7 @@ import { loadNetwork, type NetworkContact } from '../services/network';
 import { listRefBrandModels } from '../services/workflow';
 import { loadLearnedModelsByBrand, mergeKnownModels } from '../lib/offers/knownModels';
 import { loadFxRates } from '../services/fxRates';
-import { analyzeClients, loadCountryBrandVehicles, lotVehiclesOf, type ClientRow, type ClientMatch } from '../services/clientShowcases';
+import { analyzeClients, loadCountryBrandVehicles, lotVehiclesOf, sameModelSummary, type ClientRow, type ClientMatch, type SameModelSummary } from '../services/clientShowcases';
 import { FUEL_LABEL, KM_TOLERANCE, type KnownModels } from '../services/stockCompare';
 import { countryVat } from '../lib/offers/vat';
 import { OFFER_COUNTRIES } from '../services/offers';
@@ -33,6 +33,7 @@ export function ClientShowcasesPanel({ lots, vehicles, countries, priceHtOf }: {
   const [contacts, setContacts] = useState<NetworkContact[] | null>(null);
   const [known, setKnown] = useState<KnownModels | null>(null);
   const [rows, setRows] = useState<ClientRow[] | null>(null);
+  const [misses, setMisses] = useState<SameModelSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
@@ -61,12 +62,14 @@ export function ClientShowcasesPanel({ lots, vehicles, countries, priceHtOf }: {
   useEffect(() => {
     if (!lot || !contacts || !known) return;
     let alive = true;
-    setLoading(true); setRows(null); setError(null);
+    setLoading(true); setRows(null); setMisses(null); setError(null);
     (async () => {
       const r = await loadCountryBrandVehicles(countryContacts.map((c) => c.id), lot.brand);
       if (!alive) return;
       if (r.error) { setError(r.error); setLoading(false); return; }
-      setRows(analyzeClients(countryContacts, r.vehicles, r.runs, { brand: lot.brand, model: lot.model }, ours, known));
+      const next = analyzeClients(countryContacts, r.vehicles, r.runs, { brand: lot.brand, model: lot.model }, ours, known);
+      setRows(next);
+      setMisses(next.length ? null : sameModelSummary(countryContacts, r.vehicles, { brand: lot.brand, model: lot.model }, ours, known));
       setLoading(false);
     })();
     return () => { alive = false; };
@@ -104,7 +107,25 @@ export function ClientShowcasesPanel({ lots, vehicles, countries, priceHtOf }: {
           </p>
           {error && <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{error}</p>}
           {loading || !rows ? <p className="text-sm text-slate-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture des vitrines {countryName(cc)} pour {lot.brand}…</p> : rows.length === 0 ? (
-            <p className="text-sm text-slate-500">Aucun client {countryName(cc)} n'a d'équivalent {lot.brand} {lot.model} dans sa vitrine relevée, ni en stock ni vendu.</p>
+            !misses || misses.clients === 0 ? (
+              <p className="text-sm text-slate-500">Aucun client {countryName(cc)} n'a de {lot.brand} {lot.model} dans sa vitrine relevée, ni en stock ni vendue.</p>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-sm text-slate-700">
+                  {misses.clients} client{misses.clients > 1 ? 's' : ''} {countryName(cc)} {misses.clients > 1 ? 'ont' : 'a'} <strong>{misses.inStock + misses.sold} {lot.brand} {lot.model}</strong> en vitrine ({misses.inStock} en stock, {misses.sold} vendue{misses.sold > 1 ? 's' : ''}), mais <strong>aucune équivalente</strong> à nos véhicules. Les plus proches, et ce qui les écarte :
+                </p>
+                <ul className="text-xs text-slate-600 divide-y divide-slate-100 rounded-lg border border-slate-200">
+                  {misses.nearest.map((m) => (
+                    <li key={m.theirs.id} className="px-3 py-1.5 flex flex-wrap items-baseline gap-x-2">
+                      <span className="font-medium text-slate-800">{m.contact.name}</span>
+                      <span>· {m.theirs.title}{m.theirs.year ? ` · ${m.theirs.year}` : ''}{m.theirs.km != null ? ` · ${m.theirs.km.toLocaleString('fr-FR')} km` : ''}{m.priceEur != null ? ` · ${eur(m.priceEur)}` : ''}{m.theirs.gone_at ? ' · vendue' : ''}</span>
+                      <span className="text-amber-800">— {m.reasons.join(' ; ')}</span>
+                      {m.theirs.url && <a href={m.theirs.url} target="_blank" rel="noreferrer" className="text-brand-ocean inline-flex items-center gap-0.5"><ExternalLink className="w-3 h-3" /> voir</a>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )
           ) : (
             <>
               <div className="rounded-xl border border-slate-200 divide-y divide-slate-100">
