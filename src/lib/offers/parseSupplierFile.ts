@@ -56,24 +56,29 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   // « reg date » ni « first reg » ne le voyaient — la date restait vide.
   // « F. matriculación » (stockbook espagnol Delta, 22/10) : normalisé « f matriculacion » — « matricul » suffit.
   // « Date Imm. » (listes Stellantis/Toyota/Kia 04/11 : quatre fichiers du même fournisseur).
-  ['reg_date', /(reg ?date|date ?mec|\bmec\b|mise en circ|1 ?i?[eè]?re? ?immat|first ?reg|1st ?reg|\breg\b|erstzulassung|\bez\b|immatriculation|immatricolazione|data immatr|prima immatr|matricul|date ?imm\b|date ?imm\.|licreg)/],
+  // « Registration date » / « Fecha de registro » (listes espagnoles Vigo et REBU, 16/11) : la DATE ; « Matrícula »
+  // seule est la plaque (elle tombait dans la date par « matricul ») — seules « matriculación / matriculation » datent.
+  ['reg_date', /(reg ?date|registration ?date|fecha de (registro|matricul)|date ?mec|\bmec\b|mise en circ|1 ?i?[eè]?re? ?immat|first ?reg|1st ?reg|\breg\b|erstzulassung|\bez\b|immatriculation|immatricolazione|data immatr|prima immatr|matriculaci|matriculation|date ?imm\b|date ?imm\.|licreg)/],
   ['plate', /(\bimmat|plaque|\bplate\b|registration|\btarga\b|\blicen[cs]e\b|matricula)/],
   // « Milage » (faute courante), « Miltal » / « Mätarställning » / « Mil »
   // (suédois : l'unité est le MIL = 10 km, voir decideKmUnit).
   // « KMS » (liste Megane E-Tech 14/10) : le pluriel n'était pas reconnu, le kilométrage restait vide.
   ['km', /(\bkms?\b|kilom|mil(e)?age|kilometer|chilometr|miltal|matarstallning|\bmil\b)/],
+  // « Vehicle type » = VP / VU (liste Vigo 16/11) : une catégorie, pas la version — gardée en extras.
+  ['ignore', /^(vehicle ?type|type de vehicule|tipo (de )?vehiculo|vehicle ?category|categorie|category|genre)$/],
   ['co2', /co2/],
   // Dommages AVANT les prix : « ESTIMATION FRE HT » (MeltingCars) contient « ht ».
   // « Damage report » (offre Vito Mixto 03/11) = le RAPPORT de dommages (lien), pas le montant : avant la règle des dommages.
   // « Gutachten » (04/11, liste « 14 x Vito Kasten met Gutachten ») : colonne d'expertise, lien dans la cellule.
   ['report_url', /(damage|dommage|schaden|danni).*(report|rapport|link|url|lien)|\bgutachten\b/],
-  ['damages', /(damage|dommage|\bfre\b|frais|remise en etat|schaden|\bdanni\b)/],
+  ['damages', /(damage|dommage|\bfre\b|frais|remise en etat|schaden|\bdanni\b|\bdanos?\b)/],
   // Prix du NEUF (« Prix catalogue VN », export enchères 30/10) : une référence, pas un prix fournisseur — ignoré (reste en extras).
   ['ignore', /(catalogue|prix neuf|\bvn\b|list price|msrp|neupreis|listino)/],
-  ['price_ht', /(proposal|\bht\b|\bnett?o?\b|export|imponibile|exkl)/],
+  // « sin IVA » (hors TVA, listes espagnoles 16/11) = un prix HT.
+  ['price_ht', /(proposal|\bht\b|\bnett?o?\b|export|imponibile|exkl|sin iva|excl)/],
   // « Price Brutto » / « Pris » (Suède, Danemark, Norvège) = un prix TTC.
-  ['price_ttc', /(\bttc\b|wholesale|public|gross|brutto|\bprix\b|\bprice\b|\bpreis\b|prezzo|lordo|\bpris\b)/],
-  ['report_url', /(appraisal|rapport|report|inspection|expertise|dekra|\burl\b|\blien\b|perizia)/],
+  ['price_ttc', /(\bttc\b|wholesale|public|gross|brutto|\bprix\b|\bprice\b|\bpreis\b|prezzo|lordo|\bpris\b|precio)/],
+  ['report_url', /(appraisal|rapport|report|inspection|expertise|dekra|\burl\b|\blien\b|perizia|tasacion|\blink\b|enlace)/],
   // « Färg/Colour » (suédois), « Farve » (danois), « Farge » (norvégien).
   ['color', /(colou?r|couleur|farbe|teinte|colore|\bfarg\b|farve|farge)/],
   // « COMBUSTIBLE » (espagnol), « Brandstof » (néerlandais).
@@ -82,7 +87,7 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   ['power', /(power|puissance|^ch$|^cv$|^kw$|^hp$|^ps$|leistung|potenza|effekt)/],
   ['gearbox', /(gearbox|boite|transmission|getriebe|^bv$|cambio|vaxellada|gearkasse|girkasse)/],
   // « LOADING » (liste espagnole 22/10 : le pays de chargement, BÉLGICA) = le lieu d'enlèvement.
-  ['location', /(location|\blieu\b|stock|storage|standort|depot|\bparc\b|\bsite\b|\bsede\b|ubicazione|deposito|luogo|loading|ubicacion|\bville\b|\bcity\b)/],
+  ['location', /(location|\blieu\b|stock|storage|standort|depot|\bparc\b|\bsite\b|\bsede\b|ubicazione|deposito|luogo|loading|ubicacion|\bcampa\b|\bville\b|\bcity\b)/],
   // « Type de taxation » (export enchères 30/10 : « TVA récupérable (h.t.) ») = le régime de TVA.
   // « Facturation » (04/11) : « TVA Récupérable - Prix HT (HT) » / « TVA sur marge » = le régime de TVA.
   ['vat', /(\btva\b|\bvat\b|mwst|\biva\b|\bmoms\b|taxation|facturation)/],
@@ -274,6 +279,8 @@ export function detectDateOrder(values: unknown[]): DateOrder {
 function toIsoDate(v: unknown, order: DateOrder = 'dmy'): string | null {
   if (v == null || v === '') return null;
   if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString().slice(0, 10);
+  // Numéro de série Excel (cellule datée mais non formatée, liste Vigo 16/11 : 46008 = 2025-12-17).
+  if (typeof v === 'number' && Number.isInteger(v) && v > 20000 && v < 80000) return new Date(Date.UTC(1899, 11, 30) + v * 86_400_000).toISOString().slice(0, 10);
   const s = String(v).trim();
   let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (m) return `${m[1]}-${m[2]}-${m[3]}`;
@@ -476,7 +483,7 @@ export function parseFreeLine(line: string): { power_ch: number | null; gearbox:
   // « AT-8 » / « MT-6 » (fichiers allemands), « Automatik », « BVA »…
   // « AUT » (catalogue Record Rent a Car 07/10 : « 252CV AUT »), « E-CVT ».
   // « AUTO » seul (liste Drivalia 12/11 : « 1.5T EHS PHEV LUXURY AUTO »).
-  const gearbox = /\b(bva|au?to?ma?ti?(que|c|k|co)|automaat|aut|auto|dct\d?|eat\d|e-?dcs?\d?|edc|e-?cvt|dsg|s-?tronic|steptronic|multitronic|xtronic|automat|at-?\d)\b/i.test(s) ? 'AUTOMATIQUE'
+  const gearbox = /\b(bva|au?to?ma?ti?(que|c|k|co)|automaat|aut|auto|dct\d?|e?-?eat\d|e-?dcs?\d?|edc|e-?cvt|dsg|s-?tronic|steptronic|multitronic|xtronic|automat|at-?\d)\b/i.test(s) ? 'AUTOMATIQUE' // « eEAT8 » collé (liste REBU 16/11)
     : /\b(bvm\d?|manuel(le)?|manual|schalt|mt-?\d)\b/i.test(s) ? 'MANUELLE' : null;
   // « 300PHEV » collé (RAV4), « HEV » (Tucson), « GLP » / « ECO-G » (GPL
   // espagnol / Dacia) — catalogue du 07/10.
@@ -484,12 +491,17 @@ export function parseFreeLine(line: string): { power_ch: number | null; gearbox:
   // E-Tech 14/10 ; kWh, e-tron, ID.4…) passent AVANT l'hybride : « E-Tech »
   // chez Renault désigne aussi bien une Clio hybride qu'une Megane électrique.
   // « P300e » / « P400e » (Land Rover, liste Drivalia 12/11) : hybride rechargeable ; « Flex Fuel » / « E85 » : essence.
-  const fuel = /phev|\b(plug-?in|e-?tense 4x4|rechargeable|tfsi e|e-?hybrid|p[2-5]\d0e)\b/i.test(s) ? 'HYBRIDE RECHARGEABLE'
-    : /\b([ée]lectri(que|c)|ev|ev\d{2}|e-?208|e-?2008|electric|kwh|e-?tron|id\.? ?[3-7]|eqa|eqb|eqc|eqe|eqs|\bbev\b)\b/i.test(s) || /\d\s?kwh\b/i.test(s) ? 'ELECTRIQUE' // « 45KWH » collé (MG ZS 15/10)
-    : /\b(hybrid|hybride|hev|e-?tech|e-?power|mhev|bsg)\b/i.test(s) ? 'HYBRIDE'
+  // Listes espagnoles Vigo / REBU (16/11) : « Eléctrico », « Híbrido », « Gasolina » ; noms de gamme Stellantis —
+  // électriques « ë-C3 / ë-C4 / e-208 / Combo-e / Mokka-e / Corsa-e », rechargeables « E-Tense 225 / 300 / 360 »,
+  // « Hybrid 180 / 195 / 225 / 300 / 360 », « Hybrid4 », boîte « e-EAT8 » (« Hybrid 136 / 145 » = hybride légère) ;
+  // « E-Tense » sans chiffre (DS 3) = électrique.
+  const fuel = /phev|\b(plug-?in|e-?tense 4x4|rechargeable|tfsi e|e-?hybrid|p[2-5]\d0e)\b/i.test(s) || /e-?tense\s?[23]\d{2}\b|\bhybrid\s?(?:180|195|225|300|360)\b|\bhybrid4\b|\be-?eat8\b/i.test(s) ? 'HYBRIDE RECHARGEABLE'
+    : /\b([ée]lectri(que|c|co|ca)|ev|ev\d{2}|e-?208|e-?2008|electric|kwh|e-?tron|id\.? ?[3-7]|eqa|eqb|eqc|eqe|eqs|\bbev\b|e-?tense)\b/i.test(s) || /\d\s?kwh\b/i.test(s)
+      || /(?:^|\s)[eë]-?(?:c[345]|308|3008|rifter|berlingo|expert|traveller|jumpy|spacetourer|partner|boxer|jumper|doblo|scudo|ducato|up|golf|corsa|combo|mokka|vivaro|zafira|movano|500|niro|soul)\b|\b(?:combo|mokka|corsa|vivaro|zafira|movano|berlingo|partner|rifter)-e\b/i.test(s) ? 'ELECTRIQUE' // « 45KWH » collé (MG ZS 15/10)
+    : /\b(hybrid|hybride|hibrido|hibrida|hev|e-?tech|e-?power|mhev|bsg)\b/i.test(s) ? 'HYBRIDE'
     : /\b(gpl|glp|lpg|eco-?g)\b/i.test(s) ? 'GPL'
     : /\b(diesel|hdi|bluehdi|dci|tdi|cdi|crdi|d\b|multijet)/i.test(s) ? 'DIESEL'
-    : /\b(essence|petrol|benzin|puretech|tce|tsi|tfsi|turbo|1\.[0-9]|dig-t|flex ?fuel|e85)\b/i.test(s) ? 'ESSENCE' : null;
+    : /\b(essence|petrol|benzin|gasolina|puretech|tce|tsi|tfsi|turbo|1\.[0-9]|dig-t|flex ?fuel|e85)\b/i.test(s) ? 'ESSENCE' : null;
   const e = s.match(/\b(\d\.\d\s?(?:turbo|puretech|tce|tsi|hybrid|hdi|bluehdi|dci|e-?hybrid|t\d)?[^,|]{0,20}?)(?=\s\d{2,3}\s?(?:ch|cv|kw|hk|hp|ps)|$)/i);
   return { power_ch, gearbox, fuel, engine: e ? e[1].trim() : null };
 }
@@ -757,8 +769,11 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
     // Colonne modèle du fournisseur (« ASTRA L », « DS 7 CROSSBACK / DS 7 »)
     // rapprochée des modèles connus (référentiel + taxonomie) et débarrassée
     // de son marqueur de génération ; sans colonne, la ligne libre est décomposée.
-    if (!model || model === versionLine) model = guessModel(brand, versionLine || model, known);
-    else model = guessModel(brand, model, known);
+    // « Nuevo 308 5P… », « N 2008 Active Pack… » (liste REBU 16/11 : « nuevo » = neuf, abrégé « N ») : le mot
+    // d'état n'est pas un modèle — retiré pour la lecture du modèle seulement, la ligne libre le garde.
+    const forModel = (line: string) => line.replace(/^(?:nuevo|nueva|new|neu|nouveau|nouvelle|n)\s+(?=\S)/i, '');
+    if (!model || model === versionLine) model = guessModel(brand, forModel(versionLine || model), known);
+    else model = guessModel(brand, forModel(model), known);
     // Colonne « MODEL » qui porte un CODE de flotte (« CW41 », « DV19 » — Stock Export 06/11) et désignation à côté
     // (« Formentor 1.5 eTSI DSG 150 ») : quand le code n'est pas un modèle connu de la marque mais que la
     // désignation commence par un modèle connu, c'est elle qui donne le modèle. Le code reste dans la version.
@@ -794,6 +809,11 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
     // Et l'inverse (liste « Prix HT / TTC » + « Facturation » 04/11) : la colonne est lue en HT mais la ligne dit
     // « TVA sur marge - Prix TTC » → c'est un TTC non récupérable.
     if (rec.price_ttc == null && rec.price_ht != null && /\bttc\b/.test(vatText) && !/(\bh\.?t\b|hors taxe)/.test(vatText)) { rec.price_ttc = rec.price_ht; rec.price_ht = undefined; }
+    // Régime de TVA écrit dans l'EN-TÊTE du prix (liste « PRECIO VENTA REBU » 16/11 : REBU = régimen especial de bienes
+    // usados = TVA sur marge ; « Prix marge », « Differenzbesteuert ») : un prix TTC non récupérable, sans colonne TVA.
+    const priceHeaders = fields.map((f, idx) => ((f === 'price_ht' || f === 'price_ttc') && rec[f] != null ? normHeader((header ?? [])[idx] ?? '') : '')).join(' ');
+    const marginHeader = /\brebu\b|\bmargen\b|\bmarge\b|margin|differenz/.test(priceHeaders);
+    if (marginHeader && rec.price_ttc == null && rec.price_ht != null) { rec.price_ttc = rec.price_ht; rec.price_ht = undefined; }
     if (!brand) warnings.push(`Ligne ${i + 1} : marque introuvable (${versionLine.slice(0, 40)}).`);
     if (warnings.length > 12) { warnings.length = 12; warnings.push('… (avertissements suivants masqués)'); }
     // « Variant » / « EQ » d'une liste à colonne modèle (VW ID.7 Tourer 02/10) : la version, pas un extra.
@@ -849,7 +869,7 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
       // — dans la DEVISE du fichier (SEK, DKK… : convertis en euros par les paramètres de l'offre, 13/10).
       price_ht: priceOrNull(rec.price_ht),
       price_ttc: priceOrNull(rec.price_ttc),
-      vat_recoverable: vatFromText,
+      vat_recoverable: vatFromText ?? (marginHeader ? false : null),
       imported: yesNo(rec.import),
       extras,
       selected: true,

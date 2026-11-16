@@ -98,7 +98,7 @@ export const damagesEur = (v: OfferVehicle, s: ResolvedSettings): number | null 
 
 /**
  * Prix fournisseur HT d'un véhicule selon les paramètres, EN EUROS.
- * - auto : comme lu (HT si présent, sinon TTC ÷ (1 + TVA) quand la TVA est récupérable) ;
+ * - auto : comme lu (HT si présent, sinon TTC ÷ (1 + TVA), ou le TTC tel quel sous le régime de la marge) ;
  * - TTC  : le prix du fichier est un TTC ; régime de la marge (TVA non récupérable) = le prix tel quel ;
  * - HT   : le prix du fichier est déjà un HT.
  * Un fichier en couronnes (SEK, DKK…) est converti au taux figé dans les paramètres.
@@ -116,7 +116,9 @@ export function supplierHtWith(v: OfferVehicle, s: ResolvedSettings): number | n
     return eur(v.vat_recoverable === false ? x : x / (1 + rate));
   }
   if (v.price_ht != null) return eur(v.price_ht);
-  if (v.price_ttc != null && v.vat_recoverable !== false) return eur(v.price_ttc / (1 + rate));
+  // Régime de la marge (liste REBU 16/11 : TVA non récupérable) : le prix TTC EST notre coût, rien à déduire — il
+  // restait vide en mode « auto » alors que le mode « TTC » le prenait déjà tel quel.
+  if (v.price_ttc != null) return eur(v.vat_recoverable === false ? v.price_ttc : v.price_ttc / (1 + rate));
   return null;
 }
 
