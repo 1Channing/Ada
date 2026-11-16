@@ -23,6 +23,7 @@ import { COUNTRY_VAT, countryVat } from '../lib/offers/vat';
 import { listRefBrandModels } from '../services/workflow';
 import { loadLearnedModelsByBrand, mergeKnownModels } from '../lib/offers/knownModels';
 import { setStockFrequency } from '../services/network';
+import { observationWindow, rankModels, RANK_LABEL, RANK_HELP, MIN_SALES, type RankMode } from '../services/showcaseRanking';
 
 type Tab = 'stock' | 'compare' | 'analyse' | 'runs';
 const ROTATION_HELP = 'Rotation = disparus ÷ (en stock + disparus), sur toutes les voitures de ce modèle vues par Ada depuis le premier relevé. 30 % = trois voitures sur dix ont quitté la vitrine (vendues ou retirées) depuis qu\'Ada la suit. Plus c\'est haut, plus le modèle tourne vite chez ce vendeur.';
@@ -39,6 +40,8 @@ export function ShowcaseModal({ contactId, name, url, url2, country, frequency, 
 }) {
   const { displayName, email } = useAuth();
   const [tab, setTab] = useState<Tab>('stock');
+  /** Tri du tableau « Par modèle » (16/11) : volume, best-sellers, à réassortir, vite vendu prix tenu. */
+  const [rankMode, setRankMode] = useState<RankMode>('bestseller');
   const [view, setView] = useState<StockView>('in');
   const [vehicles, setVehicles] = useState<StockVehicle[]>([]);
   const [runs, setRuns] = useState<StockRun[]>([]);
@@ -216,15 +219,12 @@ export function ShowcaseModal({ contactId, name, url, url2, country, frequency, 
   // Analyse.
   const velocity = useMemo(() => { const d = goneFiltered.map((v) => daysBetween(v.listed_at ?? v.first_seen_at, v.gone_at)).filter((x): x is number => x != null).sort((a, b) => a - b); return d.length >= 3 ? d[Math.floor(d.length / 2)] : null; }, [goneFiltered]);
   const goneMoves = useMemo(() => { const ms = goneFiltered.map(priceMoves).filter((m) => m.first != null && m.last != null); const dropped = ms.filter((m) => m.drops > 0); const pcts = dropped.map((m) => m.pct).filter((p): p is number => p != null).sort((a, b) => a - b); return { total: ms.length, dropped: dropped.length, medianPct: pcts.length ? pcts[Math.floor(pcts.length / 2)] : null }; }, [goneFiltered]);
-  const byModel = useMemo(() => {
-    type Row = { key: string; label: string; inStock: number; gone: number; inPrices: number[]; gonePrices: number[]; days: number[] };
-    const map = new Map<string, Row>();
-    const rowOf = (v: StockVehicle) => { const key = `${(v.brand ?? '').toUpperCase()}|${(v.model ?? '').toUpperCase()}`; return map.get(key) ?? map.set(key, { key, label: `${(v.brand ?? '').toUpperCase()} ${(v.model ?? '').toUpperCase()}`.trim() || '—', inStock: 0, gone: 0, inPrices: [], gonePrices: [], days: [] }).get(key)!; };
-    for (const v of stockFiltered) { const r = rowOf(v); r.inStock++; const p = v.price != null && v.price > 0 ? toEur(v.price, v.currency ?? 'EUR') : null; if (p != null) r.inPrices.push(p); }
-    for (const v of goneFiltered) { const r = rowOf(v); r.gone++; const p = v.price != null && v.price > 0 ? toEur(v.price, v.currency ?? 'EUR') : null; if (p != null) r.gonePrices.push(p); const d = daysBetween(v.listed_at ?? v.first_seen_at, v.gone_at); if (d != null) r.days.push(d); }
-    const med = (xs: number[]) => { if (!xs.length) return null; const s = [...xs].sort((a, b) => a - b); return s[Math.floor((s.length - 1) / 2)]; };
-    return [...map.values()].map((r) => ({ ...r, medIn: med(r.inPrices), medGone: med(r.gonePrices), medDays: med(r.days) })).sort((a, b) => b.inStock + b.gone - (a.inStock + a.gone));
-  }, [stockFiltered, goneFiltered]);
+  const window_ = useMemo(() => observationWindow(vehicles, runs), [vehicles, runs]);
+  const byModel = useMemo(() => rankModels(
+    stockFiltered, goneFiltered, window_, rankMode,
+    (v) => (v.price != null && v.price > 0 ? toEur(v.price, v.currency ?? 'EUR') ?? null : null),
+    (v) => daysBetween(v.listed_at ?? v.first_seen_at, v.gone_at),
+  ), [stockFiltered, goneFiltered, window_, rankMode]);
 
   const scan = async () => {
     if (!url) { setError('Cette fiche n\'a pas d\'adresse de vitrine : renseigne-la via « Modifier ».'); return; }
@@ -449,26 +449,52 @@ export function ShowcaseModal({ contactId, name, url, url2, country, frequency, 
                 </div>
                 <PriceDistribution prices={pricesOf(stockFiltered)} gone={gonePrices} label="en stock" />
                 <div>
-                  <h4 className="text-sm font-semibold text-slate-800 mb-1">Par modèle <span className="font-normal text-xs text-slate-500">— sous les filtres actifs</span></h4>
+                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                    <h4 className="text-sm font-semibold text-slate-800">Par modèle <span className="font-normal text-xs text-slate-500">— sous les filtres actifs</span></h4>
+                    <div className="ml-auto flex items-center gap-1 text-xs" role="group" aria-label="Trier les modèles">
+                      <span className="text-slate-500 mr-1">Trier :</span>
+                      {(Object.keys(RANK_LABEL) as RankMode[]).map((m) => (
+                        <button key={m} onClick={() => setRankMode(m)} aria-pressed={rankMode === m} title={RANK_HELP[m]} className={`px-2 py-1 rounded-lg border ${rankMode === m ? 'border-brand-ocean bg-blue-50 text-brand-encre font-semibold' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>{RANK_LABEL[m]}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mb-1">{RANK_HELP[rankMode]}{window_.days > 0 ? ` Vitrine observée ${window_.days} j sur ${window_.readings} relevé${window_.readings > 1 ? 's' : ''}.` : ''}</p>
+                  {!window_.calibrated && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 mb-2">Calibrage en cours : {window_.reason || 'relevés insuffisants'}. Les mesures s'affichent, les badges attendront 14 jours d'observation et 3 relevés.</p>}
                   {byModel.length === 0 ? <p className="text-xs text-slate-400">Rien.</p> : (
                     <table className="w-full text-xs">
-                      <thead><tr className="text-left text-slate-500 border-b border-slate-200"><th className="py-1.5 pr-3 font-medium">Modèle</th><th className="py-1.5 pr-3 font-medium text-right">En stock</th><th className="py-1.5 pr-3 font-medium text-right">Médiane en stock</th><th className="py-1.5 pr-3 font-medium text-right">Disparus</th><th className="py-1.5 pr-3 font-medium text-right">Médiane disparus</th><th className="py-1.5 pr-3 font-medium text-right"><span className="inline-flex items-center gap-1 justify-end" title={DAYS_HELP}>Jours en stock (méd.) <Info className="w-3.5 h-3.5 text-slate-400 cursor-help" aria-label={DAYS_HELP} /></span></th><th className="py-1.5 pr-3 font-medium text-right"><span className="inline-flex items-center gap-1 justify-end" title={ROTATION_HELP}>Rotation <Info className="w-3.5 h-3.5 text-slate-400 cursor-help" aria-label={ROTATION_HELP} /></span></th></tr></thead>
+                      <thead><tr className="text-left text-slate-500 border-b border-slate-200">
+                        <th className="py-1.5 pr-3 font-medium">Modèle</th>
+                        <th className="py-1.5 pr-3 font-medium text-right">En stock</th>
+                        <th className="py-1.5 pr-3 font-medium text-right">Médiane en stock</th>
+                        <th className="py-1.5 pr-3 font-medium text-right">Disparus</th>
+                        <th className="py-1.5 pr-3 font-medium text-right">Médiane disparus</th>
+                        <th className="py-1.5 pr-3 font-medium text-right" title={RANK_HELP.bestseller}>Ventes / mois</th>
+                        <th className="py-1.5 pr-3 font-medium text-right" title={RANK_HELP.restock}>Couverture</th>
+                        <th className="py-1.5 pr-3 font-medium text-right"><span className="inline-flex items-center gap-1 justify-end" title={DAYS_HELP}>Jours en stock (méd.) <Info className="w-3.5 h-3.5 text-slate-400 cursor-help" aria-label={DAYS_HELP} /></span></th>
+                        <th className="py-1.5 pr-3 font-medium text-right" title="Part des disparues dont le prix avait baissé avant le départ (ventes avec historique de prix).">Baisses</th>
+                        <th className="py-1.5 pr-3 font-medium text-right"><span className="inline-flex items-center gap-1 justify-end" title={ROTATION_HELP}>Rotation <Info className="w-3.5 h-3.5 text-slate-400 cursor-help" aria-label={ROTATION_HELP} /></span></th>
+                        <th className="py-1.5 pr-1 font-medium text-right"></th>
+                      </tr></thead>
                       <tbody className="divide-y divide-slate-100">
                         {byModel.slice(0, 80).map((r) => (
-                          <tr key={r.key} className="hover:bg-slate-50 cursor-pointer" onClick={() => { const [b, m] = r.key.split('|'); setFBrand(b); setFModel(m); setTab('stock'); }} title="Filtrer sur ce modèle">
-                            <td className="py-1.5 pr-3 font-medium text-slate-800">{r.label}</td>
+                          <tr key={r.key} className={`hover:bg-slate-50 cursor-pointer ${r.badge ? 'bg-emerald-50/60' : ''}`} onClick={() => { const [b, m] = r.key.split('|'); setFBrand(b); setFModel(m); setTab('stock'); }} title="Filtrer sur ce modèle">
+                            <td className="py-1.5 pr-3 font-medium text-slate-800">{r.label}{r.badge && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-full border border-emerald-300 bg-emerald-50 text-[10px] font-semibold text-emerald-800">{rankMode === 'bestseller' ? 'best-seller' : rankMode === 'restock' ? (r.inStock === 0 ? 'rupture' : 'à réassortir') : 'vite vendu'}</span>}</td>
                             <td className="py-1.5 pr-3 text-right tabular-nums">{r.inStock}</td>
                             <td className="py-1.5 pr-3 text-right tabular-nums">{r.medIn != null ? fmtMoney(r.medIn, 'EUR') : '—'}</td>
                             <td className="py-1.5 pr-3 text-right tabular-nums">{r.gone}</td>
                             <td className="py-1.5 pr-3 text-right tabular-nums">{r.medGone != null ? fmtMoney(r.medGone, 'EUR') : '—'}</td>
-                            <td className="py-1.5 pr-3 text-right tabular-nums">{r.medDays != null ? `${r.medDays} j` : '—'}</td>
-                            <td className="py-1.5 pr-3 text-right tabular-nums">{r.inStock + r.gone > 0 ? `${Math.round((r.gone / (r.inStock + r.gone)) * 100)} %` : '—'}</td>
+                            <td className="py-1.5 pr-3 text-right tabular-nums" title={r.gone > 0 && r.gone < MIN_SALES ? `${r.gone} disparu${r.gone > 1 ? 's' : ''} seulement : pas assez pour juger` : ''}>{r.salesPerMonth != null && r.salesPerMonth > 0 ? r.salesPerMonth.toLocaleString('fr-FR') : '—'}</td>
+                            <td className="py-1.5 pr-3 text-right tabular-nums">{r.coverMonths != null ? (r.coverMonths === 0 ? <span className="text-red-700 font-semibold">rupture</span> : `${r.coverMonths.toLocaleString('fr-FR')} mois`) : '—'}</td>
+                            <td className="py-1.5 pr-3 text-right tabular-nums" title={r.cohortDays != null ? `Cohorte entrée après le premier relevé : ${r.cohortDays} j sur ${r.cohortSales} vente${r.cohortSales > 1 ? 's' : ''}` : 'Aucune vente de la cohorte entrante'}>{r.medDays != null ? `${r.medDays} j` : '—'}{r.cohortDays != null && r.cohortDays !== r.medDays ? <span className="text-slate-400"> · {r.cohortDays} j*</span> : ''}</td>
+                            <td className="py-1.5 pr-3 text-right tabular-nums">{r.dropShare != null ? `${Math.round(r.dropShare * 100)} %` : '—'}</td>
+                            <td className="py-1.5 pr-3 text-right tabular-nums">{r.rotation != null ? `${Math.round(r.rotation * 100)} %` : '—'}</td>
+                            <td className="py-1.5 pr-1 text-right"><button onClick={(e) => { e.stopPropagation(); const [b, m] = r.key.split('|'); setFBrand(b); setFModel(m); setTab('compare'); }} className="text-brand-ocean hover:underline whitespace-nowrap" title="Comparer ce modèle avec nos offres (onglet Comparer, filtré)">Comparer</button></td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   )}
-                  <p className="text-[10px] text-slate-400 mt-1">{ROTATION_HELP} Clique une ligne pour filtrer le Stock sur ce modèle.</p>
+                  <p className="text-[10px] text-slate-400 mt-1">{ROTATION_HELP} « j* » = jours sur la cohorte entrée après le premier relevé (âge connu). Disparu = vendu ou retiré de la vitrine. Clique une ligne pour filtrer le Stock sur ce modèle.</p>
                 </div>
               </div>
             ) : (
