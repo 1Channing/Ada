@@ -507,8 +507,11 @@ export function Offres() {
     if (v === 'analyse' || v === 'export' || v === 'intra' || v === 'selection') setView(v);
   }, [search, offers]); // eslint-disable-line react-hooks/exhaustive-deps
   const remove = async (o: SupplierOffer) => {
-    if (!confirm(`Supprimer l'offre « ${o.title || 'sans titre'} » ?`)) return;
-    const err = await deleteOffer(o.id);
+    // Toute l'équipe peut supprimer (16/11, Channing : « ajoute la possibilité de supprimer les listes » — les listes
+    // d'Achille n'avaient pas le bouton) ; une liste d'un autre membre est nommée comme telle avant de disparaître.
+    const foreign = o.user_id && o.user_id !== userId;
+    if (!confirm(`Supprimer l'offre « ${o.title || 'sans titre'} »${foreign ? ' (créée par un autre membre de l\'équipe)' : ''} ? Ses véhicules, fichiers et réglages seront perdus.`)) return;
+    const err = await deleteOffer(o.id, o.source_files);
     if (err) { fail(err); return; }
     if (draft?.id === o.id) setDraft(null);
     await reload();
@@ -977,7 +980,7 @@ export function Offres() {
                     ? <button onClick={() => void setStatus(o, 'draft')} className="w-full flex items-center gap-2 px-3 py-2 text-left text-slate-700 hover:bg-slate-50"><ArchiveRestore className="w-4 h-4 text-slate-400" /> Remettre en cours</button>
                     : <button onClick={() => void setStatus(o, 'closed')} className="w-full flex items-center gap-2 px-3 py-2 text-left text-slate-700 hover:bg-slate-50"><Archive className="w-4 h-4 text-slate-400" /> Archiver</button>}
                   <button onClick={() => { setOfferMenu(null); setMerge({ base: o.id, picked: [] }); }} className="w-full flex items-center gap-2 px-3 py-2 text-left text-slate-700 hover:bg-slate-50"><Merge className="w-4 h-4 text-slate-400" /> Fusionner avec d'autres…</button>
-                  {o.user_id === userId && <button onClick={() => { setOfferMenu(null); void remove(o); }} className="w-full flex items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4" /> Supprimer</button>}
+                  <button onClick={() => { setOfferMenu(null); void remove(o); }} className="w-full flex items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4" /> Supprimer</button>
                 </div>
               )}
             </div>

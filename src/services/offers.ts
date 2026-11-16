@@ -5,6 +5,7 @@
  */
 import { supabase } from '../lib/supabase';
 import { useAuth } from './auth';
+import { ADMIN_BUCKET, storagePathOf } from './storageAccess';
 import type { ColumnMapping, OfferVehicle } from '../lib/offers/parseSupplierFile';
 import type { OfferMarket, LotCriteria } from '../lib/offers/marketCheck';
 import type { ExportColumn } from '../lib/offers/exportColumns';
@@ -77,9 +78,14 @@ export async function saveOffer(o: Partial<SupplierOffer> & { id?: string }): Pr
   return { id: o.id ?? insertedId, error: null, dropped };
 }
 
-export async function deleteOffer(id: string): Promise<string | null> {
+/** Supprime l'offre ; `files` = ses fichiers bruts du bucket admin-documents, retirés après la ligne (16/11, suppression
+ *  ouverte à toute l'équipe) — sans `files` (fusion : les fichiers passent à l'offre fusionnée), rien n'est retiré. */
+export async function deleteOffer(id: string, files?: OfferSourceFile[]): Promise<string | null> {
   const { error } = await sb.from('supplier_offers').delete().eq('id', id);
-  return error ? error.message : null;
+  if (error) return error.message;
+  const paths = (files ?? []).map((f) => storagePathOf(f.path)).filter(Boolean);
+  if (paths.length) { try { await supabase.storage.from(ADMIN_BUCKET).remove(paths); } catch { /* fichiers orphelins : la ligne est déjà partie */ } }
+  return null;
 }
 
 /** Applique la règle de prix MC Export à chaque véhicule (HT fournisseur + marge, ou prix fixe) sans écraser un prix saisi à la main.
