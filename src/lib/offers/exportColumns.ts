@@ -19,7 +19,8 @@ import type { ExportLang, PriceBasis } from './offerSettings';
 /** Contexte d'export : langue, base des prix (notre prix est stocké HT), prix fournisseur selon les paramètres. */
 export interface ExportContext {
   lang: ExportLang;
-  basis: PriceBasis;
+  /** Base des prix exportés : HT, TTC, ou « margin » (régime de la TVA sur marge : prix unique, 16/11). */
+  basis: PriceBasis | 'margin';
   saleVat: number;
   supplierHt?: (v: OfferVehicle) => number | null;
   /** Dommages en euros (fichier en couronnes, 13/10) ; absent = valeur du fichier. */
@@ -79,6 +80,7 @@ const LABEL_EN: Record<BuiltinColumnKey, string> = {
 /** Libellé par défaut d'une colonne intégrée, dans la langue et la base de prix de l'export. */
 export function builtinLabel(k: BuiltinColumnKey, ctx: Pick<ExportContext, 'lang' | 'basis'>): string {
   if (k === 'price' && ctx.basis === 'ttc') return ctx.lang === 'en' ? 'Sale price incl. VAT (€)' : 'Prix de vente TTC (€)';
+  if (k === 'price' && ctx.basis === 'margin') return ctx.lang === 'en' ? 'Sale price, margin scheme (€)' : 'Prix de vente TVA sur marge (€)';
   return ctx.lang === 'en' ? LABEL_EN[k] : BUILTIN_COLUMNS[k].label;
 }
 /** Libellé exporté : celui saisi sur l'offre, ou le libellé par défaut traduit si la colonne n'a pas été renommée. */

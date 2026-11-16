@@ -28,7 +28,7 @@ export interface OfferDocument {
   columns?: ExportColumn[];
   /** Paramètres de l'offre (11/10) : langue, base de nos prix (stockés HT), TVA, prix fournisseur. */
   lang?: ExportLang;
-  priceBasis?: PriceBasis;
+  priceBasis?: PriceBasis | 'margin';
   saleVat?: number;
   supplierHt?: (v: OfferVehicle) => number | null;
   /** Dommages en euros quand le fichier est en couronnes (13/10). */
@@ -150,7 +150,7 @@ export function buildOfferWorkbook(doc: OfferDocument): ArrayBuffer {
 
   const ws2Head: string[] = [...T.sheet2Head];
   const ws2Rows = doc.vehicles.map((v) => [v.vin ?? '', v.brand, v.model, v.engine ?? '', v.fuel ? fuelLabel(v.fuel, ctx.lang) : '', v.gearbox ?? '', v.location ?? '',
-    v.vat_recoverable == null ? '' : v.vat_recoverable ? T.yes : T.no, v.imported == null ? '' : v.imported ? T.yes : T.no,
+    ctx.basis === 'margin' ? T.no : v.vat_recoverable == null ? '' : v.vat_recoverable ? T.yes : T.no, v.imported == null ? '' : v.imported ? T.yes : T.no,
     Object.entries(v.extras).map(([k, val]) => `${k}: ${val}`).join(' · ')]);
   const ws2 = XLSX.utils.aoa_to_sheet([ws2Head, ...ws2Rows]);
   const w2 = [18, 12, 14, 28, 20, 12, 22, 12, 8, 60];

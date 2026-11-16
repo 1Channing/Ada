@@ -15,10 +15,15 @@ import { currencySymbol, fmtMoney } from '../fx';
 import { currentFx } from '../../services/fxRates';
 
 export type PriceBasis = 'ht' | 'ttc';
+/** Base des prix du fichier : lus comme l'en-tête le dit, TTC, HT, ou RÉGIME DE LA MARGE (16/11, liste « PRECIO VENTA
+ *  REBU », Channing : « ajoute la possibilité de mettre des prix margin ») — prix pris tels quels, aucune TVA à retirer
+ *  ni à ajouter, nos prix sont alors eux aussi des prix TVA sur marge (non récupérable pour l'acheteur). */
+export type SupplierBasis = 'auto' | PriceBasis | 'margin';
 export type ExportLang = 'fr' | 'en';
+export const SUPPLIER_BASIS_LABEL: Record<SupplierBasis, string> = { auto: 'comme lus', ht: 'HT', ttc: 'TTC', margin: 'TVA sur marge' };
 
 export interface OfferSettings {
-  supplierBasis?: 'auto' | PriceBasis;
+  supplierBasis?: SupplierBasis;
   /** TVA du prix TTC fournisseur ; null = celle lue dans le fichier (0,20 par défaut). */
   supplierVat?: number | null;
   /** DEVISE des prix du fichier (13/10, liste suédoise) ; absent = euros. Les prix
@@ -40,7 +45,7 @@ export interface OfferSettings {
 }
 
 export interface ResolvedSettings {
-  supplierBasis: 'auto' | PriceBasis; supplierVat: number | null; display: PriceBasis; saleVat: number; lang: ExportLang; footer: string | null;
+  supplierBasis: SupplierBasis; supplierVat: number | null; display: PriceBasis; saleVat: number; lang: ExportLang; footer: string | null;
   supplierCurrency: FileCurrency; supplierFxRate: number | null; supplierFxDate: string | null; kmUnit: KmUnit | null;
 }
 
@@ -100,7 +105,8 @@ export const damagesEur = (v: OfferVehicle, s: ResolvedSettings): number | null 
  * Prix fournisseur HT d'un véhicule selon les paramètres, EN EUROS.
  * - auto : comme lu (HT si présent, sinon TTC ÷ (1 + TVA), ou le TTC tel quel sous le régime de la marge) ;
  * - TTC  : le prix du fichier est un TTC ; régime de la marge (TVA non récupérable) = le prix tel quel ;
- * - HT   : le prix du fichier est déjà un HT.
+ * - HT   : le prix du fichier est déjà un HT ;
+ * - marge : régime de la TVA sur marge (REBU, « Differenzbesteuert ») — pris tel quel.
  * Un fichier en couronnes (SEK, DKK…) est converti au taux figé dans les paramètres.
  */
 export function supplierHtWith(v: OfferVehicle, s: ResolvedSettings): number | null {
@@ -115,6 +121,7 @@ export function supplierHtWith(v: OfferVehicle, s: ResolvedSettings): number | n
     if (x == null) return null;
     return eur(v.vat_recoverable === false ? x : x / (1 + rate));
   }
+  if (s.supplierBasis === 'margin') return eur(v.price_ttc ?? v.price_ht);
   if (v.price_ht != null) return eur(v.price_ht);
   // Régime de la marge (liste REBU 16/11 : TVA non récupérable) : le prix TTC EST notre coût, rien à déduire — il
   // restait vide en mode « auto » alors que le mode « TTC » le prenait déjà tel quel.
@@ -123,32 +130,38 @@ export function supplierHtWith(v: OfferVehicle, s: ResolvedSettings): number | n
 }
 
 /** Prix fournisseur dans la base d'affichage (TTC : avec la TVA du fournisseur). */
+/** Véhicule sous le régime de la marge : dit par la ligne (TVA non récupérable) ou par le réglage de l'offre. */
+export const isMarginScheme = (v: Pick<OfferVehicle, 'vat_recoverable'>, s: Pick<ResolvedSettings, 'supplierBasis'>): boolean =>
+  s.supplierBasis === 'margin' || v.vat_recoverable === false;
+
 export function supplierShown(v: OfferVehicle, s: ResolvedSettings): number | null {
   const ht = supplierHtWith(v, s);
   if (ht == null || s.display === 'ht') return ht;
-  if (v.vat_recoverable === false) return ht; // régime de la marge : pas de TVA à ajouter
+  if (isMarginScheme(v, s)) return ht; // régime de la marge : pas de TVA à ajouter
   return Math.round(ht * (1 + supplierVatOf(v, s)));
 }
 
-/** Notre prix (stocké HT) → base d'affichage. */
+/** Notre prix (stocké HT) → base d'affichage ; régime de la marge : le prix est unique, aucune TVA ajoutée. */
 export const toShown = (ht: number | null | undefined, s: ResolvedSettings): number | null =>
-  ht == null ? null : s.display === 'ttc' ? Math.round(ht * (1 + s.saleVat)) : ht;
+  ht == null ? null : s.display === 'ttc' && s.supplierBasis !== 'margin' ? Math.round(ht * (1 + s.saleVat)) : ht;
 /** Saisie dans la base d'affichage → HT stocké. */
 export const fromShown = (x: number | null, s: ResolvedSettings): number | null =>
-  x == null ? null : s.display === 'ttc' ? Math.round(x / (1 + s.saleVat)) : x;
-export const basisLabel = (s: Pick<ResolvedSettings, 'display'>) => (s.display === 'ttc' ? 'TTC' : 'HT');
+  x == null ? null : s.display === 'ttc' && s.supplierBasis !== 'margin' ? Math.round(x / (1 + s.saleVat)) : x;
+export const basisLabel = (s: Pick<ResolvedSettings, 'display' | 'supplierBasis'>) => (s.supplierBasis === 'margin' ? 'TVA sur marge' : s.display === 'ttc' ? 'TTC' : 'HT');
+/** Base de prix de l'export : celle de l'affichage, ou « marge » quand l'offre est sous ce régime. */
+export const exportBasisOf = (s: Pick<ResolvedSettings, 'display' | 'supplierBasis'>): PriceBasis | 'margin' => (s.supplierBasis === 'margin' ? 'margin' : s.display);
 
 /** Textes de l'offre exportée, par langue. */
 export const EXPORT_TEXT = {
   fr: {
     units: (n: number) => `${n} véhicule${n > 1 ? 's' : ''}`,
     noPrice: 'sans prix, offre à nous proposer',
-    prices: (b: PriceBasis) => (b === 'ttc' ? 'prix TTC' : 'prix HT'),
+    prices: (b: PriceBasis | 'margin') => (b === 'margin' ? 'prix TVA sur marge (non récupérable)' : b === 'ttc' ? 'prix TTC' : 'prix HT'),
     terms: "transport à la charge de l'acheteur · vendus en l'état",
     footer: 'MC EXPORT — offre valable sous réserve de disponibilité. Dommages : chiffrages du fournisseur, conservés à l’identique.',
     date: (d: Date) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }),
     offerOf: (date: string) => `Offre du ${date}`,
-    pdfPrices: (b: PriceBasis) => (b === 'ttc' ? 'PRIX TTC' : 'PRIX HORS TAXES'),
+    pdfPrices: (b: PriceBasis | 'margin') => (b === 'margin' ? 'PRIX TVA SUR MARGE' : b === 'ttc' ? 'PRIX TTC' : 'PRIX HORS TAXES'),
     sheet: 'Offre MC Export', sheet2: 'Caractéristiques', report: 'Voir le rapport', defaultTitle: 'OFFRE MC EXPORT',
     sheet2Head: ['Châssis (VIN)', 'Marque', 'Modèle', 'Motorisation', 'Énergie', 'Boîte', 'Lieu de stockage', 'TVA récupérable', 'Import', 'Autres colonnes du fournisseur'],
     yes: 'oui', no: 'non',
@@ -156,12 +169,12 @@ export const EXPORT_TEXT = {
   en: {
     units: (n: number) => `${n} vehicle${n > 1 ? 's' : ''}`,
     noPrice: 'no prices, offers welcome',
-    prices: (b: PriceBasis) => (b === 'ttc' ? 'prices incl. VAT' : 'prices excl. VAT'),
+    prices: (b: PriceBasis | 'margin') => (b === 'margin' ? 'margin scheme prices (VAT not deductible)' : b === 'ttc' ? 'prices incl. VAT' : 'prices excl. VAT'),
     terms: 'transport at buyer’s expense · sold as is',
     footer: 'MC EXPORT — offer subject to availability. Damages: supplier estimates, kept unchanged.',
     date: (d: Date) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
     offerOf: (date: string) => `Offer dated ${date}`,
-    pdfPrices: (b: PriceBasis) => (b === 'ttc' ? 'PRICES INCL. VAT' : 'PRICES EXCL. VAT'),
+    pdfPrices: (b: PriceBasis | 'margin') => (b === 'margin' ? 'MARGIN SCHEME PRICES' : b === 'ttc' ? 'PRICES INCL. VAT' : 'PRICES EXCL. VAT'),
     sheet: 'MC Export offer', sheet2: 'Specifications', report: 'See report', defaultTitle: 'MC EXPORT OFFER',
     sheet2Head: ['Chassis (VIN)', 'Make', 'Model', 'Engine', 'Fuel', 'Gearbox', 'Storage location', 'VAT deductible', 'Import', 'Other supplier columns'],
     yes: 'yes', no: 'no',
@@ -177,14 +190,16 @@ export const EXPORT_TEXT = {
  * tant qu'un humain ne les a pas validés (settings.priceCheckAck).
  */
 export interface PriceDetection {
-  basis: PriceBasis | null;        // ce que le fichier indique (null : aucune colonne de prix)
+  basis: PriceBasis | 'margin' | null;   // ce que le fichier indique (null : aucune colonne de prix)
   vat: number | null;              // taux lu dans le fichier (PDF allemand : 19 %), null = non indiqué
   facts: string[];
   doubts: string[];
   signature: string;               // empreinte des doutes (un doute nouveau rouvre l'alerte)
 }
 
-const HT_MARK = /\b(ht|hors ?taxes?|h\.t|net|netto|nett|excl|exkl|export|imponibile|sans tva)\b/;
+const HT_MARK = /\b(ht|hors ?taxes?|h\.t|net|netto|nett|excl|exkl|export|imponibile|sans tva|sin iva)\b/;
+/** Régime de la marge écrit dans l'en-tête (REBU = régimen especial de bienes usados, « Differenzbesteuert »). */
+const MARGIN_MARK = /\b(rebu|margen|marge|margin|differenz\w*)\b/;
 const TTC_MARK = /\b(ttc|t\.t\.c|toutes ?taxes|brut|brutto|gross|incl|inkl|lordo|ivato|avec tva)\b/;
 const normH = (h: string) => h.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 
@@ -195,8 +210,9 @@ export function detectPriceSetup(
   const facts: string[] = [];
   const doubts: string[] = [];
   const pct = (r: number) => `${Math.round(r * 100)} %`;
-  let basis: PriceBasis | null = null;
+  let basis: PriceBasis | 'margin' | null = null;
   let vat: number | null = null;
+  const basisName = (b: PriceBasis | 'margin') => SUPPLIER_BASIS_LABEL[b];
 
   if (o.layout === 'pdf') {
     basis = 'ttc';
@@ -208,6 +224,10 @@ export function detectPriceSetup(
     if (htCols.length && ttcCols.length) {
       basis = 'ht';
       facts.push(`Deux colonnes de prix : « ${htCols[0].header} » (HT, utilisée) et « ${ttcCols[0].header} » (TTC).`);
+    } else if ((htCols.length || ttcCols.length) && MARGIN_MARK.test(normH((htCols[0] ?? ttcCols[0]).header))) {
+      // Liste REBU (16/11) : le régime de la marge est écrit dans l'en-tête — prix pris tels quels.
+      basis = 'margin';
+      facts.push(`Prix sous le régime de la TVA sur marge : la colonne « ${(htCols[0] ?? ttcCols[0]).header} » le dit (REBU) — pris tels quels, aucune TVA à retirer ni à ajouter.`);
     } else if (htCols.length || ttcCols.length) {
       const col = (htCols[0] ?? ttcCols[0]).header;
       basis = htCols.length ? 'ht' : 'ttc';
@@ -276,8 +296,9 @@ export function detectPriceSetup(
     else if (priced.length) facts.push('TVA récupérable indiquée pour chaque véhicule.');
     if (margin > 0) facts.push(`${margin} véhicule${margin > 1 ? 's' : ''} en régime de la marge : prix pris tel quel (pas de TVA à retirer).`);
   }
-  if (s.supplierBasis !== 'auto' && basis != null && s.supplierBasis !== basis) {
-    doubts.push(`Réglage manuel : prix traités en ${s.supplierBasis.toUpperCase()} alors que le fichier indique ${basis.toUpperCase()}.`);
+  if (s.supplierBasis === 'margin' && basis !== 'margin') facts.push('Réglage de l\'offre : régime de la TVA sur marge — prix du fichier pris tels quels, nos prix sans TVA ajoutée.');
+  else if (s.supplierBasis !== 'auto' && basis != null && s.supplierBasis !== basis) {
+    doubts.push(`Réglage manuel : prix traités en ${basisName(s.supplierBasis)} alors que le fichier indique ${basisName(basis)}.`);
   }
   return { basis, vat, facts, doubts, signature: doubts.join('|') };
 }

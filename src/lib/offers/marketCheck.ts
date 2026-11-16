@@ -273,7 +273,8 @@ export type Verdict = {
   empty?: { sites: number; proven: number; errors: string[] };
 };
 /** Notre prix HT + TVA du pays, face au prix AFFICHÉ (TTC) d'attaque du pays. */
-export function verdictOf(ourHt: number | null, c: CountryResult | undefined, country: string): Verdict {
+/** `marginScheme` (16/11) : offre sous le régime de la TVA sur marge — notre prix est déjà le prix final, aucune TVA ajoutée. */
+export function verdictOf(ourHt: number | null, c: CountryResult | undefined, country: string, marginScheme = false): Verdict {
   // VERDICT SUR LE PRIX D'ATTAQUE (décision Channing 07/10 : « on fait pour les
   // relevés de lot ») : notre HT face au bas du marché (médiane des 3/5/8
   // moins chères), pas au milieu. Les relevés d'avant (sans attaque) gardent
@@ -299,7 +300,7 @@ export function verdictOf(ourHt: number | null, c: CountryResult | undefined, co
     return { tone: 'warn', text: `marché vide — 0 annonce sur ${sites.length} site${sites.length > 1 ? 's' : ''}`, marginPct: null, empty };
   }
   if (ourHt == null) return { tone: 'idle', text: 'prix MC Export manquant', marginPct: null };
-  const vat = countryVat(country);
+  const vat = marginScheme ? 0 : countryVat(country);
   const ourTtc = Math.round(ourHt * (1 + vat));
   const margin = (ref - ourTtc) / ourTtc;
   const pct = Math.round(margin * 100);

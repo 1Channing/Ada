@@ -27,7 +27,8 @@ const eur = (n: number | null | undefined) => (n == null ? '—' : `${Math.round
 const km = (n: number | null | undefined) => (n == null ? '—' : `${n.toLocaleString('fr-FR')} km`);
 const d = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString('fr-FR') : '—');
 
-export function ClientShowcasesPanel({ lots, vehicles, countries, priceHtOf }: { lots: OfferLot[]; vehicles: OfferVehicle[]; countries: string[]; priceHtOf: (v: OfferVehicle) => number | null }) {
+/** `marginScheme` (16/11) : offre sous le régime de la TVA sur marge — notre prix est le prix final, aucune TVA du pays ajoutée. */
+export function ClientShowcasesPanel({ lots, vehicles, countries, priceHtOf, marginScheme = false }: { lots: OfferLot[]; vehicles: OfferVehicle[]; countries: string[]; priceHtOf: (v: OfferVehicle) => number | null; marginScheme?: boolean }) {
   const [country, setCountry] = useState(countries[0] ?? 'NL');
   const [lotKey, setLotKey] = useState(lots[0]?.key ?? '');
   const [contacts, setContacts] = useState<NetworkContact[] | null>(null);
@@ -53,7 +54,7 @@ export function ClientShowcasesPanel({ lots, vehicles, countries, priceHtOf }: {
   }, []);
   const lot = lots.find((l) => l.key === lotKey) ?? null;
   const cc = country.toUpperCase();
-  const vat = countryVat(cc);
+  const vat = marginScheme ? 0 : countryVat(cc);
   const countryContacts = useMemo(() => (contacts ?? []).filter((c) => (c.country ?? '').toUpperCase() === cc && (c.website || c.website2)), [contacts, cc]);
   const ours = useMemo(() => (lot ? lotVehiclesOf(vehicles.filter((v) => lot.vehicleIds.includes(v.id)), priceHtOf) : []), [lot, vehicles, priceHtOf]);
   const ourHt = useMemo(() => { const p = ours.map((o) => o.priceHt).filter((x): x is number => x != null); return p.length ? { min: Math.min(...p), max: Math.max(...p), med: [...p].sort((a, b) => a - b)[Math.floor(p.length / 2)] } : null; }, [ours]);
@@ -103,7 +104,9 @@ export function ClientShowcasesPanel({ lots, vehicles, countries, priceHtOf }: {
         <div className="px-4 py-3 space-y-4">
           <p className="text-xs text-slate-500">
             Équivalent = même marque et modèle, même énergie, <strong>année exacte</strong>, km à ± {KM_TOLERANCE.toLocaleString('fr-FR')}, puissance à 10 % quand connue ; la finition est comparée mais ne bloque pas (« Collection » en France = « Executive » aux Pays-Bas) : un équivalent à finition différente est marqué. Vitrines relevées des contacts {countryName(cc)} ({countryContacts.length}).
-            {ourHt && <> Notre HT {eur(ourHt.min)}{ourHt.max !== ourHt.min ? ` – ${eur(ourHt.max)}` : ''} → TTC {cc} {Math.round(vat * 100)} % {eur(ourTtc)} (médiane).</>}
+            {ourHt && (marginScheme
+              ? <> Notre prix TVA sur marge {eur(ourHt.min)}{ourHt.max !== ourHt.min ? ` – ${eur(ourHt.max)}` : ''} (médiane {eur(ourTtc)}, aucune TVA ajoutée).</>
+              : <> Notre HT {eur(ourHt.min)}{ourHt.max !== ourHt.min ? ` – ${eur(ourHt.max)}` : ''} → TTC {cc} {Math.round(vat * 100)} % {eur(ourTtc)} (médiane).</>)}
           </p>
           {error && <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{error}</p>}
           {loading || !rows ? <p className="text-sm text-slate-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture des vitrines {countryName(cc)} pour {lot.brand}…</p> : rows.length === 0 ? (

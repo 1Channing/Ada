@@ -26,6 +26,7 @@ const PDF_LABEL_EN: Record<BuiltinColumnKey, string> = {
 };
 const pdfBuiltinLabel = (k: BuiltinColumnKey, ctx: ExportContext) => {
   if (k === 'price' && ctx.basis === 'ttc') return ctx.lang === 'en' ? 'Price incl. VAT (EUR)' : 'Prix TTC (EUR)';
+  if (k === 'price' && ctx.basis === 'margin') return ctx.lang === 'en' ? 'Price, margin scheme (EUR)' : 'Prix TVA sur marge (EUR)';
   return (ctx.lang === 'en' ? PDF_LABEL_EN : PDF_LABEL)[k];
 };
 const PDF_LABEL: Record<BuiltinColumnKey, string> = {

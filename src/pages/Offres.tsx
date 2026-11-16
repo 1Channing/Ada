@@ -31,7 +31,7 @@ import {
   type ExportColumn, type ExportContext,
 } from '../lib/offers/exportColumns';
 import {
-  EXPORT_TEXT, VAT_CHOICES, basisLabel, damagesEur, detectPriceSetup, fileMoney, fromShown, fxRateLabel, resolveSettings, supplierHtWith, supplierShown, supplierVatOf, todayFxRate, toShown,
+  EXPORT_TEXT, VAT_CHOICES, basisLabel, damagesEur, detectPriceSetup, exportBasisOf, fileMoney, fromShown, fxRateLabel, isMarginScheme, resolveSettings, supplierHtWith, supplierShown, supplierVatOf, todayFxRate, toShown,
   type OfferSettings, type ResolvedSettings,
 } from '../lib/offers/offerSettings';
 import { FILE_CURRENCIES, type FileCurrency } from '../lib/offers/parseSupplierFile';
@@ -470,7 +470,7 @@ export function Offres() {
   const B = basisLabel(S);
   const supHt = (v: OfferVehicle) => supplierHtWith(v, S);
   const dmgEur = (v: OfferVehicle) => damagesEur(v, S);
-  const exportCtx: ExportContext = { lang: S.lang, basis: S.display, saleVat: S.saleVat, supplierHt: supHt, damagesEur: dmgEur };
+  const exportCtx: ExportContext = { lang: S.lang, basis: exportBasisOf(S), saleVat: S.saleVat, supplierHt: supHt, damagesEur: dmgEur };
   /** Ce que le fichier dit des prix, et ce qu'ADA a dû supposer — recalculé à chaque changement. */
   const detection = useMemo(() => (draft ? detectPriceSetup(draft, resolveSettings(draft.settings)) : null), [draft]);
   const pendingDoubts = detection && detection.doubts.length > 0 && draft?.settings?.priceCheckAck !== detection.signature ? detection.doubts : [];
@@ -639,11 +639,11 @@ export function Offres() {
   const T = EXPORT_TEXT[S.lang];
   const docOf = () => ({
     title: (draft?.title || T.defaultTitle).toUpperCase(),
-    subtitle: `${T.units(selectedUnits)} · ${draft?.price_rule.mode === 'none' ? T.noPrice : T.prices(S.display)} · ${T.terms}`,
+    subtitle: `${T.units(selectedUnits)} · ${draft?.price_rule.mode === 'none' ? T.noPrice : T.prices(exportBasisOf(S))} · ${T.terms}`,
     date: T.date(new Date()), vehicles: selected, showDamages: true, showSupplierPrice: false, showPrices: draft?.price_rule.mode !== 'none',
     footer: S.footer ?? T.footer,
     columns: draft?.export_columns ?? undefined,
-    lang: S.lang, priceBasis: S.display, saleVat: S.saleVat, supplierHt: supHt, damagesEur: dmgEur,
+    lang: S.lang, priceBasis: exportBasisOf(S), saleVat: S.saleVat, supplierHt: supHt, damagesEur: dmgEur,
   });
   const exportXlsx = () => { if (!draft) return; downloadBlob(buildOfferWorkbook(docOf()), `MC_Export_${slugFile(draft.title)}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'); };
   const exportPdf = async () => { if (!draft) return; setBusy('pdf'); try { downloadBlob(await buildOfferPdf(docOf()), `MC_Export_${slugFile(draft.title)}.pdf`, 'application/pdf'); } catch (e) { fail(`PDF : ${e instanceof Error ? e.message : String(e)}`); } setBusy(null); };
@@ -902,7 +902,7 @@ export function Offres() {
                     <td className="py-1.5 pr-3 text-slate-600 whitespace-nowrap">{v.fuel ?? '—'} · {v.gearbox === 'AUTOMATIQUE' ? 'Auto' : v.gearbox === 'MANUELLE' ? 'Manuelle' : v.gearbox ?? '—'}</td>
                     <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600">{v.power_ch ?? '—'}</td>
                     <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600" title={v.damages != null && S.supplierCurrency !== 'EUR' ? `Fichier : ${fileMoney(v.damages, S)}` : ''}>{fmtEur(dmgEur(v))}</td>
-                    <td className="py-1.5 pr-3">{v.vat_recoverable == null ? '—' : v.vat_recoverable ? <span className="text-emerald-700">récup.</span> : <span className="text-amber-700">marge</span>}</td>
+                    <td className="py-1.5 pr-3">{isMarginScheme(v, S) ? <span className="text-amber-700">marge</span> : v.vat_recoverable == null ? '—' : <span className="text-emerald-700">récup.</span>}</td>
                     <td className="py-1.5 pr-3 text-right tabular-nums text-slate-600" title={[v.price_ttc != null ? `Fichier TTC : ${fileMoney(v.price_ttc, S)}` : '', v.price_ht != null ? `Fichier HT : ${fileMoney(v.price_ht, S)}` : '', S.supplierCurrency !== 'EUR' ? fxRateLabel(S) : ''].filter(Boolean).join(' · ')}>{fmtEur(base)}</td>
                     {draft.price_rule.mode === 'margin' && (
                       <td className="py-1.5 pr-3 text-right"><input type="number" step={100} aria-label="Marge propre (€ HT)" placeholder={String(draft.price_rule.margin)} value={v.margin ?? ''} onChange={(e) => setMargin(v.id, e.target.value === '' ? null : Number(e.target.value))} title={v.margin != null ? `Marge propre : ${v.margin} € (vider = marge commune ${draft.price_rule.margin} €)` : `Marge commune ${draft.price_rule.margin} € — tape une autre marge pour ce véhicule`} className={`w-20 px-2 py-1 rounded border text-right tabular-nums ${v.margin != null ? 'border-amber-300 bg-amber-50 font-semibold text-amber-800' : 'border-slate-200 text-slate-500'}`} /></td>
@@ -1058,13 +1058,15 @@ export function Offres() {
                   <button onClick={() => updateSettings({ supplierBasis: 'auto' })} aria-pressed={S.supplierBasis === 'auto'} className={radio(S.supplierBasis === 'auto')}>Comme lus<span className="block text-[11px] font-normal text-slate-500">selon l'en-tête de colonne</span></button>
                   <button onClick={() => updateSettings({ supplierBasis: 'ttc' })} aria-pressed={S.supplierBasis === 'ttc'} className={radio(S.supplierBasis === 'ttc')}>TTC<span className="block text-[11px] font-normal text-slate-500">la TVA est retirée</span></button>
                   <button onClick={() => updateSettings({ supplierBasis: 'ht' })} aria-pressed={S.supplierBasis === 'ht'} className={radio(S.supplierBasis === 'ht')}>HT<span className="block text-[11px] font-normal text-slate-500">pris tels quels</span></button>
+                  <button onClick={() => updateSettings({ supplierBasis: 'margin' })} aria-pressed={S.supplierBasis === 'margin'} className={radio(S.supplierBasis === 'margin')}>Marge<span className="block text-[11px] font-normal text-slate-500">TVA sur marge, pris tels quels</span></button>
                 </div>
-                <label className="flex items-center gap-2 text-sm text-slate-700">TVA du fournisseur
+                {S.supplierBasis === 'margin' && <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">Régime de la TVA sur marge (REBU en Espagne, « Differenzbesteuert » en Allemagne) : la TVA n'est pas récupérable, le prix du fichier est notre coût tel quel, et nos prix sont eux aussi des prix TVA sur marge — aucune TVA n'est ajoutée à l'affichage, à l'export ni dans l'analyse marché.</p>}
+                {S.supplierBasis !== 'margin' && <label className="flex items-center gap-2 text-sm text-slate-700">TVA du fournisseur
                   <select value={S.supplierVat ?? ''} onChange={(e) => updateSettings({ supplierVat: e.target.value === '' ? null : Number(e.target.value) })} className="px-2 py-1.5 rounded-lg border border-slate-300 bg-white">
                     <option value="">Lue dans le fichier ({Math.round((sample ? supplierVatOf(sample, { ...S, supplierVat: null }) : 0.2) * 100)} %)</option>
                     {VAT_CHOICES.map((c) => <option key={c.rate} value={c.rate}>{c.label}</option>)}
                   </select>
-                </label>
+                </label>}
                 <label className="flex items-center gap-2 text-sm text-slate-700">Devise du fichier
                   <select value={S.supplierCurrency} onChange={(e) => setCurrency(e.target.value as FileCurrency)} className="px-2 py-1.5 rounded-lg border border-slate-300 bg-white">
                     {FILE_CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
@@ -1075,7 +1077,7 @@ export function Offres() {
                     </span>
                   )}
                 </label>
-                {sample && <p className="text-xs text-slate-500">Exemple, {sample.brand} {sample.model} : {rawLabel} → <strong className="text-slate-700">{fmtEur(sampleHt)} HT</strong> fournisseur{sample.vat_recoverable === false ? ' (régime de la marge : pas de TVA retirée)' : ''}.</p>}
+                {sample && <p className="text-xs text-slate-500">Exemple, {sample.brand} {sample.model} : {rawLabel} → <strong className="text-slate-700">{fmtEur(sampleHt)} {S.supplierBasis === 'margin' ? 'TVA sur marge' : 'HT'}</strong> fournisseur{isMarginScheme(sample, S) ? ' (régime de la marge : pas de TVA retirée)' : ''}.</p>}
                 <p className="text-[11px] text-slate-500">Changer ces réglages recalcule les prix MC Export avec la règle de prix (onglet Export). Le taux de change est figé à l'import : les prix ne bougent pas d'un jour à l'autre.</p>
                 {draft.layout !== 'pdf' && draft.mappings.some((m) => m.field === 'km') && (
                   <div className="flex items-center gap-2 text-sm text-slate-700 pt-1">Unité des kilométrages
@@ -1090,11 +1092,15 @@ export function Offres() {
 
               <section className="space-y-2">
                 <h3 className="text-sm font-semibold text-slate-800">2. Affichage de nos prix</h3>
+                {S.supplierBasis === 'margin' ? (
+                  <p className="text-xs text-slate-600">Régime de la marge : nos prix sont des prix <strong>TVA sur marge</strong>, un seul montant, sans TVA ajoutée — tableaux, export et analyse les montrent tels quels.</p>
+                ) : (
                 <div className="flex gap-2" role="group" aria-label="Affichage de nos prix">
                   <button onClick={() => updateSettings({ display: 'ht' })} aria-pressed={S.display === 'ht'} className={radio(S.display === 'ht')}>HT<span className="block text-[11px] font-normal text-slate-500">hors taxes</span></button>
                   <button onClick={() => updateSettings({ display: 'ttc' })} aria-pressed={S.display === 'ttc'} className={radio(S.display === 'ttc')}>TTC<span className="block text-[11px] font-normal text-slate-500">avec notre TVA</span></button>
                 </div>
-                {S.display === 'ttc' && (
+                )}
+                {S.display === 'ttc' && S.supplierBasis !== 'margin' && (
                   <label className="flex items-center gap-2 text-sm text-slate-700">Notre TVA
                     <select value={S.saleVat} onChange={(e) => updateSettings({ saleVat: Number(e.target.value) })} className="px-2 py-1.5 rounded-lg border border-slate-300 bg-white">
                       {VAT_CHOICES.map((c) => <option key={c.rate} value={c.rate}>{c.label}</option>)}
@@ -1425,7 +1431,7 @@ export function Offres() {
                               {draft.countries.map((c) => {
                                 const res = draft.market?.[lot.key]?.[c];
                                 const state = cellState[cellKey(lot, c)];
-                                const v = res ? verdictOf(lot.ourPriceAvg, res, c) : null;
+                                const v = res ? verdictOf(lot.ourPriceAvg, res, c, S.supplierBasis === 'margin') : null;
                                 const siteError = res && res.medianTtc == null && !v?.empty ? Object.values(res.sites).find((x) => x.error) : undefined;
                                 // Marché vide : les critères qui ont pu le vider, à élargir d'un clic.
                                 const narrowing = [lot.kmMax ? `≤ ${lot.kmMax.toLocaleString('fr-FR')} km` : '', lot.powerMin ? `≥ ${lot.powerMin} ch` : '', lot.trim ? `finition ${lot.trim.toUpperCase()}` : ''].filter(Boolean);
@@ -1441,7 +1447,7 @@ export function Offres() {
                                           <span className={`self-start px-1.5 py-0.5 rounded border text-[11px] ${VERDICT_CLASS[v.tone]}`}>{v.text}</span>
                                           {res.medianTtc != null && (
                                             <span className="text-[10px] text-slate-500 whitespace-nowrap" title="Prix d'attaque = médiane des annonces les moins chères (3, 5 ou 8 selon la taille du marché), là où une annonce est compétitive : c'est lui qui donne le pourcentage. La médiane (milieu du marché) est indicative.">
-                                              {v?.ourTtc != null && <span className="block text-slate-700">notre TTC {c} : <span className="font-semibold">{fmtEur(v.ourTtc)}</span> <span className="text-slate-400">(HT + TVA {Math.round((v.vat ?? 0.2) * 100)} %)</span></span>}
+                                              {v?.ourTtc != null && <span className="block text-slate-700">notre TTC {c} : <span className="font-semibold">{fmtEur(v.ourTtc)}</span> <span className="text-slate-400">{S.supplierBasis === 'margin' ? '(TVA sur marge : prix tel quel)' : `(HT + TVA ${Math.round((v.vat ?? 0.2) * 100)} %)`}</span></span>}
                                               {res.attackTtc != null
                                                 ? <>attaque <span className="text-slate-800 font-semibold">{fmtEur(res.attackTtc)}</span> · méd. {fmtEur(res.medianTtc)} · {res.competitors} conc.</>
                                                 : <>méd. {fmtEur(res.medianTtc)} · {res.competitors} conc. · <span className="text-amber-700">relancer pour le prix d'attaque</span></>}
@@ -1548,7 +1554,7 @@ export function Offres() {
           )}
           {/* ══ VITRINES DE NOS CLIENTS (13/11) : sous les relevés marché, un pays et un modèle retenu face aux vitrines relevées. */}
           {view === 'analyse' && lots.length > 0 && (
-            <ClientShowcasesPanel lots={lots} vehicles={draft.vehicles} countries={draft.countries} priceHtOf={(v) => supHt(v) ?? v.sale_price ?? null} />
+            <ClientShowcasesPanel lots={lots} vehicles={draft.vehicles} countries={draft.countries} priceHtOf={(v) => supHt(v) ?? v.sale_price ?? null} marginScheme={S.supplierBasis === 'margin'} />
           )}
 
           {/* ══ EXPORT ═════════════════════════════════════════════════════════ */}
@@ -1729,7 +1735,7 @@ export function Offres() {
                                 {previewColumns.map((c) => <td key={c.id} className={`px-2 py-1 border-b border-slate-100 max-w-[220px] truncate ${c.builtin === 'price' ? 'font-semibold text-brand-encre' : 'text-slate-700'}`}>{previewCell(c, v)}{c.builtin === 'price' && v.margin != null && draft.price_rule.mode === 'margin' && <span className="ml-1 text-[10px] font-normal text-amber-700" title="Marge propre à ce véhicule">marge {v.margin} €</span>}</td>)}
                                 <td className="px-2 py-1 border-b border-slate-100 whitespace-nowrap">
                                   {countries.length === 0 ? <span className="text-slate-400">aucun relevé</span> : countries.map((c) => {
-                                    const vd = verdictOf(draft.price_rule.mode === 'none' ? null : v.sale_price, draft.market?.[lot!.key]?.[c], c);
+                                    const vd = verdictOf(draft.price_rule.mode === 'none' ? null : v.sale_price, draft.market?.[lot!.key]?.[c], c, S.supplierBasis === 'margin');
                                     return <span key={c} className={`inline-block mr-1 text-[10px] px-1.5 py-0.5 rounded-full border ${VERDICT_CLASS[vd.tone]}`} title={vd.text}>{c} {vd.marginPct != null ? `${vd.marginPct >= 0 ? '+' : ''}${vd.marginPct} %` : vd.text}</span>;
                                   })}
                                   {lot && (

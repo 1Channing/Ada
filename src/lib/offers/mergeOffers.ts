@@ -30,7 +30,10 @@ export function normalizeVehicle(v: OfferVehicle, from: ResolvedSettings, to: Re
   const dmg = damagesEur(v, from);
   const htFile = eurToFile(ht, to);
   const out: OfferVehicle = { ...v, damages: eurToFile(dmg, to) };
-  if (to.supplierBasis === 'ttc') {
+  if (to.supplierBasis === 'margin') {
+    // L'offre de base est sous le régime de la marge : le coût en euros devient son prix, TVA non récupérable.
+    out.price_ttc = htFile; out.price_ht = null; out.vat_recoverable = htFile == null ? v.vat_recoverable : false;
+  } else if (to.supplierBasis === 'ttc') {
     // L'offre de base lit des prix TTC : on écrit un TTC à sa TVA, récupérable (le HT en est déduit à l'identique).
     out.price_ttc = htFile == null ? null : Math.round(htFile * (1 + supplierVatOf({ ...v, vat_rate: undefined }, to)));
     out.price_ht = null; out.vat_recoverable = htFile == null ? v.vat_recoverable : true;
