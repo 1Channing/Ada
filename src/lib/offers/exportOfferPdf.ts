@@ -4,7 +4,7 @@
  */
 import jsPDF from 'jspdf';
 import type { OfferVehicle } from './parseSupplierFile';
-import { fmtDate, bodyOf, labelOf, engineOf, regOf, fuelLabel, exportSetupOf, type OfferDocument } from './exportOfferXlsx';
+import { fmtDate, bodyOf, labelOf, engineOf, versionOf, regOf, fuelLabel, exportSetupOf, type OfferDocument } from './exportOfferXlsx';
 import { colorLabel } from './colorTranslate';
 import { BUILTIN_COLUMNS, cellValue, effectiveColumns, gearboxLabel, type BuiltinColumnKey, type ExportColumn, type ExportContext } from './exportColumns';
 import { EXPORT_TEXT } from './offerSettings';
@@ -68,6 +68,11 @@ export async function buildOfferPdf(doc: OfferDocument): Promise<Blob> {
     // Exemplaires (catalogue Record Rent a Car 07/10) : une ligne par modèle, le nombre à côté.
     { key: 'qty', label: 'Unites', w: 14, align: 'right', get: (v) => String(v.quantity ?? 1), has: (v) => (v.quantity ?? 1) > 1 },
     { key: 'eng', label: 'Motorisation', w: 48, wrap: true, get: (v) => engineOf(v), has: (v) => engineOf(v) !== '—' },
+    // VERSION (17/11, Channing : « dans Export j'ai bien la version, mais le PDF exporté ne l'a pas ») : la mise en page
+    // par défaut n'avait que la motorisation — vide pour une électrique (« ë-Berlingo Talla M eléctrico 50 kWh »), la
+    // ligne du fournisseur disparaissait du PDF alors qu'Excel et l'aperçu la montrent. Même règle que l'Excel : la
+    // version quand elle dit plus que le modèle.
+    { key: 'ver', label: 'Version', w: 48, wrap: true, get: (v) => pdfSafe(versionOf(v)) || NA, has: (v) => Boolean(versionOf(v)) },
     { key: 'fuel', label: 'Energie', w: 24, wrap: true, get: (v) => fuelLabel(v.fuel), has: (v) => Boolean(v.fuel) },
     { key: 'reg', label: '1re immat.', w: 22, get: (v) => fmtDate(regOf(v)).replace('—', NA), has: (v) => Boolean(regOf(v)) },
     { key: 'km', label: 'Km', w: 22, align: 'right', get: (v) => (v.km == null ? NA : pdfNum(v.km)), has: (v) => v.km != null },
