@@ -115,6 +115,15 @@ const FUEL_CANON: Array<[RegExp, string]> = [
   [/petrol|essence|benzin|gasolin|super/i, 'ESSENCE'],
   [/gpl|glp|lpg|eco-?g/i, 'GPL'],
 ];
+/** Codes énergie d'une lettre (liste espagnole SY 17/11 : D diesel, E/G essence, Q électrique, M hybride, H hybride). */
+const FUEL_LETTER: Record<string, string> = { D: 'DIESEL', E: 'ESSENCE', G: 'ESSENCE', Q: 'ELECTRIQUE', M: 'HYBRIDE', H: 'HYBRIDE' };
+/** Énergie de la colonne : un CODE d'une lettre cède à la ligne libre quand elle le dit (« M » couvre hybride et
+ *  PureTech mild hybrid), sinon table des codes ; un libellé est lu tel quel. */
+export function fuelOfCell(raw: string, fromLine: string | null): string | null {
+  const t = raw.trim().toUpperCase();
+  if (/^[A-Z]$/.test(t)) return fromLine ?? FUEL_LETTER[t] ?? null;
+  return canonFuel(raw) ?? fromLine;
+}
 export function canonFuel(raw: string | null | undefined): string | null {
   const s = (raw ?? '').trim().normalize('NFD').replace(/\p{M}/gu, '');
   if (!s) return null;
@@ -479,12 +488,15 @@ export function parseFreeLine(line: string): { power_ch: number | null; gearbox:
   // « 190HK » / « 150 hk » : chevaux suédois, danois, norvégiens (liste Mixed Brands 13/10).
   const p = s.match(/(\d{2,3})\s?(?:ch|cv|hp|ps|hk|hkr)\b/i);
   const kw = s.match(/(\d{2,3})\s?kw\b/i);
-  const power_ch = p ? Number(p[1]) : kw ? Math.round(Number(kw[1]) * 1.36) : null;
+  // Chevaux écrits après la FAMILLE MOTEUR, sans unité (liste SY 17/11 : « BlueHDi 130 », « Hybrid 145 », « Gasolina
+  // 100 », « PureTech 130 ») — jamais quand le nombre est une capacité (« eléctrico 50 kWh »).
+  const fam = s.match(/\b(?:bluehdi|puretech|hdi|hybrid|gasolina|diesel|thp|vti|tce|dci|tdi|tsi|tfsi|ecoboost|multijet|e-?tense|electrico|electrique)\s?(\d{2,3})\b(?!\s?kwh?\b)/i);
+  const power_ch = p ? Number(p[1]) : kw ? Math.round(Number(kw[1]) * 1.36) : fam ? Number(fam[1]) : null;
   // « AT-8 » / « MT-6 » (fichiers allemands), « Automatik », « BVA »…
   // « AUT » (catalogue Record Rent a Car 07/10 : « 252CV AUT »), « E-CVT ».
   // « AUTO » seul (liste Drivalia 12/11 : « 1.5T EHS PHEV LUXURY AUTO »).
-  const gearbox = /\b(bva|au?to?ma?ti?(que|c|k|co)|automaat|aut|auto|dct\d?|e?-?eat\d|e-?dcs?\d?|edc|e-?cvt|dsg|s-?tronic|steptronic|multitronic|xtronic|automat|at-?\d)\b/i.test(s) ? 'AUTOMATIQUE' // « eEAT8 » collé (liste REBU 16/11)
-    : /\b(bvm\d?|manuel(le)?|manual|schalt|mt-?\d)\b/i.test(s) ? 'MANUELLE' : null;
+  const gearbox = /\b(bva|au?to?ma?ti?(que|c|k|co)|automaat|aut|auto|e?-?dct\d?|e?-?eat\d|e-?dcs?\d?|e-?dsc\d?|edc|e-?cvt|dsg|s-?tronic|steptronic|multitronic|xtronic|automat|at-?\d)\b/i.test(s) ? 'AUTOMATIQUE' // « eEAT8 » collé (liste REBU 16/11)
+    : /\b(bvm\d?|manuel(le)?|manual|schalt|mt-?\d)\b/i.test(s) || /\b[56]v\b|\b[56]\s?vel\.?\s?(man)?\b/i.test(s) ? 'MANUELLE' : null; // « 6v », « 6 Vel. MAN » (Espagne, 17/11)
   // « 300PHEV » collé (RAV4), « HEV » (Tucson), « GLP » / « ECO-G » (GPL
   // espagnol / Dacia) — catalogue du 07/10.
   // Les marqueurs FORTS d'électrique (« EV60 » = batterie 60 kWh, liste Megane
@@ -521,7 +533,9 @@ export function stripGenerationSuffix(model: string): string {
   const last = tokens[tokens.length - 1];
   // Lettre, numéral romain, chiffre de génération — et « F/L » / « FL » /
   // « FACELIFT » / « MY24 » (Flexivan Sorento 22/09 : « SORENTO F/L »).
-  if (/^[A-Z]$/.test(last) || /^(I{1,3}|IV|VI{0,3}|IX|X)$/.test(last) || /^[1-9]$/.test(last) || /^(F\/L|FL|FACELIFT|MY\d{2,4})$/.test(last)) return tokens.slice(0, -1).join(' ');
+  // « X » n'est jamais une génération (liste SY 17/11 : « C4 X » devenait « C4 » ; Grandland X, Mokka X, Kuga) — seul
+  // le chiffre romain X (dixième génération) n'existe pas en pratique sur une occasion récente.
+  if (/^[A-WYZ]$/.test(last) || /^(I{1,3}|IV|VI{0,3}|IX)$/.test(last) || /^[1-9]$/.test(last) || /^(F\/L|FL|FACELIFT|MY\d{2,4})$/.test(last)) return tokens.slice(0, -1).join(' ');
   return tokens.join(' ');
 }
 
@@ -854,12 +868,12 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
       color: cell(rec.color) || null,
       // Marques 100 % électriques (Tesla, Polestar) : énergie connue même si la ligne ne la dit pas ; leur « motorisation »
       // est la version (« Long Range Dual Motor », « Standard RWD ») — liste Drivalia 12/11.
-      fuel: canonFuel(cell(rec.fuel)) ?? free.fuel ?? (/^(tesla|polestar)$/i.test(brand) ? 'ELECTRIQUE' : null),
+      fuel: fuelOfCell(cell(rec.fuel), free.fuel) ?? (/^(tesla|polestar)$/i.test(brand) ? 'ELECTRIQUE' : null),
       engine: cell(rec.engine) || free.engine || (/^(tesla|polestar)$/i.test(brand) && /long range|standard|performance|dual motor|rwd|awd|plaid/i.test(versionLine) ? versionLine.trim() : null),
       power_ch: power != null ? Math.round(power) : free.power_ch,
       // Une électrique n'a pas de boîte manuelle : automatique quand rien n'est dit.
       gearbox: (cell(rec.gearbox) ? parseFreeLine(cell(rec.gearbox)).gearbox ?? cell(rec.gearbox).toUpperCase() : free.gearbox)
-        ?? ((canonFuel(cell(rec.fuel)) ?? free.fuel) === 'ELECTRIQUE' || /^(tesla|polestar)$/i.test(brand) ? 'AUTOMATIQUE' : null),
+        ?? (fuelOfCell(cell(rec.fuel), free.fuel) === 'ELECTRIQUE' || /^(tesla|polestar)$/i.test(brand) ? 'AUTOMATIQUE' : null),
       co2: toNumber(rec.co2),
       damages: toNumber(rec.damages),
       // « &amp; » dans le lien (fichiers fournisseur exportés d'une page web, 12/11 : six liens DEKRA fleetbox illisibles) : rétabli.
