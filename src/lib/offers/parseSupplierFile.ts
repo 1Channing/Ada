@@ -48,7 +48,8 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   // « YEAR » (catalogue Record Rent a Car 07/10) : un millésime, pas une date.
   // « Årsmodell » (suédois), « Årgang » (danois), « Baujahr » (allemand).
   // « AÑO » (liste espagnole Delta Urban, 200 Polo DSG, 22/10) : normalisé en « ano ».
-  ['year', /^(year|annee|jahr|anno|millesime|model ?year|my|arsmodell|argang|baujahr|ano|annee modele)$/],
+  // « Période (code) » (liste loueur MC Export 18/11 : « 25-2 » = 2025, 2e trimestre) : un millésime.
+  ['year', /^(year|annee|jahr|anno|millesime|model ?year|my|arsmodell|argang|baujahr|ano|annee modele|periode( code)?|period)$/],
   // « Reg.nr » (liste suédoise Mixed Brands 13/10) : le NUMÉRO d'immatriculation,
   // pas une date — avant la règle des dates, qui attrape « reg » seul.
   ['plate', /(reg ?nr\b|regnr|\breg ?no\b|registreringsn|kennzeichen)/],
@@ -100,7 +101,8 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   // « Modelo » (espagnol) : la colonne modèle (stockbook Delta : « F500 ELECTRICO » à côté de « Versión ») ;
   // seule (liste Polo DSG), elle porte toute la désignation et se lit comme ligne libre.
   // « Modellgruppe » = le modèle (« Vito Kasten »), « Modellname » = la désignation complète (« Vito 116 CDI Extralang ») — 04/11.
-  ['model', /^(model|modele|modello|modell|modelo|modellgruppe|modelgroep|model ?group|baureihe|modellreihe)$/],
+  // « Modèle (code) » (liste loueur 18/11 : TRCU, DUCA, 2SER…) : la colonne modèle, en code — résolu plus bas.
+  ['model', /^(model|modele|modello|modell|modelo|modellgruppe|modelgroep|model ?group|baureihe|modellreihe)( code)?$/],
   ['version', /^(modellname|modelnaam|model ?name|carline|trim ?model)$/], // « Carline » (04/11) : « Byd Atto 3 Comfort », « Ev9 Rwd Earth… » — modèle + version
   ['version', /(version|modele|designation|description|variante|ausfuhrung|vehicule|vehicle|versione|allestimento|descrizione|veicolo|commercial name|nom commercial|denomination|bezeichnung)/],
 ];
@@ -116,11 +118,12 @@ const FUEL_CANON: Array<[RegExp, string]> = [
   [/gpl|glp|lpg|eco-?g/i, 'GPL'],
 ];
 /** Codes énergie d'une lettre (liste espagnole SY 17/11 : D diesel, E/G essence, Q électrique, M hybride, H hybride). */
-const FUEL_LETTER: Record<string, string> = { D: 'DIESEL', E: 'ESSENCE', G: 'ESSENCE', Q: 'ELECTRIQUE', M: 'HYBRIDE', H: 'HYBRIDE' };
+const FUEL_LETTER: Record<string, string> = { D: 'DIESEL', E: 'ESSENCE', G: 'ESSENCE', P: 'ESSENCE', Q: 'ELECTRIQUE', M: 'HYBRIDE', H: 'HYBRIDE' };
 /** Énergie de la colonne : un CODE d'une lettre cède à la ligne libre quand elle le dit (« M » couvre hybride et
  *  PureTech mild hybrid), sinon table des codes ; un libellé est lu tel quel. */
 export function fuelOfCell(raw: string, fromLine: string | null): string | null {
   const t = raw.trim().toUpperCase();
+  if (t === 'D') return 'DIESEL'; // sans ambiguïté — « 2.0 EcoBlue 130 MHEV » reste un diesel (hybridation légère)
   if (/^[A-Z]$/.test(t)) return fromLine ?? FUEL_LETTER[t] ?? null;
   return canonFuel(raw) ?? fromLine;
 }
@@ -426,6 +429,45 @@ export function decideKmUnit(header: string | null | undefined, values: number[]
 /** Marque telle qu'ADA la nomme : « VW » → VOLKSWAGEN, « Mercedes-Benz » → MERCEDES, « ŠKODA » → SKODA (liste VW 02/10 :
  *  la marque restait « VW », étrangère au référentiel et aux offres précédentes). */
 const BRAND_ALIASES: Record<string, string> = { VW: 'VOLKSWAGEN', VWTRP: 'VOLKSWAGEN', VWNFZ: 'VOLKSWAGEN', MERCEDESBENZ: 'MERCEDES', MERCEDES: 'MERCEDES', SKODA: 'SKODA', CITROEN: 'CITROEN', DS: 'DS', ALFA: 'ALFA ROMEO', LANDROVER: 'LAND ROVER', ROLLSROYCE: 'ROLLS ROYCE', ASTONMARTIN: 'ASTON MARTIN' };
+/** Codes marque des loueurs français (liste MC Export 18/11 : CITR, HYUN, IVEC, MAZD…) — secours quand aucune
+ *  marque connue ne commence par le code. */
+const BRAND_CODES: Record<string, string> = {
+  CITR: 'CITROEN', HYUN: 'HYUNDAI', IVEC: 'IVECO', MAZD: 'MAZDA', PEUG: 'PEUGEOT', RENA: 'RENAULT', VOLK: 'VOLKSWAGEN', VOLV: 'VOLVO',
+  MERC: 'MERCEDES', TOYO: 'TOYOTA', NISS: 'NISSAN', NISN: 'NISSAN', SKOD: 'SKODA', DACI: 'DACIA', SUZU: 'SUZUKI', MITS: 'MITSUBISHI', HOND: 'HONDA',
+  LEXU: 'LEXUS', PORS: 'PORSCHE', TESL: 'TESLA', JAGU: 'JAGUAR', LAND: 'LAND ROVER', ALFA: 'ALFA ROMEO', CUPR: 'CUPRA', LANC: 'LANCIA',
+  SSAN: 'SSANGYONG', SUBA: 'SUBARU', SMAR: 'SMART', ISUZ: 'ISUZU', MASE: 'MASERATI', CHEV: 'CHEVROLET', INFI: 'INFINITI', POLE: 'POLESTAR',
+  GENE: 'GENESIS', MAXU: 'MAXUS', ABAR: 'ABARTH', DSAU: 'DS', LYNK: 'LYNK & CO',
+};
+/** Code marque de 3-4 lettres → marque connue qui commence par ce code (unique), sinon table ; sinon tel quel. */
+export function resolveBrandCode(code: string, knownBrands: string[]): string {
+  const up = code.trim().toUpperCase();
+  if (!/^[A-Z]{3,4}$/.test(up)) return up;
+  const key = (b: string) => b.toUpperCase().replace(/[^A-Z]/g, '');
+  if (knownBrands.some((b) => key(b) === up)) return up;
+  const cands = knownBrands.filter((b) => key(b).startsWith(up));
+  if (cands.length === 1) return cands[0].toUpperCase();
+  if (BRAND_CODES[up]) return BRAND_CODES[up];
+  const subseq = (b: string) => { let i = 0; for (const c of key(b)) if (c === up[i]) i++; return i === up.length; };
+  const sub = knownBrands.filter(subseq);
+  return sub.length === 1 ? sub[0].toUpperCase() : up;
+}
+/** Code modèle (« TRCU », « DUCA », « 2SER », « 3 ») → modèle connu de la marque : « 2SER » = Série 2 (BMW) ; sinon le
+ *  modèle connu dont le nom compact COMMENCE par le code (TUCS → Tucson), sinon celui qui le contient en sous-suite
+ *  (TRCU → TRansit CUstom), le plus court d'abord ; sans correspondance, le code reste. */
+export function resolveModelCode(code: string, known: string[]): string {
+  const up = code.trim().toUpperCase();
+  const ser = up.match(/^(\d)SER$/);
+  if (ser) { const hit = known.find((k) => /^(SERIE|SERIES|SÉRIE)\s?\d$/i.test(k) && k.endsWith(ser[1])) ?? known.find((k) => new RegExp(`^${ser[1]}\\s?SER`, 'i').test(k)); return (hit ?? `SERIE ${ser[1]}`).toUpperCase(); }
+  if (!/^[A-Z0-9]{1,4}$/.test(up) || !known.length) return up;
+  const compact = (k: string) => k.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (known.some((k) => compact(k) === up)) return up;
+  const byLen = [...known].sort((a, b) => a.length - b.length);
+  const pref = byLen.filter((k) => compact(k).startsWith(up));
+  if (pref.length) return pref[0].toUpperCase();
+  const subseq = (k: string) => { let i = 0; for (const c of compact(k)) if (c === up[i]) i++; return i === up.length; };
+  const sub = byLen.filter((k) => up.length >= 3 && subseq(k));
+  return sub.length ? sub[0].toUpperCase() : up;
+}
 export function canonBrand(raw: string): string {
   const up = (raw ?? '').normalize('NFD').replace(/\p{M}/gu, '').replace(/[ØŁĐ]/g, (c) => ({ 'Ø': 'O', 'Ł': 'L', 'Đ': 'D' } as Record<string, string>)[c] ?? c).toUpperCase().trim();
   const key = up.replace(/[^A-Z0-9]/g, '');
@@ -490,12 +532,12 @@ export function parseFreeLine(line: string): { power_ch: number | null; gearbox:
   const kw = s.match(/(\d{2,3})\s?kw\b/i);
   // Chevaux écrits après la FAMILLE MOTEUR, sans unité (liste SY 17/11 : « BlueHDi 130 », « Hybrid 145 », « Gasolina
   // 100 », « PureTech 130 ») — jamais quand le nombre est une capacité (« eléctrico 50 kWh »).
-  const fam = s.match(/\b(?:bluehdi|puretech|hdi|hybrid|gasolina|diesel|thp|vti|tce|dci|tdi|tsi|tfsi|ecoboost|multijet|e-?tense|electrico|electrique)\s?(\d{2,3})\b(?!\s?kwh?\b)/i);
+  const fam = s.match(/\b(?:bluehdi|puretech|hdi|hybrid|gasolina|diesel|thp|vti|tce|dci|tdi|tsi|tfsi|ecoboost|ecoblue|ecob|multijet|e-?tense|electrico|electrique|t-?gdi|crdi|power|mhev|hev|dig-?t|mivec)\s?(\d{2,3})\b(?!\s?kwh?\b)/i);
   const power_ch = p ? Number(p[1]) : kw ? Math.round(Number(kw[1]) * 1.36) : fam ? Number(fam[1]) : null;
   // « AT-8 » / « MT-6 » (fichiers allemands), « Automatik », « BVA »…
   // « AUT » (catalogue Record Rent a Car 07/10 : « 252CV AUT »), « E-CVT ».
   // « AUTO » seul (liste Drivalia 12/11 : « 1.5T EHS PHEV LUXURY AUTO »).
-  const gearbox = /\b(bva|au?to?ma?ti?(que|c|k|co)|automaat|aut|auto|e?-?dct\d?|e?-?eat\d|e-?dcs?\d?|e-?dsc\d?|edc|e-?cvt|dsg|s-?tronic|steptronic|multitronic|xtronic|automat|at-?\d)\b/i.test(s) ? 'AUTOMATIQUE' // « eEAT8 » collé (liste REBU 16/11)
+  const gearbox = /\b(bva|au?to?ma?ti?(que|c|k|co)|automaat|aut|auto|e?-?dct\d?|e?-?eat\d|e-?dcs?\d?|e-?dsc\d?|edc|e-?cvt|at|dsg|s-?tronic|steptronic|multitronic|xtronic|automat|at-?\d)\b/i.test(s) ? 'AUTOMATIQUE' // « eEAT8 » collé (liste REBU 16/11)
     : /\b(bvm\d?|manuel(le)?|manual|schalt|mt-?\d)\b/i.test(s) || /\b[56]v\b|\b[56]\s?vel\.?\s?(man)?\b/i.test(s) ? 'MANUELLE' : null; // « 6v », « 6 Vel. MAN » (Espagne, 17/11)
   // « 300PHEV » collé (RAV4), « HEV » (Tucson), « GLP » / « ECO-G » (GPL
   // espagnol / Dacia) — catalogue du 07/10.
@@ -507,7 +549,9 @@ export function parseFreeLine(line: string): { power_ch: number | null; gearbox:
   // électriques « ë-C3 / ë-C4 / e-208 / Combo-e / Mokka-e / Corsa-e », rechargeables « E-Tense 225 / 300 / 360 »,
   // « Hybrid 180 / 195 / 225 / 300 / 360 », « Hybrid4 », boîte « e-EAT8 » (« Hybrid 136 / 145 » = hybride légère) ;
   // « E-Tense » sans chiffre (DS 3) = électrique.
-  const fuel = /phev|\b(plug-?in|e-?tense 4x4|rechargeable|tfsi e|e-?hybrid|p[2-5]\d0e)\b/i.test(s) || /e-?tense\s?[23]\d{2}\b|\bhybrid\s?(?:180|195|225|300|360)\b|\bhybrid4\b|\be-?eat8\b/i.test(s) ? 'HYBRIDE RECHARGEABLE'
+  // « xDrive30e », « 330e », « 225xe », « 300 de » (BMW / Mercedes, liste loueur 18/11) : rechargeables — jamais
+  // devant un tiret (« 58 e-Boost » est une électrique).
+  const fuel = /phev|\b(plug-?in|e-?tense 4x4|rechargeable|tfsi e|e-?hybrid|p[2-5]\d0e)\b/i.test(s) || /e-?tense\s?[23]\d{2}\b|\bhybrid\s?(?:180|195|225|300|360)\b|\bhybrid4\b|\be-?eat8\b/i.test(s) || /\d{2,3}\s?[xd]?e\b(?!-)/i.test(s) ? 'HYBRIDE RECHARGEABLE'
     : /\b([ée]lectri(que|c|co|ca)|ev|ev\d{2}|e-?208|e-?2008|electric|kwh|e-?tron|id\.? ?[3-7]|eqa|eqb|eqc|eqe|eqs|\bbev\b|e-?tense)\b/i.test(s) || /\d\s?kwh\b/i.test(s)
       || /(?:^|\s)[eë]-?(?:c[345]|308|3008|rifter|berlingo|expert|traveller|jumpy|spacetourer|partner|boxer|jumper|doblo|scudo|ducato|up|golf|corsa|combo|mokka|vivaro|zafira|movano|500|niro|soul)\b|\b(?:combo|mokka|corsa|vivaro|zafira|movano|berlingo|partner|rifter)-e\b/i.test(s) ? 'ELECTRIQUE' // « 45KWH » collé (MG ZS 15/10)
     : /\b(hybrid|hybride|hibrido|hibrida|hev|e-?tech|e-?power|mhev|bsg)\b/i.test(s) ? 'HYBRIDE'
@@ -672,7 +716,7 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
       // devenait une date vide. Quand l'en-tête se réduit à « reg », ce sont
       // les valeurs de la colonne qui tranchent : des dates → date, sinon plaque.
       header.forEach((h, idx) => {
-        if (guesses[idx] !== 'reg_date' || !/^reg\.?$/.test(normHeader(h))) return;
+        if (guesses[idx] !== 'reg_date' || !/^(reg\.?|immat\.?|immatriculation|matricule)$/.test(normHeader(h))) return;
         const vals = grid.slice(i + 1, i + 21).map((row) => (row ?? [])[idx]).filter((v) => v != null && v !== '');
         const dateLike = vals.filter((v) => v instanceof Date || /^\d{4}-\d{2}-\d{2}/.test(cell(v)) || /^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/.test(cell(v)) || /^(19|20)\d{2}$/.test(cell(v))).length;
         if (vals.length > 0 && dateLike * 2 < vals.length) guesses[idx] = 'plate';
@@ -723,7 +767,7 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
       const f = fields[ci];
       if (!h) return;
       if (!mappingsByHeader.has(h)) mappingsByHeader.set(h, { header: h, field: f, sample: cell(v).slice(0, 40) });
-      if (f === 'ignore' || f === 'plate') { extras[h] = cell(v); return; }
+      if (f === 'ignore' || f === 'plate') { extras[h] = cell(v).replace(/\s*\^+\s*/g, ' · ').replace(/^ · | · $/g, ''); return; }
       // Deux colonnes pour le même champ : la PREMIÈRE gagne (« Version » avant
       // « Trim »), la seconde est gardée en extras — rien n'est perdu.
       if (rec[f] != null) {
@@ -764,7 +808,7 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
       else if (byVin) brand = byVin;
       else if (!cell(rec.version) || !cell(rec.model)) { const first = splitBrand(versionLine, knownBrandNames); brand = first.brand; brandPrefix = first.brand; versionLine = first.rest || versionLine; }
     }
-    brand = canonBrand(brand);
+    brand = canonBrand(resolveBrandCode(brand, knownBrandNames));
     // Ligne qui RÉPÈTE son modèle (liste suédoise 13/10 : « HYUNDAI TUCSON
     // TUCSON », « Sportage Sportage », « Q3 Audi Q3 35 TFSI… ») — Channing :
     // « j'ai deux fois les modèles ». Le doublon de tête est replié, rien d'autre.
@@ -791,6 +835,8 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
     // Colonne « MODEL » qui porte un CODE de flotte (« CW41 », « DV19 » — Stock Export 06/11) et désignation à côté
     // (« Formentor 1.5 eTSI DSG 150 ») : quand le code n'est pas un modèle connu de la marque mais que la
     // désignation commence par un modèle connu, c'est elle qui donne le modèle. Le code reste dans la version.
+    // Colonne « Modèle (code) » (liste loueur 18/11) : code court résolu sur les modèles connus de la marque.
+    if (cell(rec.model) && /^[A-Z0-9]{1,4}$/i.test(cell(rec.model).trim())) model = resolveModelCode(cell(rec.model), known);
     if (known.length && versionLine && model !== versionLine) {
       const knownUp = known.map((k) => k.toUpperCase());
       if (!knownUp.includes(model)) {
@@ -848,7 +894,9 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
       const m = versionLine.match(/^((?:19|20)\d{2})\s+(.+)$/);
       if (m) { rec.year = m[1]; versionLine = m[2]; if (/^(?:19|20)\d{2}\b/.test(model)) model = guessModel(brand, m[2], known); }
     }
-    const yearCol = toNumber(rec.year);
+    const period = cell(rec.year).match(/^(\d{2}|20\d{2})[-/ ]?Q?([1-4])$/i);
+    const yearCol = period ? Number(period[1].length === 2 ? `20${period[1]}` : period[1]) : toNumber(rec.year);
+    if (period) extras[header[fields.indexOf('year')] ?? 'Période'] = cell(rec.year);
     const km = toNumber(rec.km);
     rawKms.push(km);
     // Un prix à 0 n'est pas un prix (liste suédoise 13/10 : 5 lignes à 0 =
