@@ -1203,70 +1203,114 @@ async function scrapeListerpage(url: string, firstHtml: string): Promise<DealerS
 
 // ── cmsms (Louwman — CMS Made Simple, module « Occasions », preuve 02/10) ───
 // La page ne porte que le formulaire ; le stock vient d'un POST sur
-// index.php?mact=Occasions,cntnt01,ajaxDoAdvancedSearch,0&cntnt01returnid=N
-// &pagina=P avec request=xmlhttp&data=<formulaire sérialisé>&pagina=P →
-// { total, occasions_html }. 24 cartes par page ; chaque carte porte un
-// div.favAuto avec data-id / data-merk / data-model / data-uitvoering /
-// data-prijs / data-kenteken / data-url / data-thumb, et un bloc texte
-// « 2026 · Electra · 852 km ». 3 908 « gebruikt » le 02/10 (3 062 occasions).
-async function scrapeCmsms(url: string, firstHtml: string): Promise<DealerStockResult> {
+// index.php?mact=Occasions,cntnt01,ajaxDoAdvancedSearch,0&cntnt01returnid=N&pagina=P avec
+// request=xmlhttp&data=<formulaire sérialisé>&pagina=P → { total, occasions_html }. 24 cartes par page ; chaque carte
+// porte un div.favAuto (data-id / data-merk / data-model / data-uitvoering / data-prijs / data-kenteken / data-url /
+// data-thumb) et la ligne « 2026 · Hybride · 7.793 km ». La boîte n'est PAS sur la carte (14/11 : boîte 0 % sur 3 873).
+/** Options « Transmissie » du formulaire de recherche (Louwman 14/11 : A = Automaat 3 401, H = Handgeschakeld 510). */
+export function cmsmsTransmissions(html: string): Array<{ value: string; label: string }> {
+  const out: Array<{ value: string; label: string }> = [];
+  for (const m of html.matchAll(/(<input[^>]*name="transmission\[\]"[^>]*>)\s*([^<]*)/g)) {
+    const value = m[1].match(/value="([^"]+)"/)?.[1];
+    const label = decode(m[2]).trim();
+    if (value && label && !out.some((o) => o.value === value)) out.push({ value, label });
+  }
+  return out;
+}
+/** Cartes d'une réponse cmsms (occasions_html). Les data-* vivent sur la balise favAuto UNIQUEMENT (le bloc « labels »
+ *  porte aussi un data-id : « label_tao » — constat 02/10, collision d'identifiants). */
+export function parseCmsmsCards(occasionsHtml: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  for (const card of occasionsHtml.split(/(?=<div class="occasion grid")/)) {
+    if (!card.includes('favAuto')) continue;
+    const fav = card.match(/<div class="favAuto"[^>]*>/)?.[0] ?? '';
+    const attr = (k: string) => decode(fav.match(new RegExp(`data-${k}="([^"]*)"`))?.[1] ?? '').trim();
+    const id = attr('id') || attr('kenteken');
+    if (!id) continue;
+    const text = stripTags(card.match(/<div class="grid-info">([\s\S]*?)<div class="locatie">/)?.[1] ?? '');
+    const labels = stripTags(card.match(/<div class="labels">([\s\S]*?)<\/div>/)?.[1] ?? '');
+    const price = priceOrNull(attr('prijs'));
+    const status: DealerVehicleStatus | null = statusFromText(labels) ?? (price == null ? 'price_on_request' : null);
+    const brand = attr('merk') || null, model = attr('model') || null;
+    out.push({
+      external_id: id, url: attr('url') || null, title: [brand, model, attr('uitvoering')].filter(Boolean).join(' ').trim(),
+      brand, model, price, km: num(text.match(/([\d.]+)\s*km/i)?.[1]), year: num(text.match(/\b(19|20)\d{2}\b/)?.[0]),
+      fuel: text.match(/\b(Benzine|Diesel|Electra|Elektrisch|Hybride|LPG|CNG|Waterstof)\b/i)?.[1] ?? null, gearbox: null,
+      plate: attr('kenteken') || null, vin: null, body: null, image: attr('thumb') || null, listed_at: null, status,
+    });
+  }
+  return out;
+}
+/** Fiche détail cmsms (secours pour DETAIL_READERS) : blocs « <div class="titel">Transmissie</div>Automaat ». */
+export function readCmsmsDetail(html: string): { gearbox?: string | null; fuel?: string | null; km?: number | null; year?: number | null; price?: number | null } {
+  const spec = (label: string) => unesc(stripTags(html.match(new RegExp(`<div class="titel">${label}</div>([\\s\\S]*?)</div>`, 'i'))?.[1] ?? '')) || null;
+  return {
+    gearbox: gearboxOf(spec('Transmissie')), fuel: spec('Brandstof'), km: num(spec('KM-stand')),
+    year: num(spec('Bouwjaar')?.match(/\b(19|20)\d{2}\b/)?.[0]), price: priceOrNull(html.match(/<title>[^<|]*\|\s*€\s*([\d.]+)/)?.[1]),
+  };
+}
+export async function scrapeCmsms(url: string, firstHtml: string): Promise<DealerStockResult> {
   const origin = new URL(url).origin;
   const warnings: string[] = [];
   const returnid = firstHtml.match(/returnid" value="(\d+)"/)?.[1];
-  if (!returnid) return { provider: 'cmsms', total: null, vehicles: [], pages: 0, warnings: ['returnid introuvable dans la page'] };
-  // Filtre repris du chemin de l'URL : /aanbod/filters/gebruikt/ → gebruikt ;
-  // /occasion/ → occasion ; sinon tout l'aanbod.
+  if (!returnid) return { provider: 'cmsms', total: null, declared: null, vehicles: [], pages: 0, warnings: ['returnid introuvable dans la page'] };
+  // Filtre repris du chemin de l'URL : /aanbod/filters/gebruikt/ → gebruikt ; /occasion/ → occasion ; sinon tout l'aanbod.
   const path = new URL(url).pathname.toLowerCase();
   const cond = /gebruikt/.test(path) ? 'gebruikt' : /occasion/.test(path) ? 'occasion' : /nieuw/.test(path) ? 'nieuw' : '';
-  const data = `${cond ? `new_or_occasion%5B%5D=${cond}&` : ''}orderby=default&sortorder=DESC`;
-  const out: DealerVehicle[] = [];
-  const seen = new Set<string>();
-  let total: number | null = null;
-  let page = 1;
-  // 24 cartes par page : 3 908 véhicules = 163 pages, au-delà du plafond
-  // commun (150) — plafond propre à ce fournisseur.
+  const byId = new Map<string, DealerVehicle>();
+  let pages = 0;
+  // 24 cartes par page : 3 911 véhicules = 163 pages, au-delà du plafond commun (150) — plafond propre à ce fournisseur.
   const CMSMS_MAX_PAGES = 250;
-  for (; page <= CMSMS_MAX_PAGES; page++) {
-    const body = `request=xmlhttp&data=${encodeURIComponent(data)}&pagina=${page}`;
-    const res = await getText(`${origin}/index.php?mact=Occasions,cntnt01,ajaxDoAdvancedSearch,0&cntnt01returnid=${returnid}&pagina=${page}${page > 1 ? '&type=scroll' : ''}`, {
-      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-requested-with': 'XMLHttpRequest', referer: url }, body,
-    });
-    if (res.status !== 200) { warnings.push(`page ${page} : HTTP ${res.status}`); break; }
-    let d: { total?: number | string; occasions_html?: string };
-    try { d = JSON.parse(res.text); } catch { warnings.push(`page ${page} : réponse illisible`); break; }
-    total = num(d.total) ?? total;
-    const cards = (d.occasions_html ?? '').split(/(?=<div class="occasion grid")/).filter((c) => c.includes('favAuto'));
-    if (cards.length === 0) break;
-    let added = 0;
-    for (const card of cards) {
-      // Les attributs data-* vivent sur la balise favAuto UNIQUEMENT (le bloc
-      // « labels » porte aussi un data-id : « label_tao » — constat 02/10,
-      // 1 358 relevés au lieu de 3 908 par collision d'identifiants).
-      const fav = card.match(/<div class="favAuto"[^>]*>/)?.[0] ?? '';
-      const attr = (k: string) => decode(fav.match(new RegExp(`data-${k}="([^"]*)"`))?.[1] ?? '').trim();
-      const id = attr('id') || attr('kenteken');
-      if (!id || seen.has(id)) continue;
-      seen.add(id); added++;
-      const text = stripTags(card.match(/<div class="grid-info">([\s\S]*?)<div class="locatie">/)?.[1] ?? '');
-      const year = num(text.match(/\b(19|20)\d{2}\b/)?.[0]);
-      const km = num(text.match(/([\d.]+)\s*km/i)?.[1]);
-      const fuel = text.match(/\b(Benzine|Diesel|Electra|Elektrisch|Hybride|LPG|CNG|Waterstof)\b/i)?.[1] ?? null;
-      const labels = stripTags(card.match(/<div class="labels">([\s\S]*?)<\/div>/)?.[1] ?? '');
-      const price = priceOrNull(attr('prijs'));
-      const status: DealerVehicleStatus | null = statusFromText(labels) ?? (price == null ? 'price_on_request' : null);
-      const brand = attr('merk') || null, model = attr('model') || null;
-      out.push({
-        external_id: id, url: attr('url') || null, title: [brand, model, attr('uitvoering')].filter(Boolean).join(' ').trim(),
-        brand, model, price, km, year, fuel, gearbox: null, plate: attr('kenteken') || null, vin: null, body: null,
-        image: attr('thumb') || null, listed_at: null, status,
+  // Une passe = une recherche lue page par page ; `gearbox` = boîte du filtre de la passe (null = sans filtre).
+  // ok = passe allée à son terme (page vide ou sans carte nouvelle) ; false = erreur HTTP, réponse illisible ou plafond.
+  const pass = async (filter: string, gearbox: string | null, label: string, maxPages = CMSMS_MAX_PAGES): Promise<{ total: number | null; ok: boolean }> => {
+    const data = `${cond ? `new_or_occasion%5B%5D=${cond}&` : ''}${filter}orderby=default&sortorder=DESC`;
+    const mine = new Set<string>();
+    let total: number | null = null;
+    for (let page = 1; page <= maxPages; page++) {
+      const res = await getText(`${origin}/index.php?mact=Occasions,cntnt01,ajaxDoAdvancedSearch,0&cntnt01returnid=${returnid}&pagina=${page}${page > 1 ? '&type=scroll' : ''}`, {
+        method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-requested-with': 'XMLHttpRequest', referer: url },
+        body: `request=xmlhttp&data=${encodeURIComponent(data)}&pagina=${page}`,
       });
+      if (res.status !== 200) { warnings.push(`${label}, page ${page} : HTTP ${res.status}`); return { total, ok: false }; }
+      let d: { total?: number | string; occasions_html?: string };
+      try { d = JSON.parse(res.text); } catch { warnings.push(`${label}, page ${page} : réponse illisible`); return { total, ok: false }; }
+      pages++;
+      total = num(d.total) ?? total;
+      let added = 0;
+      for (const v of parseCmsmsCards(d.occasions_html ?? '')) {
+        if (mine.has(v.external_id)) continue; // le site répète quelques lignes (14/11 : 510 cartes « H » pour 505 voitures, quel que soit le tri)
+        mine.add(v.external_id); added++;
+        const known = byId.get(v.external_id);
+        if (!known) byId.set(v.external_id, { ...v, gearbox });
+        else if (gearbox && !known.gearbox) known.gearbox = gearbox;
+      }
+      if (added === 0 || (total != null && mine.size >= total)) return { total, ok: true };
+      await sleep(Math.max(PAGE_DELAY_MS, 350)); // politesse : 350 ms au moins entre deux pages d'un site
     }
-    if (added === 0) break;
-    if (total != null && out.length >= total) break;
-    await sleep(PAGE_DELAY_MS);
+    return { total, ok: maxPages < CMSMS_MAX_PAGES };
+  };
+  // BOÎTE PAR PASSES FILTRÉES (14/11, Louwman : boîte 0 % sur 3 873, « nos comparaisons Suzuki en dépendent ») : la
+  // carte ne porte pas la boîte, mais le formulaire filtre par « Transmissie » et ces filtres partagent tout le stock
+  // (compteurs du site : 3 401 Automaat + 510 Handgeschakeld = 3 911 « gebruikt »). Chaque voiture prend la boîte de la
+  // passe où elle est vue : autant de pages qu'une passe unique, aucune fiche détail. La page 1 sans filtre donne le
+  // total ; la passe sans filtre n'est relue en entier que si une passe filtrée a échoué ou si les compteurs filtrés ne
+  // couvrent pas le total (voitures sans boîte renseignée) — elle ajoute alors ces voitures, boîte inconnue.
+  const gears = cmsmsTransmissions(firstHtml);
+  const head = await pass('', null, 'stock', gears.length ? 1 : CMSMS_MAX_PAGES);
+  let covered = 0, gearsOk = gears.length > 0;
+  for (const g of gears) {
+    const r = await pass(`transmission%5B%5D=${encodeURIComponent(g.value)}&`, gearboxOf(g.label), `boîte « ${g.label} »`);
+    covered += r.total ?? 0;
+    gearsOk = gearsOk && r.ok && r.total != null;
   }
-  return { provider: 'cmsms', total: total ?? out.length, declared: total, vehicles: out, pages: page, warnings };
+  if (gears.length && (!gearsOk || head.total == null || covered < head.total)) await pass('', null, 'stock (reste)');
+  const vehicles = [...byId.values()];
+  const noGear = vehicles.filter((v) => !v.gearbox).length;
+  if (gears.length && noGear) warnings.push(`${noGear} voiture(s) sans boîte : absentes des filtres « Transmissie » du site`);
+  return { provider: 'cmsms', total: head.total ?? vehicles.length, declared: head.total, vehicles, pages, warnings };
 }
+
 
 // ── dmapi (Pon Center — API Datamotive, preuve 02/10) ───────────────────────
 // La page porte data-vehicle-overview='{"dmUpdateUrl":"https://api.datamotive
@@ -2633,6 +2677,8 @@ export const DETAIL_READERS: Partial<Record<DealerProvider, DetailReader>> = {
   catalogpager: { fields: ['gearbox'], read: readDmdDetail },
   // autodata : la liste donne prix, km, année ; la fiche donne l'énergie et la boîte (km / année en secours).
   autodata: { fields: ['fuel', 'gearbox', 'km', 'year'], read: readAutodataDetail },
+  // cmsms (Louwman) : secours seulement — la boîte vient des passes filtrées « Transmissie » de la liste.
+  cmsms: { fields: ['gearbox'], read: readCmsmsDetail },
   autopalace: { fields: ['gearbox'], read: readAutopalaceDetail },
 };
 
