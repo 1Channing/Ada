@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -254,6 +254,10 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   // /occasion-voorraad/ est rendue par Vue dans <div id="nextVoorraad"> sans initialHits ; ses filtres sont dans
   // window.dtcVm.seoListingFilters → le lecteur relit la page classique /voorraad/ avec ces filtres.
   if (/id="nextVoorraad"/.test(html) && /window\.dtcVm\.seoListingFilters\s*=/.test(html)) return 'dtcvm';
+  // dtcvm « vm-next » sans liste (Bennie Wilmink, 18/11) : /voorraad/ n'est qu'un gabarit Vue vide (« vm-c-results »,
+  // v-cloak), sans initialHits ni #nextVoorraad ; les voitures viennent de l'API ESP de DTC Media appelée avec une clé
+  // publique (interdite ici) → le lecteur passe par le plan de site « voorraad-sitemap.xml » et le JSON-LD des fiches.
+  if (/id="wp-vm-next-variables-js-before"/.test(html) && /var dtcVmVariables\s*=/.test(html) && /class="vm-c-results"/.test(html)) return 'dtcvm';
   // Cartes HTML à attributs data-* (raevhede.dk 06/10 : <a class="car-card"
   // data-make data-model data-year data-price data-km …>, tout le stock sur
   // une page, filtres côté client).
@@ -324,6 +328,12 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   // charge en GraphQL dans le navigateur, mais chaque fiche est générée à la construction du site : le plan de site
   // (sitemap-0.xml) donne les fiches, et /page-data/<fiche>/page-data.json contient la voiture entière. Sans clé.
   if (/id="___gatsby"/.test(html) && /gatsby-theme-vehicles/.test(html)) return 'gatsbyvehicles';
+  // acaicms (Domingo Alonso Ocasión, 18/11) : CMS « Acai » (Coco Solution), 21 cartes rendues côté serveur, compte du
+  // filtre dans window.COUNT_LISTADO_MODELOS ; « Ver más » passe par une API à jeton → lecture par fenêtres de prix.
+  if (/window\.COUNT_LISTADO_MODELOS\s*=\s*\d+/.test(html) && /searchbar\.nextPage\(/.test(html) && /class="ignore_toc"/.test(html)) return 'acaicms';
+  // carmarketb2c (Ayvens, 18/11) : boutique VO grand public used-cars.ayvens.com (Angular rendu serveur) — l'état de la
+  // page (app-root-state) embarque la réponse complète de l'API « …/carmarket/b2c/vehicleads » (count + items).
+  if (/<script id="(?:app-root-state|ng-state|serverApp-state)" type="application\/json">/.test(html) && /rms\/carmarket\/b2c\/vehicleads/.test(html)) return 'carmarketb2c';
   // catalogpager (Groupe DMD, 04/11) : site Symfony maison, cartes <a class="fiche_vehicule">, pages chargées en POST
   // sur « /ajax/search?flag=html » avec filters[page]=N (liens « catalog-pager-link » data-page).
   if (/class="fiche_vehicule/.test(html) && /catalog-pager-link/.test(html) && /data-ajax-request-search="/.test(html)) return 'catalogpager';
@@ -873,6 +883,8 @@ async function scrapeDtcVm(url: string, firstHtml: string): Promise<DealerStockR
     warnings.push(`vitrine « next » : lue par la page classique ${classic}`);
     url = classic; firstHtml = r.text;
   }
+  // Vitrine « vm-next » sans liste (Bennie Wilmink, 18/11) : plan de site + JSON-LD des fiches (voir scrapeDtcVmNext).
+  if (!/window\.dtcVm\.initialHits\s*=/.test(firstHtml) && /var dtcVmVariables\s*=/.test(firstHtml)) return scrapeDtcVmNext(url, firstHtml);
   const first = parseDtcVm(firstHtml);
   if (!first) return { provider: 'dtcvm', total: null, declared: null, vehicles: [], pages: 1, warnings: ['bloc dtcVm.initialHits illisible'] };
   const total = first.total;
@@ -2405,10 +2417,14 @@ async function scrapeVgrf(url: string, firstHtml: string): Promise<DealerStockRe
   const declared = num(firstHtml.match(/data-vehicules-listing-total="(\d+)"/)?.[1]);
   const parse = (html: string): number => {
     let added = 0;
-    for (const part of html.split(/class="ListeNewVoiture/).slice(1)) {
+    // 18/11 (Sonauto, vitrine du groupe VGRF, 5 751 voitures, 0 lue) : la carte peut porter d'autres classes avant
+    // « ListeNewVoiture » (class=" vehicule-item ListeNewVoiture …") et son lien est relatif (« /voitures-occasions/… »).
+    for (const part of html.split(/class="[^"]*\bListeNewVoiture\b/).slice(1)) {
       const id = part.match(/data-vehicule-id="([^"]+)"/)?.[1];
       if (!id || seen.has(id)) continue;
-      const href = part.match(/href="(https?:\/\/[^"]+\/occasion\/[^"]+)"/)?.[1] ?? null;
+      const rawHref = part.match(/<a href="([^"#]+)"[^>]*class="uk-icon SavoirListe"/)?.[1]
+        ?? part.match(/href="((?:https?:\/\/[^"/]+)?\/[^"]*occasions?\/[^"]+)"/)?.[1] ?? null;
+      const href = rawHref ? new URL(rawHref.replace(/&amp;/g, '&'), url).toString() : null;
       const alt = part.match(/alt="Voitures occasions ([^"]+)"/)?.[1] ?? '';
       const t = htmlTokens(part.replace(/<style>[\s\S]*?<\/style>/g, '').replace(/<svg[\s\S]*?<\/svg>/g, ''));
       const iPrix = t.findIndex((x) => /^Prix TTC/i.test(x));
@@ -2431,15 +2447,34 @@ async function scrapeVgrf(url: string, firstHtml: string): Promise<DealerStockRe
     }
     return added;
   };
-  let pages = 1;
-  let added = parse(firstHtml);
-  const perPage = Math.max(added, 12);
+  // ORDRE DU SITE NON STABLE (18/11, Sonauto : 5 694 / 5 751 par l'ordre par défaut, 16 pages sur 60 avec des doublons) :
+  // si le compte n'y est pas, relecture triée par prix puis par km (paramètres order_by / order_direction du site) et
+  // RÉUNION des lectures — 5 743 puis 5 751 / 5 751 (même méthode qu'eveho). Coupure réseau (« other side closed » sur
+  // une page de 2,5 Mo) : reprise une fois, puis lecture partielle dite — jamais d'échec du relevé.
   const warnings: string[] = [];
-  for (let start = perPage; added > 0 && (declared == null ? start < perPage * MAX_PAGES : start < declared); start += perPage) {
-    await sleep(PAGE_DELAY_MS);
-    const r = await getTextPatient(withParam(url, 'start', String(start)));
-    if (r.status !== 200) { warnings.push(`start=${start} : HTTP ${r.status}`); break; }
-    added = parse(r.text); if (added > 0) pages++;
+  const cardsOf = (html: string) => (html.match(/class="[^"]*\bListeNewVoiture\b/g) ?? []).length;
+  const getPage = async (u: string): Promise<{ status: number; text: string } | null> => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await sleep(attempt ? 3000 : 350);
+      try { return await getTextPatient(u); } catch (e) { if (attempt) warnings.push(`${u} : ${e instanceof Error ? e.message : String(e)} — relevé partiel`); }
+    }
+    return null;
+  };
+  let pages = 0;
+  for (const sort of ['', 'order_by=v.f_veh_prix_vente&order_direction=ASC', 'order_by=v.i_veh_kilometre&order_direction=ASC']) {
+    if (sort && (declared == null || out.length >= declared)) break;
+    const base = sort ? `${url}${url.includes('?') ? '&' : '?'}${sort}` : url;
+    let html = firstHtml;
+    if (sort) { const r = await getPage(base); if (!r || r.status !== 200) { warnings.push(`tri ${sort} : HTTP ${r?.status ?? 'coupé'}`); continue; } html = r.text; }
+    pages++; parse(html);
+    const perPage = Math.max(cardsOf(html), 12);
+    for (let start = perPage; declared == null ? start < perPage * MAX_PAGES : start < declared; start += perPage) {
+      const r = await getPage(withParam(base, 'start', String(start)));
+      if (!r) break;
+      if (r.status !== 200) { warnings.push(`start=${start} : HTTP ${r.status}`); break; }
+      pages++; parse(r.text);
+      if (cardsOf(r.text) === 0 || (declared != null && out.length >= declared)) break;
+    }
   }
   if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
   return { provider: 'vgrf', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
@@ -3196,6 +3231,313 @@ export async function scrapeInfinit(url: string, firstHtml: string): Promise<Dea
   return { provider: 'infinit', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
 }
 
+// ── acaicms (Domingo Alonso Ocasión, Canaries, 18/11) : CMS « Acai » de Coco Solution. La liste est rendue côté
+//    serveur, 21 cartes triées par prix croissant (à prix égal : km décroissant), et la page annonce le compte du
+//    filtre courant (window.COUNT_LISTADO_MODELOS). « Ver más » passe par /hooks/getModelList/ avec un jeton
+//    (X-Hooks-Token lu dans la page) : INTERDIT. Mais la page honore les filtres d'URL « precio_final=min,max » et
+//    « kilometros=min,max » : on lit tout par un CURSEUR DE PRIX (fenêtre [p, ∞[ qui repart du prix de la 21e carte),
+//    et, quand plus de 21 voitures ont le même prix, par un curseur de km à ce prix. Sans jeton, sans clé.
+//    Périmètre : le catalogue entier « /coches/ ». Les pages SEO (« /ocasion/ », « /km-0/ », « /ocasion/tenerife/ »)
+//    portent un filtre maison (tags_del_vehiculo) qui ne se combine PAS avec la fenêtre de prix (18/11 : /ocasion/
+//    annonce 1 153, /ocasion/?precio_final=0,9999999 en annonce 1 234, motos comprises) ; sur /coches/ les deux
+//    comptes concordent. Les pages d'île ne filtrent rien (/ocasion/tenerife/ = /ocasion/ = /ocasion/las-palmas/).
+const ACAI_FUEL = /gasolin|gasoil|di[eé]sel|el[eé]ctric|h[ií]brid|enchufable|\bglp\b|\bgnc\b|\bgas\b|hidr[oó]geno|etanol/i;
+const ACAI_GEAR = /manual|autom|dsg|cvt|secuencial|sin caja|robotizad|embrague/i;
+const acaiSlug = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+/** Boîte « Sin definir » sur la carte ET sur la fiche (Škoda Scala d79de, 18/11) : lue dans la version quand elle
+ *  la dit (« DSG7 », « Manual 5 vel. », « MT6 », « AT8 »…) ; une électrique est à rapport unique (automatique). */
+function acaiGearFromVersion(version: string, fuel: string | null): string | null {
+  if (/\b(dsg\d?|dct\d?|edc|eat\d?|e-?cvt|cvt|s[- ]?tronic|steptronic|tiptronic|autom[aá]tic[oa]?|at\d|aut\.?)\b/i.test(version)) return 'Automatique';
+  if (/\b(manual|mt\d|\d\s?vel\.?)\b/i.test(version)) return 'Manuelle';
+  if (fuel && /el[eé]ctric/i.test(fuel)) return 'Automatique';
+  return null;
+}
+/** Cartes d'une page de liste Acai → véhicules (fonction pure). */
+export function parseAcaiCards(html: string, origin: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  for (const part of html.split(/class="cursor-pointer click-a-child"/).slice(1)) {
+    const head = part.match(/<h3 class="ignore_toc"><a[^>]*href="([^"]+)"[^>]*>\s*<span[^>]*>([^<]*)<\/span>\s*<strong[^>]*>([^<]*)<\/strong>/);
+    if (!head) continue;
+    const path = head[1].replace(/^https?:\/\/[^/]+/, '');
+    const id = path.replace(/^\/+|\/+$/g, ''); // « citroen/c1-puretech-82cv-feel-5-puertas-658bb » (le suffixe seul, 5 hexa, n'est pas unique)
+    if (!id) continue;
+    const brandSlug = path.split('/').filter(Boolean)[0] ?? '';
+    const label = htmlText(head[2]); // « CITROËN C3 », « HONDA MOTOS PCX », « SUZUKI »
+    const version = htmlText(head[3]); // « C3 PureTech 83 S&S Feel Pack »
+    // Marque = les premiers mots du libellé dont le slug vaut le 1er segment du lien (« HONDA MOTOS » ↔ /honda-motos/).
+    const words = label.split(' ').filter(Boolean);
+    let n = 0;
+    for (let i = 1; i <= words.length && !n; i++) if (acaiSlug(words.slice(0, i).join(' ')) === brandSlug) n = i;
+    if (!n) n = 1;
+    const brand = words.slice(0, n).join(' ') || null;
+    const model = words.slice(n).join(' ') || version.split(' ')[0] || null;
+    // Ligne « 2017 | 107854 KM | Gasolina | MANUAL » (km ou boîte parfois absents : motos, électriques).
+    const specs = [...(part.match(/<div class="flex flex-wrap[^"]*">([\s\S]*?)<\/div>/)?.[1] ?? '').matchAll(/<span[^>]*>([^<]*)<\/span>/g)]
+      .map((m) => htmlText(m[1])).filter(Boolean);
+    const fuel = specs.find((s) => ACAI_FUEL.test(s)) ?? null;
+    const gearRaw = specs.find((s) => ACAI_GEAR.test(s) && !ACAI_FUEL.test(s)) ?? null; // « Sin definir » → null
+    const gearbox = gearRaw == null ? acaiGearFromVersion(version, fuel) : /sin caja/i.test(gearRaw) ? 'Automatique' : gearboxOf(gearRaw);
+    const price = euro(htmlText(part.match(/<strong class="text-blue-400[^"]*">([\s\S]*?)<\/strong>/)?.[1] ?? '')); // prix comptant (« Financiado » ignoré)
+    const startsWithModel = model != null && version.toLowerCase().startsWith(model.toLowerCase());
+    out.push({
+      external_id: id, url: origin + '/' + id + '/',
+      title: (startsWithModel ? [brand, version] : [brand, model, version]).filter(Boolean).join(' '),
+      brand, model, price, km: kmOf(specs.find((s) => /^\d[\d.\s]*\s*km$/i.test(s))), year: num(specs.find((s) => /^(19|20)\d{2}$/.test(s))),
+      fuel, gearbox, plate: null, vin: null, body: null,
+      image: part.match(/data-src="([^"]+)"/)?.[1] ?? null, listed_at: null,
+      status: price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: powerFromText(version),
+    });
+  }
+  return out;
+}
+/** Compte annoncé par le site pour le filtre de la page (« 1872 » sur /coches/ le 18/11). */
+export const acaiCount = (html: string): number | null => num(html.match(/window\.COUNT_LISTADO_MODELOS\s*=\s*(\d+)/)?.[1]);
+async function scrapeAcai(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const warnings: string[] = [];
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  let pages = 1;
+  // Fail-open : une coupure réseau (« other side closed ») est reprise une fois, puis rend la lecture partielle (HTTP 0).
+  const get = async (u: string): Promise<{ status: number; text: string }> => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await sleep(attempt ? 3000 : 350); pages++;
+      try { return await getTextPatient(u); } catch (e) { if (attempt) warnings.push(`${u} : ${e instanceof Error ? e.message : String(e)}`); }
+    }
+    return { status: 0, text: '' };
+  };
+  // Catalogue entier : « /coches/ » sans filtre maison (voir plus haut) ; une page SEO y est ramenée, en le disant.
+  const catalog = `${origin}/coches/`;
+  let html = firstHtml;
+  if (new URL(url).pathname !== '/coches/' || new URL(url).search) {
+    const r = await get(catalog);
+    if (r.status !== 200 || acaiCount(r.text) == null) return { provider: 'acaicms', total: null, declared: null, vehicles: [], pages, warnings: [`catalogue ${catalog} illisible (HTTP ${r.status})`] };
+    warnings.push(`page ${new URL(url).pathname} : filtres du site non combinables avec la fenêtre de prix — lecture du catalogue entier ${catalog}`);
+    html = r.text;
+  }
+  const declared = acaiCount(html);
+  const add = (h: string): DealerVehicle[] => {
+    const cards = parseAcaiCards(h, origin);
+    for (const v of cards) if (!seen.has(v.external_id)) { seen.add(v.external_id); out.push(v); }
+    return cards;
+  };
+  const windowUrl = (price: string, km?: string) => `${catalog}?precio_final=${encodeURIComponent(price)}${km ? `&kilometros=${encodeURIComponent(km)}` : ''}`;
+  const first = add(html);
+  if (declared != null && first.length >= declared) return { provider: 'acaicms', total: declared, declared, vehicles: out, pages, warnings };
+  const TOP = 9_999_999;
+  let lo = 0;
+  for (let guard = 0; guard < 600; guard++) {
+    const r = await get(windowUrl(`${lo},${TOP}`));
+    if (r.status !== 200) { warnings.push(`fenêtre de prix ≥ ${lo} € : HTTP ${r.status} — relevé partiel`); break; }
+    const count = acaiCount(r.text);
+    if (lo === 0 && count != null && declared != null && count !== declared) warnings.push(`le site annonce ${declared} voitures mais ${count} dans la fenêtre de prix complète`);
+    const cards = add(r.text);
+    if (count == null || cards.length === 0 || count <= cards.length) break; // le reste tenait sur cette page : fini
+    const pmax = Math.max(...cards.map((c) => c.price ?? 0));
+    if (pmax > lo) { lo = pmax; continue; } // la fenêtre suivante repart du prix de la dernière carte (doublons écartés)
+    // Plus de 21 voitures au prix « lo » : à ce prix le site trie par km décroissant → curseur de km.
+    let kmHi = TOP;
+    for (let g = 0; g < 200; g++) {
+      const r2 = await get(windowUrl(`${lo},${lo}`, `0,${kmHi}`));
+      if (r2.status !== 200) { warnings.push(`prix ${lo} €, km ≤ ${kmHi} : HTTP ${r2.status} — relevé partiel`); break; }
+      const c2 = acaiCount(r2.text);
+      const cards2 = add(r2.text);
+      if (c2 == null || cards2.length === 0 || c2 <= cards2.length) break;
+      const kmin = Math.min(...cards2.map((c) => c.km ?? 0));
+      if (kmin < kmHi) kmHi = kmin;
+      else { warnings.push(`${c2} voitures à ${lo} € et ${kmin} km : au-delà de 21, non distinguables par l'adresse`); break; }
+    }
+    lo += 1;
+  }
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  return { provider: 'acaicms', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
+}
+
+// ── carmarketb2c (Ayvens France, 18/11) : boutique VO grand public d'Ayvens (Angular rendu serveur, mêmes pages
+//    pour tous les pays : /fr-fr/, /de-de/, /es-es/…). La page catalogue embarque dans <script id="app-root-state">
+//    la réponse COMPLÈTE de l'API du site (« …/rms/carmarket/b2c/vehicleads?…&financeModes=cash » : count + items)
+//    — 451/451 en France, 274/274 en Allemagne, 556/556 en Espagne. Une seule requête, aucune clé : id, marque,
+//    modèle, version, année, km, énergie, boîte, carrosserie, plaque (reference), photo, mise en ligne, réservé,
+//    prix comptant TTC. (Le site pro « Ayvens Carmarket », aldcarmarket.com, exige un compte : non lu.)
+interface CmItem {
+  id?: string | number; make?: string; model?: string; version?: string; modelYear?: number; firstRegistrationYear?: number;
+  mileageValue?: number; mileageUnit?: string; bodyType?: string; gearBoxType?: string; fuelType?: string; location?: string;
+  reference?: string; pictureUrl?: string; startDateUtc?: string; isReserved?: boolean; status?: string;
+  financeData?: Array<{ financeMode?: string; price?: number; currency?: string }>;
+}
+/** État Angular (TransferState) : « &q; » = guillemet, « &a; » = &, « &s; » = ', « &l; » / « &g; » = < / >. */
+function carmarketState(html: string): Record<string, unknown> | null {
+  const raw = html.match(/<script id="(?:app-root-state|ng-state|serverApp-state)" type="application\/json">([\s\S]*?)<\/script>/)?.[1];
+  if (!raw) return null;
+  for (const txt of [raw, raw.replace(/&(a|q|s|l|g);/g, (_, c: string) => ({ a: '&', q: '"', s: "'", l: '<', g: '>' } as Record<string, string>)[c])]) {
+    try { return JSON.parse(txt) as Record<string, unknown>; } catch { /* forme suivante */ }
+  }
+  return null;
+}
+const CM_BODY: Record<string, string> = { berl: 'Berline', suv: 'SUV', break: 'Break', st_wagon: 'Break', fourg: 'Fourgon', monos: 'Monospace', micro: 'Citadine', cabri: 'Cabriolet', coupe: 'Coupé' };
+// « Start/Stop » → « Start-Stop », « - xDrive30e » → « -xDrive30e », « Série » → « Serie » (liens vérifiés FR 48/48, DE 48/48, ES 48/48).
+const cmSlug = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').replace(/\//g, ' ').replace(/[^A-Za-z0-9 -]/g, '').trim().replace(/[\s-]+/g, '-');
+/** Fonction pure : page catalogue → annoncé + véhicules (mode « cash » = achat comptant, « leasing » = LLD). */
+export function parseCarmarketCatalog(html: string, pageUrl: string): { declared: number | null; vehicles: DealerVehicle[]; complete: boolean } | null {
+  const state = carmarketState(html);
+  if (!state) return null;
+  const u = new URL(pageUrl);
+  const mode = u.searchParams.get('financetype') === 'leasing' ? 'leasing' : 'cash';
+  const culture = u.pathname.split('/').filter(Boolean)[0] ?? 'fr-fr';
+  const lists = Object.entries(state).filter(([k, v]) => /\/carmarket\/b2c\/vehicleads\?/.test(k) && v && typeof v === 'object' && Array.isArray((v as { items?: unknown }).items)) as Array<[string, { count?: number; items: CmItem[] }]>;
+  if (!lists.length) return null;
+  // La réponse filtrée sur le mode de la page d'abord, sinon la plus grande (puis filtre sur le mode).
+  const [, list] = lists.find(([k]) => k.includes(`financeModes=${mode}`)) ?? lists.sort((a, b) => (b[1].count ?? 0) - (a[1].count ?? 0))[0];
+  const vehicles: DealerVehicle[] = [];
+  for (const it of list.items) {
+    const fin = (it.financeData ?? []).find((f) => f.financeMode === mode);
+    if (!fin || it.id == null) continue;
+    const id = String(it.id);
+    const make = it.make ?? '';
+    const model = it.model ?? '';
+    const version = it.version ?? '';
+    const price = typeof fin.price === 'number' && fin.price > 0 ? Math.round(fin.price) : null;
+    const km = typeof it.mileageValue === 'number' ? Math.round(/mi/i.test(it.mileageUnit ?? '') ? it.mileageValue * 1.609 : it.mileageValue) : null;
+    const status: DealerVehicleStatus | null = it.isReserved ? 'reserved' : it.status && it.status !== 'onsale' ? 'sold' : price == null ? 'price_on_request' : null;
+    vehicles.push({
+      external_id: id, url: `${u.origin}/${culture}/car/${cmSlug(make)}/${cmSlug(model)}/${cmSlug(version) || '-'}/${id}?financetype=${mode}`,
+      title: [make, model, version].filter(Boolean).join(' '), brand: make || null, model: model || null,
+      price, km, year: it.firstRegistrationYear ?? it.modelYear ?? null,
+      fuel: it.fuelType ?? null, gearbox: gearboxOf(it.gearBoxType ?? null),
+      plate: /[A-Z]/i.test(it.reference ?? '') && /\d/.test(it.reference ?? '') ? it.reference! : null, vin: null, // DE : « 350518268 » = référence interne, pas une plaque
+      body: it.bodyType ? (CM_BODY[it.bodyType.toLowerCase()] ?? it.bodyType) : null, image: it.pictureUrl ?? null,
+      listed_at: it.startDateUtc ? new Date(it.startDateUtc).toISOString() : null, status,
+      currency: fin.currency ?? 'EUR', power_ch: powerFromText(version), location: it.location ?? null,
+    });
+  }
+  const declared = typeof list.count === 'number' ? list.count : null;
+  return { declared, vehicles, complete: declared == null || list.items.length >= declared };
+}
+async function scrapeCarmarketB2c(url: string, firstHtml: string): Promise<DealerStockResult> {
+  let html = firstHtml;
+  // Une fiche pointée sur l'accueil du pays : on lit son catalogue « achat comptant ».
+  if (!/\/catalog\b/.test(new URL(url).pathname)) {
+    const lang = new URL(url).pathname.split('/').filter(Boolean)[0] ?? 'fr-fr';
+    url = `${new URL(url).origin}/${lang}/catalog?financetype=cash`;
+    await sleep(350);
+    try { html = (await getTextPatient(url)).text; } catch { html = ''; }
+  }
+  const r = parseCarmarketCatalog(html, url);
+  if (!r) return { provider: 'carmarketb2c', total: null, declared: null, vehicles: [], pages: 1, warnings: ['état de la page (app-root-state) illisible ou sans liste de véhicules'] };
+  const warnings: string[] = [];
+  if (!r.complete) warnings.push(`la page n'embarque que ${r.vehicles.length} véhicule(s) sur ${r.declared} annoncé(s) — relevé partiel`);
+  return { provider: 'carmarketb2c', total: r.declared ?? r.vehicles.length, declared: r.declared, vehicles: r.vehicles, pages: 1, warnings };
+}
+
+// ── dtcvm « vm-next » sans liste (Bennie Wilmink, 18/11) : même plugin voorraad de Powerkraut / DTC Media que Bochane,
+//    Wassink, Zeeuw & Zeeuw, Kooijman, mais en version « next » pure : /voorraad/ n'est qu'un gabarit Vue vide
+//    (« vm-c-results », v-cloak), sans initialHits ni #nextVoorraad / seoListingFilters. Les voitures y arrivent de
+//    l'API ESP de DTC Media appelée avec une clé publique de la page : INTERDIT ici. Mais le plugin publie le plan
+//    de site « voorraad-sitemap.xml » (une fiche par voiture, toutes sortes), et chaque fiche, rendue côté serveur,
+//    porte un JSON-LD « Car » complet (marque, modèle, prix, km, année, énergie, boîte, carrosserie, puissance,
+//    vendeur) ; le <title> dit la sorte (« … Occasion €23.400,- … », « Nieuw … », « Demo »).
+//    Identifiant = numéro final de l'adresse = voertuignr_hexon du lecteur classique (vérifié sur Bochane, 5 / 5).
+type LdCar = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+/** Fiche détail vm-next → véhicule + sorte (« occasion », « nieuw », « demo »). Fonction pure. */
+export function parseDtcVmNextDetail(html: string, url: string): { vehicle: DealerVehicle; soort: string | null } | null {
+  let car: LdCar | null = null;
+  for (const m of html.matchAll(/<script[^>]*application\/ld\+json[^>]*>([\s\S]*?)<\/script>/g)) {
+    try {
+      const d = JSON.parse(m[1]) as LdCar;
+      const list: LdCar[] = Array.isArray(d) ? d : Array.isArray(d['@graph']) ? d['@graph'] : [d];
+      car = list.find((x) => x && (x['@type'] === 'Car' || (Array.isArray(x['@type']) && x['@type'].includes('Car')))) ?? null;
+    } catch { /* bloc suivant */ }
+    if (car) break;
+  }
+  if (!car) return null;
+  const pageTitle = (html.match(/<title>([^<]*)<\/title>/)?.[1] ?? '').trim();
+  const cond = String(car.offers?.itemCondition ?? '');
+  const soort = /\bOccasion\b/i.test(pageTitle) ? 'occasion' : /\bDemo\b/i.test(pageTitle) ? 'demo' : /^Nieuw\b/i.test(pageTitle) ? 'nieuw'
+    : /UsedCondition/.test(cond) ? 'occasion' : /NewCondition/.test(cond) ? 'nieuw' : null;
+  const id = url.match(/-(\d{6,})\/?(?:[?#].*)?$/)?.[1] ?? (car.sku ? String(car.sku) : url);
+  const mileage = car.mileageFromOdometer ?? {};
+  const kmRaw = num(mileage.value);
+  const power = car.vehicleEngine?.enginePower ?? {};
+  const pw = num(power.value);
+  const price = priceOrNull(car.offers?.price);
+  const name = String(car.name ?? '').replace(/\s*\|\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  const img = Array.isArray(car.image) ? car.image[0] : car.image;
+  return {
+    soort,
+    vehicle: {
+      external_id: id, url: String(car.url ?? url), title: name, brand: car.brand?.name ?? null, model: car.model ? String(car.model) : null,
+      price, km: kmRaw == null ? null : Math.round(/SMI/i.test(String(mileage.unitCode ?? '')) ? kmRaw * 1.609 : kmRaw),
+      year: num(car.productionDate) ?? num(car.vehicleModelDate) ?? num(String(car.dateVehicleFirstRegistered ?? '').slice(0, 4)),
+      fuel: car.vehicleEngine?.fuelType ?? car.fuelType ?? null, gearbox: gearboxOf(car.vehicleTransmission ?? null),
+      plate: null, vin: car.vehicleIdentificationNumber ?? null, body: car.bodyType ?? null,
+      image: typeof img === 'string' ? img : img?.contentUrl ?? null, listed_at: null,
+      status: statusFromText(/verkocht|gereserveerd/i.test(pageTitle) ? pageTitle : null) ?? (price == null ? 'price_on_request' : null),
+      currency: car.offers?.priceCurrency ?? 'EUR',
+      power_ch: pw == null ? null : /KWT/i.test(String(power.unitCode ?? '')) ? Math.round(pw * 1.35962) : Math.round(pw), // N12 = ch (PS)
+      location: car.offers?.seller?.name ?? null,
+    },
+  };
+}
+/** Sortes demandées : « soort[]=occasion » de l'adresse, sinon les filtres initiaux de la page (sans lire la clé). */
+function vmNextSoorts(url: string, html: string): Set<string> {
+  const u = new URL(url);
+  const fromUrl = [...u.searchParams.entries()].filter(([k]) => /^soort(\[\d*\])?$/.test(k)).map(([, v]) => v.toLowerCase());
+  if (fromUrl.length) return new Set(fromUrl);
+  try {
+    const f = JSON.parse(html.match(/"initialFilters":(\{[^{}]*\})/)?.[1] ?? '{}') as { soort?: unknown };
+    if (Array.isArray(f.soort)) return new Set(f.soort.map((x) => String(x).toLowerCase()));
+  } catch { /* pas de filtre */ }
+  return new Set();
+}
+async function scrapeDtcVmNext(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const warnings: string[] = [];
+  const soorts = vmNextSoorts(url, firstHtml);
+  // Plans de site du plugin : l'index Yoast d'abord (voorraad-sitemap.xml, voorraad-sitemap2.xml…), sinon le plan direct.
+  let maps: string[] = [];
+  const safeGet = async (u: string): Promise<{ status: number; text: string }> => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt) await sleep(3000);
+      try { return await getTextPatient(u); } catch { /* reprise une fois */ }
+    }
+    return { status: 0, text: '' };
+  };
+  const idx = await safeGet(`${origin}/sitemap_index.xml`);
+  if (idx.status === 200) maps = [...idx.text.matchAll(/<loc>([^<]*voorraad-sitemap\d*\.xml)<\/loc>/g)].map((m) => m[1].trim());
+  if (!maps.length) maps = [`${origin}/voorraad-sitemap.xml`];
+  const locs: string[] = [];
+  for (const sm of maps) {
+    await sleep(350);
+    const r = await safeGet(sm);
+    if (r.status !== 200) { warnings.push(`plan de site ${sm} : HTTP ${r.status}`); continue; }
+    for (const m of r.text.matchAll(/<loc>([^<]+)<\/loc>/g)) if (/\/voorraad\/.+-\d{6,}\/?$/.test(m[1].trim())) locs.push(m[1].trim());
+  }
+  const unique = [...new Set(locs)];
+  if (!unique.length) return { provider: 'dtcvm', total: null, declared: null, vehicles: [], pages: 1, warnings: [...warnings, 'vitrine « vm-next » : plan de site sans fiche de véhicule'] };
+  const cap = Math.min(unique.length, 2500);
+  if (cap < unique.length) warnings.push(`plan de site : ${unique.length} fiches, ${cap} lues (plafond) — relevé partiel`);
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const bySoort = new Map<string, number>();
+  let failed = 0;
+  for (const loc of unique.slice(0, cap)) {
+    await sleep(350);
+    const r = await safeGet(loc);
+    if (r.status === 404 || r.status === 410) continue; // fiche retirée depuis la génération du plan
+    if (r.status !== 200) { failed++; if (failed <= 5) warnings.push(`fiche ${loc} : HTTP ${r.status}`); continue; }
+    const d = parseDtcVmNextDetail(r.text, loc);
+    if (!d) { failed++; if (failed <= 5) warnings.push(`fiche ${loc} : pas de JSON-LD Car`); continue; }
+    bySoort.set(String(d.soort), (bySoort.get(String(d.soort)) ?? 0) + 1);
+    if (soorts.size && (!d.soort || !soorts.has(d.soort))) continue;
+    if (seen.has(d.vehicle.external_id)) continue;
+    seen.add(d.vehicle.external_id); out.push(d.vehicle);
+  }
+  if (failed) warnings.push(`${failed} fiche(s) illisible(s) : relevé partiel, les disparus de ce relevé sont à vérifier`);
+  warnings.push(`vitrine « vm-next » lue par le plan de site : ${unique.length} fiches (${[...bySoort].map(([k, n]) => `${k} ${n}`).join(', ')}), ${out.length} retenues (${soorts.size ? [...soorts].join(' + ') : 'toutes sortes'})`);
+  // Pas de total annoncé sans la clé de l'API : le compte de la sorte demandée dans le plan de site en tient lieu.
+  return { provider: 'dtcvm', total: out.length, declared: failed ? null : out.length, vehicles: out, pages: 1 + maps.length + cap, warnings };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getTextPatient(url); // 04/11 : MotorK (Sofibrie, SIPA) répond 429 dès la première page après une rafale
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -3227,6 +3569,8 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'rswusato') return scrapeRswUsato(url, first.text);
   if (provider === 'eveho') return scrapeEveho(url, first.text);
   if (provider === 'autopalace') return scrapeAutopalace(url, first.text);
+  if (provider === 'acaicms') return scrapeAcai(url, first.text);
+  if (provider === 'carmarketb2c') return scrapeCarmarketB2c(url, first.text);
   if (provider === 'autosphere') return scrapeAutosphere(url);
   if (provider === 'carsearchwp') return scrapeCarSearchWp(url);
   if (provider === 'stocklisting') return scrapeStockListing(url, first.text);
