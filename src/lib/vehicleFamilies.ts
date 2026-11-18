@@ -24,8 +24,8 @@ export function fuelFamily(text: string | null | undefined): FuelFamily | null {
   if (/hybrid|hybride|hybridi|\bhibrid|\bibrid|\bhev\b|mhev|e-tech|\bh\b|\d{2,3}h\b/.test(t)) return 'hybrid';
   if (/electri|elektr|sahko|\bev\b|\bbev\b|\bel\b|elettric|electric|\belectra\b/.test(t)) return 'electric';
   if (/diesel|gasolio|\btdi\b|\bhdi\b|\bdci\b|\bcdi\b|\bcrdi\b|\bd4d\b|bluehdi|\bgazole\b/.test(t)) return 'diesel';
-  if (/essence|benzin|bensin|bensiini|petrol|gasolin|super ?plus|\be85\b|ethanol|\btsi\b|\btfsi\b|\btce\b|puretech|\bvti\b/.test(t)) return 'petrol';
-  if (/\bgpl\b|\bglp\b|\blpg\b|\bcng\b|\bgnv\b|metano|erdgas|kaasu|\bgaz\b|\bgas\b/.test(t)) return 'gas';
+  if (/essence|benzin|bensin|bensiini|petrol|gasolin|super ?plus|\be85\b|ethanol|etanol|\btsi\b|\btfsi\b|\btce\b|puretech|\bvti\b/.test(t)) return 'petrol';
+  if (/\bgpl\b|\bglp\b|\blpg\b|\bcng\b|\bgnv\b|metano|erdgas|autogas|kaasu|\bgaz\b|\bgas\b/.test(t)) return 'gas';
   return null;
 }
 
