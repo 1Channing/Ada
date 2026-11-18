@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -354,6 +354,8 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/<script id="(?:app-root-state|ng-state|serverApp-state)" type="application\/json">/.test(html) && /rms\/carmarket\/b2c\/vehicleads/.test(html)) return 'carmarketb2c';
   // dasweltauto (Das WeltAuto HU, 19/11) : Angular rendu serveur (« ng-state ») + configuration « /api/locales/<xx_XX>/dwa/ ».
   if (/<script id="ng-state"/.test(html) && /\/api\/locales\/[a-z]{2}_[A-Z]{2}\/dwa\/configuration/.test(html)) return 'dasweltauto';
+  // pewneauto (Toyota / Lexus Hongrie, 19/11) : moteur pewneauto (panel.pewneauto.pl), total « N ajánlat » dans le titre.
+  if (/pewneauto\.pl\//.test(html) && /<title>[^<]*\d\s*aj[áa]nlat/.test(html)) return 'pewneauto';
   // catalogpager (Groupe DMD, 04/11) : site Symfony maison, cartes <a class="fiche_vehicule">, pages chargées en POST
   // sur « /ajax/search?flag=html » avec filters[page]=N (liens « catalog-pager-link » data-page).
   if (/class="fiche_vehicule/.test(html) && /catalog-pager-link/.test(html) && /data-ajax-request-search="/.test(html)) return 'catalogpager';
@@ -4580,6 +4582,103 @@ async function scrapeDasWeltAuto(url: string, firstHtml: string): Promise<Dealer
   return { provider: 'dasweltauto', total: declared ?? vehicles.length, declared, vehicles, pages, warnings };
 }
 
+// ── pewneauto (Toyota Central Europe, Hongrie, 19/11 nuit) : plateformes de marque de Toyota Hongrie, moteur polonais
+//    « pewneauto » (photos panel.pewneauto.pl), trois hôtes au même gabarit : toyotaminositetthasznalt.hu (occasions toutes
+//    marques des concessions Toyota), toyotaszalonautok.hu (neuves en stock), lexusselect.hu (occasions Lexus). Adresse de
+//    la fiche ADA : « /ajanlatok/station-id/<n° de station> » (une concession ; sans station, refus : tout le réseau n'est
+//    pas UNE vitrine). Pages « ?strona=N » de 20 cartes, rendu serveur, sans clé ; total dans le <title> (« - 155
+//    ajánlat ») ; une station vide affiche « 0 ajánlat » sans élargir (vérifié le 18/11). Carte <div class="o-bx"
+//    offer-id> : marque / modèle, version, concession, année, km, énergie, cylindrée, prix brut (Ft). Boîte : la version
+//    (CVT, Automata, DSG…), une hybride Toyota / Lexus (toujours e-CVT), sinon la fiche (« Váltó », DETAIL_READERS).
+//    « ÁFÁS » (TVA récupérable) dans la version ou les étiquettes : noté dans le titre. Pas de date de mise en ligne publiée.
+const PEWNE_PER = 20;
+const pewneGear = (version: string, brand: string | null, fuel: string | null): string | null =>
+  gearboxOfVersion(version)
+  ?? (/\b(automata|multidrive|e-?cvt|cvt|dct|dsg|edc|eat\d?|at|a\/t|s-?tronic|steptronic|tiptronic)\b/i.test(version) ? 'Automatique'
+    : /\b(manu[áa]lis|k[ée]zi|mt|m\/t|6mt|5mt)\b/i.test(version) ? 'Manuelle'
+    : /^(toyota|lexus)$/i.test(brand ?? '') && /hibrid|hybrid/i.test(`${fuel ?? ''} ${version}`) && !/plug-?in|phev/i.test(`${fuel ?? ''} ${version}`) ? 'Automatique' : null);
+export function parsePewneCards(html: string, origin: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  for (const part of html.split(/<div class="o-bx" /).slice(1)) {
+    const card = part.split(/<div class="o-bx" /)[0];
+    const id = card.match(/offer-id="(\d+)"/)?.[1];
+    if (!id) continue;
+    const href = card.match(/<a href="(\/ajanlat\/[^"]+)"/)?.[1];
+    const t = card.match(/<strong>([^<]+)<\/strong><\/a>\s*<span>([^<]*)<\/span>/);
+    const makeModel = htmlText(t?.[1] ?? '');
+    const version = htmlText(t?.[2] ?? '');
+    const info = card.match(/<div class="o-bx__info">([\s\S]*?)<\/ul>/)?.[1] ?? '';
+    const dealer = htmlText(info.match(/<b>([^<]+)<\/b>/)?.[1] ?? '') || null;
+    const items = [...info.matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => htmlText(m[1]));
+    const fuel = htmlText(info.match(/<li>\s*<strong[^>]*>([^<]+)<\/strong>\s*<\/li>/)?.[1] ?? '') || null; // <strong class="color-hybrid"> sur une partie des cartes
+    const year = num(items.find((x) => /^(19|20)\d{2}$/.test(x)) ?? null);
+    const km = num(items.find((x) => /\bkm$/i.test(x))?.replace(/\D/g, '') ?? null);
+    const price = priceOrNull((card.match(/retail-price">[\s\S]*?<strong>([\d\s ]+)Ft<\/strong>/)?.[1] ?? '').replace(/[\s ]/g, ''));
+    const tags = htmlText(card.match(/<div class="o-bx__tags">([\s\S]*?)<\/div>/)?.[1] ?? '');
+    const { brand, model } = splitTitle(makeModel);
+    // « ÁFÁS! » : \b ne voit pas de limite de mot devant « Á » (lettre hors ASCII) → limites en lettres Unicode.
+    const vat = /(^|[^\p{L}])[áa]f[áa]s([^\p{L}]|$)|[áa]fa ?27|[áa]fa visszaig/iu.test(`${version} ${tags}`);
+    const title = `${makeModel} ${version}`.trim();
+    out.push({
+      external_id: id, url: href ? `${origin}${href}` : null, title: vat ? `${title} · TVA récupérable` : title, brand, model,
+      price, currency: 'HUF', km, year, fuel, gearbox: pewneGear(version, brand, fuel), plate: null, vin: null,
+      body: tags || null, image: card.match(/<img src="([^"]+)"/)?.[1] ?? null, listed_at: null,
+      status: statusFromText(tags) ?? (/foglalt|lefoglalt/i.test(tags) ? 'reserved' : price == null ? 'price_on_request' : null),
+      power_ch: powerFromText(version), location: dealer,
+    });
+  }
+  return out;
+}
+export const pewneDeclared = (html: string): number | null => {
+  const m = html.match(/<title>[^<]*?(\d[\d\s ]*)\s*aj[áa]nlat/);
+  return m ? Number(m[1].replace(/\D/g, '')) : null;
+};
+/** Fiche « /ajanlat/<modèle>/<n°> » : liste libellé / valeur (« Váltó », « Üzemanyagtípus », « Első forgalomba helyezés dátuma »…). */
+export function readPewneDetail(html: string): { gearbox?: string | null; fuel?: string | null; km?: number | null; year?: number | null } {
+  const spec = new Map<string, string>();
+  for (const m of html.replace(/<script[\s\S]*?<\/script>/g, ' ').matchAll(/<(?:li|tr|div)[^>]*>\s*<(?:span|th|dt|small|p)[^>]*>([^<]{2,40})<\/(?:span|th|dt|small|p)>\s*<(?:span|td|dd|strong|b|p)[^>]*>([^<]{1,80})</g)) {
+    const k = htmlText(m[1]).toLowerCase(); const v = htmlText(m[2]);
+    if (!spec.has(k) && v && v !== '-') spec.set(k, v);
+  }
+  const gear = spec.get('váltó') ?? spec.get('sebességváltó') ?? '';
+  const reg = spec.get('első forgalomba helyezés dátuma') ?? '';
+  return {
+    gearbox: !gear ? null : /automat|cvt|dsg|dct/i.test(gear) ? 'Automatique' : /manu|kézi/i.test(gear) ? 'Manuelle' : gear,
+    fuel: spec.get('üzemanyagtípus') ?? null, km: kmOf(spec.get('futásteljesítmény')),
+    year: yearOf(reg) ?? num(spec.get('gyártási év') ?? null),
+  };
+}
+async function scrapePewne(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  const station = u.pathname.match(/\/ajanlatok\/station-id\/(\d+)/)?.[1];
+  if (!station) throw new Error('adresse pewneauto sans station (attendu : …/ajanlatok/station-id/<n°>) : tout le réseau Toyota n\'est pas la vitrine d\'une concession');
+  const base = `${u.origin}/ajanlatok/station-id/${station}`;
+  const warnings: string[] = [];
+  const declared = pewneDeclared(firstHtml);
+  const byId = new Map<string, DealerVehicle>();
+  let pages = 0;
+  const last = declared != null ? Math.ceil(declared / PEWNE_PER) : 100;
+  for (let p = 1; p <= Math.min(Math.max(last, 1), 100); p++) {
+    let html = p === 1 && !u.searchParams.has('strona') ? firstHtml : null;
+    if (html == null) {
+      await sleep(SITE_DELAY_MS);
+      const r = await getTextPatient(p === 1 ? base : `${base}?strona=${p}`);
+      if (r.status !== 200) { warnings.push(`page ${p} : HTTP ${r.status}`); break; }
+      html = r.text;
+    }
+    pages++;
+    const cards = parsePewneCards(html, u.origin);
+    let added = 0;
+    for (const v of cards) if (!byId.has(v.external_id)) { byId.set(v.external_id, v); added++; }
+    if (cards.length === 0 || added === 0 || (declared != null && byId.size >= declared)) break;
+  }
+  const vehicles = [...byId.values()];
+  if (declared != null && vehicles.length < declared) warnings.push(`${vehicles.length} voiture(s) lue(s) pour ${declared} annoncée(s)`);
+  const noGear = vehicles.filter((v) => !v.gearbox).length;
+  if (noGear) warnings.push(`${noGear} boîte(s) absente(s) de la version : lues sur la fiche (DETAIL_READERS, 200 par nuit)`);
+  return { provider: 'pewneauto', total: declared ?? vehicles.length, declared, vehicles, pages, warnings };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getTextPatient(url); // 04/11 : MotorK (Sofibrie, SIPA) répond 429 dès la première page après une rafale
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -4614,6 +4713,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'acaicms') return scrapeAcai(url, first.text);
   if (provider === 'carmarketb2c') return scrapeCarmarketB2c(url, first.text);
   if (provider === 'dasweltauto') return scrapeDasWeltAuto(url, first.text);
+  if (provider === 'pewneauto') return scrapePewne(url, first.text);
   if (provider === 'audaris') return scrapeAudaris(url, first.text);
   if (provider === 'kleynvans') return scrapeKleynVans(url, first.text);
   if (provider === 'ocasionplus') return scrapeOcasionPlus(url, first.text);
@@ -4801,6 +4901,8 @@ export const DETAIL_READERS: Partial<Record<DealerProvider, DetailReader>> = {
   wpcarsync: { fields: ['fuel'], read: readWpcarsyncDetail },
   // cfdnext (Bierschneider) : km des neuves (la liste n'en donne pas, la fiche dit « 10 km ») ; jamais l'année d'une neuve.
   cfdnext: { fields: ['km'], read: readCfdnextDetail },
+  // pewneauto (Toyota Hongrie) : la boîte que la version ne dit pas (« Váltó » de la fiche).
+  pewneauto: { fields: ['gearbox'], read: readPewneDetail },
 };
 
 /** Relève le stock d'une concession de la carte et le compare au relevé précédent. Avec `prefetched` (vitrine

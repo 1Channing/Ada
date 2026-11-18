@@ -170,6 +170,33 @@ console.log('\n=== DAS WELTAUTO (HONGRIE, 19/11) : LA CONCESSION, RIEN QUE LA CO
     'n° de concession : page concession, page de groupe (identifiant en lettres), recherche filtrée');
 }
 
+console.log('\n=== TOYOTA HONGRIE (pewneauto, 19/11) : CARTES ET FICHES RÉELLES ===\n');
+{
+  const ds3 = await import('../worker/dealerStock');
+  const card = (id: string, make: string, version: string, fuel: string, li: string) => `<div class="o-bx" aria-label="${make}: ajánlat azonosítóval ${id}" offer-id="${id}">
+    <div class="o-bx__gallery"><a href="/ajanlat/x/${id}"><img src="https://panel.pewneauto.pl/media/thumbnails/ed/${id}.jpg" alt=""></a></div>
+    <div class="o-bx__title"><a href="/ajanlat/x/${id}" tabindex="-1"><strong>${make}</strong></a>
+        <span>${version}</span></div>
+    <div class="o-bx__info"><b>Schiller (Budapest IV. ker.)</b><ul>${li}<li>${fuel}</li><li><span>1 598 cm<sup>3</sup></span></li></ul></div>
+    <div class="o-bx__price"><p class="retail-price"><small>bruttó</small><strong>6 390 000 Ft</strong></p></div></div>`;
+  const page = `<html><head><title>Autó ajánlatok megtekintése - 155 ajánlat | Toyota Minősített Használt</title></head><body><img src="https://panel.pewneauto.pl/toyotapl/resources/img/main-hero.jpg">
+    ${card('446979', 'Hyundai Tucson', '1.6 T-GDI LP MHEV Premium DCT ÁFÁS!MAGYARORSZÁGI!', '<strong>Benzin</strong>', '<li><span>2022</span></li><li><span>147 261 km</span></li>')}
+    ${card('446975', 'Toyota C-HR', '1.8 Hybrid Style', '<strong class="color-hybrid">Hibrid</strong>', '<li><span>2025</span></li><li><span>30 863 km</span></li>')}
+    ${card('446980', 'Opel Astra', '1.2 T Edition', '<strong>Benzin</strong>', '<li><span>2021</span></li><li><span>88 000 km</span></li>')}</body></html>`;
+  ok(ds3.detectDealerProvider(page) === 'pewneauto' && ds3.detectDealerProvider('<title>x - 0 ajánlat | Toyota</title><img src="https://panel.pewneauto.pl/toyotapl/resources/img/main-hero">') === 'pewneauto',
+    'pewneauto reconnu, y compris une station vide (« 0 ajánlat »)');
+  const cs = ds3.parsePewneCards(page, 'https://toyotaminositetthasznalt.hu');
+  const c = (id: string) => cs.find((v) => v.external_id === id);
+  ok(ds3.pewneDeclared(page) === 155 && cs.length === 3, 'total annoncé du titre (155) et 3 cartes', [ds3.pewneDeclared(page), cs.length]);
+  ok(c('446979')?.price === 6390000 && c('446979')?.currency === 'HUF' && c('446979')?.km === 147261 && c('446979')?.year === 2022 && c('446979')?.fuel === 'Benzin'
+    && c('446979')?.gearbox === 'Automatique' && /TVA récupérable$/.test(c('446979')?.title ?? '') && c('446979')?.location === 'Schiller (Budapest IV. ker.)',
+    'carte : prix brut en forints, km, année, énergie, boîte (DCT), « ÁFÁS! » = TVA récupérable, concession', c('446979'));
+  ok(c('446975')?.fuel === 'Hibrid' && c('446975')?.gearbox === 'Automatique', 'énergie dans <strong class="color-hybrid"> ; hybride Toyota = automatique (e-CVT)', c('446975'));
+  ok(c('446980')?.gearbox === null, 'version muette (Opel 1.2 T) : boîte laissée à la fiche', c('446980'));
+  const fiche = '<li><span>Gyártási év</span><span>2026</span></li><li><span>Első forgalomba helyezés dátuma</span><span>-</span></li><li><span>Futásteljesítmény</span><span>27 670 km</span></li><li><span>Üzemanyagtípus</span><span>Hibrid</span></li><li><span>Váltó</span><span>Automata</span></li>';
+  ok(JSON.stringify(ds3.readPewneDetail(fiche)) === JSON.stringify({ gearbox: 'Automatique', fuel: 'Hibrid', km: 27670, year: 2026 }), 'fiche : « Váltó », énergie, km, année (immatriculation « - » → année de fabrication)', ds3.readPewneDetail(fiche));
+}
+
 console.log('\n=== POLITESSE : PAS PLUS D\'UNE REQUÊTE TOUTES LES 350 MS PAR SITE ===\n');
 {
   const { reserveSiteSlot, SITE_MIN_GAP_MS } = await import('../worker/dealerStock');
