@@ -2266,7 +2266,7 @@ async function scrapeRswUsato(url: string, firstHtml: string): Promise<DealerSto
     for (const part of html.split(/<div class="card vehicle[^"]*">/).slice(1)) {
       const href = part.match(/<a href="([^"]+)"/)?.[1];
       if (!href) continue;
-      const id = href.match(/-(\d+)\/?$/)?.[1] ?? href;
+      const id = rswId(href);
       if (seen.has(id)) continue;
       const brand = span(part, 'vehicle-brand'), model = span(part, 'vehicle-model'), version = span(part, 'vehicle-version');
       const price = euro(part.match(/class="price">([\s\S]*?)<\/span>\s*<\/span>/)?.[1]?.replace(/<[^>]+>/g, '') ?? part.match(/class="price">([^<]*)/)?.[1] + ' €');
@@ -2274,7 +2274,7 @@ async function scrapeRswUsato(url: string, firstHtml: string): Promise<DealerSto
       seen.add(id); added++;
       out.push({
         external_id: id, url: href, title: [brand, model, version].filter(Boolean).join(' '), brand: brand || null, model: model || null, price,
-        km: kmOf(detail(part, 'vehicle-km')), year: yearOf(date), fuel: detail(part, 'vehicle-fuel') || null, gearbox: gearboxOf(detail(part, 'vehicle-gear') || null),
+        km: rswKm(detail(part, 'vehicle-km')), year: yearOf(date), fuel: detail(part, 'vehicle-fuel') || null, gearbox: gearboxOf(detail(part, 'vehicle-gear') || null),
         plate: null, vin: null, body: null, image: part.match(/<img src="([^"]+)"/)?.[1] ?? null, listed_at: null,
         status: /label-venduto|Venduto/i.test(part) ? 'sold' : price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: powerFromText(version),
       });
@@ -2283,7 +2283,46 @@ async function scrapeRswUsato(url: string, firstHtml: string): Promise<DealerSto
   };
   const last = Math.max(1, ...[...firstHtml.matchAll(/\/page\/(\d+)\//g)].map((m) => Number(m[1])));
   const { pages, warnings } = await paginate(firstHtml, parse, (p) => `${base}page/${p}/`, { cap: Math.min(MAX_PAGES, last + 3) });
-  return { provider: 'rswusato', total: out.length, declared: null, vehicles: out, pages, warnings };
+  // LISTE COMPLÉTÉE PAR L'API WORDPRESS DU SITE (13/11, Gruppo Ghedini : 230 annoncées, 226 lues — les pages sont triées
+  // par prix sans départage, les 4 MÊMES voitures n'apparaissent sur aucune page à chaque lecture, 4 autres sur deux ;
+  // « orderby » est ignoré). /wp-json/wp/v2/veicoli (publique, sans clé, tri par id stable) donne toutes les fiches ;
+  // celles que les pages n'ont pas montrées sont lues une à une sur leur fiche.
+  let declared: number | null = null;
+  const api = firstHtml.match(/<link rel="https:\/\/api\.w\.org\/" href="([^"]+)"/)?.[1];
+  if (api) {
+    const missing: Array<{ link: string; title: string }> = [];
+    let listed = 0;
+    for (let p = 1; p <= 30; p++) {
+      const r = await getTextPatient(`${api}wp/v2/veicoli?per_page=100&page=${p}&orderby=id&order=asc&_fields=link,title`, { headers: { accept: 'application/json' } });
+      if (r.status !== 200) { if (p === 1) warnings.push(`API WordPress des fiches : HTTP ${r.status} — liste non vérifiée`); break; }
+      let arr: Array<{ link?: string; title?: { rendered?: string } }>;
+      try { arr = JSON.parse(r.text); } catch { warnings.push('API WordPress des fiches : réponse illisible'); break; }
+      if (!Array.isArray(arr) || arr.length === 0) break;
+      listed += arr.length;
+      for (const x of arr) if (x.link && !seen.has(rswId(x.link))) missing.push({ link: x.link, title: htmlText(unesc(x.title?.rendered ?? '')) });
+      if (arr.length < 100) break;
+      await sleep(PAGE_DELAY_MS);
+    }
+    if (listed > 0) declared = listed;
+    for (const m of missing.slice(0, 60)) {
+      await sleep(DETAIL_DELAY_MS);
+      const r = await getTextPatient(m.link);
+      if (r.status !== 200) continue;
+      const d = readRswDetail(r.text);
+      // Titre de l'API : « ALFA ROMEO Tonale 1.6 ti 130cv tct6 Diesel usato » → sans l'état ni l'énergie finale.
+      let title = m.title.replace(/\s+(?:usato|km0|nuovo|aziendale)$/i, '');
+      if (d.fuel && title.toLowerCase().endsWith(` ${d.fuel.toLowerCase()}`)) title = title.slice(0, -d.fuel.length - 1);
+      const { brand, model } = splitTitle(title);
+      seen.add(rswId(m.link));
+      out.push({
+        external_id: rswId(m.link), url: m.link, title, brand, model, price: d.price ?? null, km: d.km ?? null, year: d.year ?? null,
+        fuel: d.fuel ?? null, gearbox: d.gearbox ?? null, plate: null, vin: null, body: null, image: null, listed_at: null,
+        status: d.price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: powerFromText(title),
+      });
+    }
+    if (missing.length) warnings.push(`${missing.length} voiture(s) absente(s) des pages de liste (tri instable du site) : lue(s) sur leur fiche${missing.length > 60 ? ' (60 au plus par relevé)' : ''}`);
+  }
+  return { provider: 'rswusato', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
 }
 
 // ── eveho (VPN Autos, 05/11) : 1 461 voitures, 23 par page, « ?page=N ».
