@@ -2169,6 +2169,37 @@ async function scrapeDutchvans(url: string, firstHtml: string): Promise<DealerSt
   return { provider: 'dutchvans', total: out.length, declared: null, vehicles: out, pages, warnings };
 }
 
+export type VehicleListRow = {
+  id: string | number; urlName?: string | null; brand?: string | null; model?: string | null; version?: string | null; frameType?: string | null;
+  archive?: string | null; finalPrice?: number | null; listPrice?: number | null; fuel?: string | null; km?: number | null; gearType?: string | null;
+  powerHp?: number | null; image?: string | null; registrationDate?: string | null; registrationYear?: number | null; isBooked?: boolean | null; vehicleStatus?: string | null;
+};
+/** Une ligne de « /api/filtered-vehicle-list » → véhicule ADA (13/11). Les NEUVES (archive « nuovo ») n'ont ni km ni
+ *  immatriculation : le site lui-même les masque (carte : v-if="vehicle.km && vehicle.archive != 'nuovo'") et la fiche
+ *  dit « AUTOVETTURA NUOVA, PRONTA CONSEGNA ANCORA DA IMMATRICOLARE ». vehicleStatus ≠ « stock » (« assigned ») est
+ *  affiché « Veicolo in arrivo » par le site = attendue. */
+export function vehicleListRowToVehicle(v: VehicleListRow, origin: string): DealerVehicle {
+  const price = v.finalPrice ?? v.listPrice ?? null;
+  const year = v.registrationYear ?? num(v.registrationDate?.match(/(\d{4})/)?.[1]);
+  return {
+    external_id: String(v.id), url: v.urlName ? origin + v.urlName : null, title: [v.brand, v.model, v.version].filter(Boolean).join(' '),
+    brand: v.brand ?? null, model: v.model ?? null, price: price != null && price > 0 ? Math.round(price) : null, km: v.km ?? null, year,
+    fuel: v.fuel || null, gearbox: gearboxOf(v.gearType), plate: null, vin: null, body: v.frameType || null, image: v.image ?? null, listed_at: null,
+    status: v.isBooked ? 'reserved' : v.vehicleStatus && v.vehicleStatus !== 'stock' ? 'expected' : price == null || price <= 0 ? 'price_on_request' : null,
+    currency: 'EUR', power_ch: v.powerHp ?? null,
+  };
+}
+/** Ce que le site ne publie pas, dit avec la raison dans le bilan (et non pris pour une lecture ratée). */
+export function vehicleListGaps(rows: VehicleListRow[]): string[] {
+  const nuovo = rows.filter((r) => r.archive === 'nuovo').length;
+  const km0NoKm = rows.filter((r) => r.archive === 'km0' && r.km == null).length;
+  const other = rows.filter((r) => r.archive !== 'nuovo' && r.archive !== 'km0' && (r.km == null || !r.registrationDate)).length;
+  return [
+    ...(nuovo ? [`${nuovo} voiture(s) neuve(s) (« nuovo », pas encore immatriculées) : le site ne publie ni km ni année pour elles`] : []),
+    ...(km0NoKm ? [`${km0NoKm} « km 0 » sans kilométrage publié par le site (année lue)`] : []),
+    ...(other ? [`${other} occasion(s) sans km ou sans année sur le site`] : []),
+  ];
+}
 // ── vehiclelistapi (Gruppo Bossoni, 04/11) : « /api/filtered-vehicle-list?<filtres de l'URL>&pag=N&pageSize=500 ».
 async function scrapeVehicleListApi(url: string): Promise<DealerStockResult> {
   const u = new URL(url);
@@ -2179,7 +2210,8 @@ async function scrapeVehicleListApi(url: string): Promise<DealerStockResult> {
   const warnings: string[] = [];
   const out: DealerVehicle[] = [];
   const seen = new Set<string>();
-  type Row = { id: string | number; urlName?: string | null; brand?: string | null; model?: string | null; version?: string | null; frameType?: string | null; archive?: string | null; finalPrice?: number | null; listPrice?: number | null; fuel?: string | null; km?: number | null; gearType?: string | null; powerHp?: number | null; image?: string | null; registrationDate?: string | null; registrationYear?: number | null; isBooked?: boolean | null; vehicleStatus?: string | null };
+  type Row = VehicleListRow;
+  const rows: Row[] = [];
   let declared: number | null = null;
   let pages = 0;
   for (let p = 1; p <= 100; p++) {
@@ -2195,21 +2227,32 @@ async function scrapeVehicleListApi(url: string): Promise<DealerStockResult> {
       const id = String(v.id);
       if (seen.has(id)) continue;
       seen.add(id); added++;
-      const price = v.finalPrice ?? v.listPrice ?? null;
-      const year = v.registrationYear ?? num(v.registrationDate?.match(/(\d{4})/)?.[1]);
-      out.push({
-        external_id: id, url: v.urlName ? origin + v.urlName : null, title: [v.brand, v.model, v.version].filter(Boolean).join(' '),
-        brand: v.brand ?? null, model: v.model ?? null, price: price != null && price > 0 ? Math.round(price) : null, km: v.km ?? null, year,
-        fuel: v.fuel ?? null, gearbox: gearboxOf(v.gearType), plate: null, vin: null, body: v.frameType ?? null, image: v.image ?? null, listed_at: null,
-        status: v.isBooked ? 'reserved' : price == null || price <= 0 ? 'price_on_request' : null, currency: 'EUR', power_ch: v.powerHp ?? null,
-      });
+      rows.push(v);
+      out.push(vehicleListRowToVehicle(v, origin));
     }
     if (added === 0 || (d.pagesCount != null && p >= d.pagesCount)) break;
   }
   if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  warnings.push(...vehicleListGaps(rows));
   return { provider: 'vehiclelistapi', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
 }
 
+/** Km d'une carte rswusato : « 92.535 km », ou « Km Zero » (13/11, Gruppo Ghedini : les voitures km 0 portent le mot à
+ *  la place du nombre, 88 cartes sur 230 — km lu 62 %) → 0. */
+export const rswKm = (t: string): number | null => (/^km\s*(?:zero|0)$/i.test(t.trim()) ? 0 : kmOf(t));
+/** Identifiant rswusato : numéro final de l'adresse (« …-usato-86340/ »), sinon l'adresse (« …-km0-n218189/ »). */
+const rswId = (href: string): string => href.match(/-(\d+)\/?$/)?.[1] ?? href;
+/** Fiche rswusato (13/11, Gruppo Ghedini) : paires « feature-label / feature-value » (Immatricolazione 01/2024,
+ *  Alimentazione, Chilometraggio « 26.027 km » ou « Km Zero », Cambio « Automatico sequenziale a 6 marce ») et prix
+ *  « <span class="price">23.000<span class="currency">€ » (le premier de la page : celui de la voiture). */
+export function readRswDetail(html: string): DetailFields {
+  const pair = (label: string) => htmlText(html.match(new RegExp(`<span class="feature-label">\\s*${label}\\s*<\\/span>\\s*<span class="feature-value"[^>]*>([^<]*)<\\/span>`, 'i'))?.[1] ?? '');
+  const kmTxt = pair('Chilometraggio');
+  return {
+    year: yearOf(pair('Immatricolazione')), fuel: pair('Alimentazione') || null, km: kmTxt ? rswKm(kmTxt) : null,
+    gearbox: gearboxOf(pair('Cambio') || null), price: euro(`${html.match(/<span class="price">([\d.]+)<span class="currency">/)?.[1] ?? ''} €`),
+  };
+}
 // ── rswusato (Gruppo Ghedini, 04/11) : 16 cartes par page, « /usato/veicoli/page/N/ ».
 async function scrapeRswUsato(url: string, firstHtml: string): Promise<DealerStockResult> {
   const base = url.replace(/\/page\/\d+\/?$/, '').replace(/\/?$/, '/');
