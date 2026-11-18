@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -345,6 +345,8 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/widget-showroom-cms\.audaris\.de\/widget\.js/.test(html) && /defaultSettings\s*=\s*\{"audaris_id":"[0-9a-f]{24}","client_id":\d+/.test(html)) return 'audaris';
   // kleynvans (Bestelbus.nl / Kleyn Vans, 14/11) : cartes « vehicle-card » + route « /load-more-results » (JSON, 30 par page).
   if (/data-route="https?:\/\/[^"]*\/load-more-results"/.test(html) && /class="vehicle-card__title"/.test(html) && /meta-item--registration-year/.test(html)) return 'kleynvans';
+  // ocasionplus (ES, 14/11) : Next.js « app router », liste « vehicleList » dans le flux RSC (self.__next_f), photos img.ocasionplus.com.
+  if (/self\.__next_f\.push/.test(html) && /img\.ocasionplus\.com/.test(html) && /\\"vehicleList\\":\{/.test(html)) return 'ocasionplus';
   if (/"@type":\s*"ItemList"/.test(html) && /"Car"/.test(html)) return 'datamotive';
   if (/"listerpage":\s*\{[^}]*"ajax_url"/.test(html)) return 'listerpage';
   if (/data-update-url="[^"]*\/voorraad-api\/vehiclelist\/\d+\/vehicles\.json/.test(html)) return 'dvapi';
@@ -3757,6 +3759,105 @@ async function scrapeKleynVans(url: string, firstHtml: string): Promise<DealerSt
   return { provider: 'kleynvans', total: declared ?? vehicles.length, declared, vehicles, pages, warnings };
 }
 
+// ── ocasionplus (OcasionPlus, ES, 14/11) : réseau de 110 concessions, 14 000 voitures — lu UNE concession à la fois.
+//    La page de stock d'une concession est « /coches-segunda-mano?v2&dealer=OPLUS_BARCELONA_MAQUINISTA » (lien « Ver
+//    los coches de este centro » de sa fiche « /concesionarios/barcelona-maquinista »). Next.js « app router » : les
+//    voitures ne sont pas dans __NEXT_DATA__ mais dans le flux RSC de la page (self.__next_f.push([1,"…"])) :
+//    "vehicleList":{"data":[20 voitures],"page":{"number":1,"total":11,"size":20,"totalSize":209}} — marque, modèle,
+//    version, prix comptant (price.cash ; « withFinancing » = prix conditionné à un financement, non retenu), km,
+//    date d'immatriculation, énergie, boîte (« AUTO » / « MANUAL »), CV, statut (« RESERVADO »), concession.
+//    Pages « &page=N » à partir de 2 (pages 2 et 11 rendues côté serveur ; « &page=1 » = HTTP 404, prouvé 14/11).
+//    AUCUN TRI N'EST STABLE SEUL (des voitures publiées le même jour glissent d'une page à l'autre) : réunion des
+//    lectures « orderBy=lowerPublished », puis « lowerPrice », puis « higherKm » jusqu'au total annoncé (18/11 : la
+//    1re lecture seule manquait des voitures sur les trois concessions ; avec la 2e, 205/205, 216/216, 140/140).
+//    L'adresse enregistrée peut être la fiche de la concession (la clé OPLUS_… y est lue) ; l'accueil du site (tout le
+//    réseau) est refusé : il faut la page d'une concession.
+/** Texte du flux RSC d'une page Next.js (« app router ») : les morceaux self.__next_f.push([1,"…"]) décodés et mis bout à bout. */
+export function nextFlightText(html: string): string {
+  let s = '';
+  for (const m of html.matchAll(/self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)/g)) {
+    try { s += JSON.parse(`"${m[1]}"`) as string; } catch { /* morceau illisible : ignoré */ }
+  }
+  return s;
+}
+/** L'objet JSON qui commence à `start` (accolade ouvrante), lu en suivant les accolades hors chaînes. */
+export function jsonObjectAt(s: string, start: number): unknown {
+  if (s[start] !== '{') return null;
+  let depth = 0; let inStr = false;
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) { if (ch === '\\') i++; else if (ch === '"') inStr = false; continue; }
+    if (ch === '"') inStr = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}' && --depth === 0) { try { return JSON.parse(s.slice(start, i + 1)); } catch { return null; } }
+  }
+  return null;
+}
+type OplusCar = {
+  id?: string; carPlate?: string; slug?: string; status?: string; brand?: string; model?: string; bodyStyle?: string; publicationDate?: string;
+  description?: { short?: string }; dealer?: { shortname?: string; salesforceKey?: string };
+  price?: { cash?: number | null; withoutFinancing?: number | null; withFinancing?: number | null };
+  images?: Array<{ thumb?: string }>;
+  characteristics?: { kms?: number | null; registrationDate?: string | null; engine?: { cv?: number | null; fuel?: string | null; transmission?: string | null } };
+};
+/** Voitures et pagination d'une page de stock OcasionPlus (fonction pure). */
+export function parseOcasionPlus(html: string, origin: string): { vehicles: DealerVehicle[]; page: { number: number; total: number; size: number; totalSize: number } | null } {
+  const s = nextFlightText(html);
+  const at = s.indexOf('"vehicleList":{');
+  const list = at >= 0 ? jsonObjectAt(s, at + '"vehicleList":'.length) as { data?: OplusCar[]; page?: { number: number; total: number; size: number; totalSize: number } } | null : null;
+  const vehicles: DealerVehicle[] = [];
+  for (const c of list?.data ?? []) {
+    const id = c.id ?? c.carPlate;
+    if (!id) continue;
+    const price = priceOrNull(c.price?.cash ?? c.price?.withoutFinancing);
+    const e = c.characteristics?.engine;
+    vehicles.push({
+      external_id: id, url: c.slug ? `${origin}/coches-segunda-mano/${c.slug}` : null,
+      title: c.description?.short ?? [c.brand, c.model].filter(Boolean).join(' '), brand: c.brand ?? null, model: c.model ?? null,
+      price, currency: 'EUR', km: num(c.characteristics?.kms), year: num(String(c.characteristics?.registrationDate ?? '').slice(0, 4)),
+      fuel: e?.fuel ?? null, gearbox: gearboxOf(e?.transmission ?? null), plate: c.carPlate ?? null, vin: null, body: c.bodyStyle ?? null,
+      image: c.images?.[0]?.thumb ?? null, listed_at: c.publicationDate ?? null,
+      status: /reserv/i.test(c.status ?? '') ? 'reserved' : /vendid|sold/i.test(c.status ?? '') ? 'sold' : price == null ? 'price_on_request' : null,
+      power_ch: num(e?.cv), location: c.dealer?.shortname ?? null,
+    });
+  }
+  return { vehicles, page: list?.page ?? null };
+}
+async function scrapeOcasionPlus(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  // La concession : dans l'adresse (« dealer=OPLUS_… »), sinon dans la fiche de la concession (lien « Ver los coches »).
+  const dealer = new URL(url).searchParams.get('dealer') ?? firstHtml.match(/\/coches-segunda-mano\?v2&(?:amp;)?dealer=(OPLUS_[A-Z0-9_]+)/)?.[1] ?? null;
+  if (!dealer) throw new Error('adresse OcasionPlus sans concession (accueil = tout le réseau, 14 000 voitures) : mettre la page de la concession, par ex. https://www.ocasionplus.com/concesionarios/barcelona-maquinista');
+  const stockUrl = `${origin}/coches-segunda-mano?v2&dealer=${encodeURIComponent(dealer)}`;
+  const warnings: string[] = [];
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  let declared: number | null = null;
+  let pages = 0;
+  for (const orderBy of ['lowerPublished', 'lowerPrice', 'higherKm']) {
+    if (declared != null && out.length >= declared) break;
+    let last = 1;
+    for (let p = 1; p <= Math.min(last, 200); p++) {
+      await sleep(SITE_DELAY_MS); // la page d'adresse vient d'être lue sur ce même site
+      // « &page=1 » rend HTTP 404 (prouvé 14/11) : la page 1 n'a pas de paramètre « page ».
+      const sorted = withParam(stockUrl, 'orderBy', orderBy);
+      const r = await getTextPatient(p === 1 ? sorted : withParam(sorted, 'page', String(p)));
+      if (r.status !== 200) { warnings.push(`tri ${orderBy}, page ${p} : HTTP ${r.status}`); break; }
+      const { vehicles, page } = parseOcasionPlus(r.text, origin);
+      pages++;
+      if (!page) { warnings.push(`tri ${orderBy}, page ${p} : liste « vehicleList » absente`); break; }
+      declared = declared ?? page.totalSize;
+      last = page.total;
+      for (const v of vehicles) if (!seen.has(v.external_id)) { seen.add(v.external_id); out.push(v); }
+      if (vehicles.length === 0 || out.length >= page.totalSize) break;
+    }
+  }
+  const agencies = new Set(out.map((v) => v.location).filter(Boolean));
+  if (agencies.size > 1) warnings.push(`plusieurs agences dans la liste de ${dealer} : ${[...agencies].join(', ')}`);
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  return { provider: 'ocasionplus', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getTextPatient(url); // 04/11 : MotorK (Sofibrie, SIPA) répond 429 dès la première page après une rafale
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -3792,6 +3893,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'carmarketb2c') return scrapeCarmarketB2c(url, first.text);
   if (provider === 'audaris') return scrapeAudaris(url, first.text);
   if (provider === 'kleynvans') return scrapeKleynVans(url, first.text);
+  if (provider === 'ocasionplus') return scrapeOcasionPlus(url, first.text);
   if (provider === 'autosphere') return scrapeAutosphere(url);
   if (provider === 'carsearchwp') return scrapeCarSearchWp(url);
   if (provider === 'stocklisting') return scrapeStockListing(url, first.text);
