@@ -1949,7 +1949,7 @@ async function scrapeCatalogPager(url: string, firstHtml: string): Promise<Deale
         external_id: id, url: href.startsWith('http') ? href : origin + href, title: [nomClean, version].filter(Boolean).join(' ').trim(),
         brand, model: model ? nomClean.split(/\s+/).slice((brand ?? '').split(' ').length).join(' ') || model : null,
         price, km: num(kmS.replace(/km/i, '').replace(/\s/g, '')), year: num(date.match(/(\d{4})/)?.[1]), fuel: fuel || null,
-        gearbox: /BVA|DSG|EAT|DCT|automati|S-?tronic|Steptronic/i.test(version) ? 'Automatique' : /BVM/i.test(version) ? 'Manuelle' : null,
+        gearbox: gearboxOfVersion(version), // sinon fiche détail (DETAIL_READERS.catalogpager)
         plate: null, vin: null, body: null, image: inner.match(/<img src="([^"]+)"/)?.[1] ?? null, listed_at: null,
         status: price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: powerFromText(version),
       });
@@ -2904,7 +2904,7 @@ const DETAIL_DELAY_MS = 350;
 export function readDmdDetail(html: string): DetailFields {
   const v = unesc(html.match(/Bo[iî]te de vitesses?<\/span>\s*<span>([^<]+)<\/span>/i)?.[1] ?? '').trim();
   // « Rob Double Embray » (robotisée à double embrayage, DMD 13/11) = automatique.
-  return { gearbox: /manu/i.test(v) ? 'Manuelle' : /auto|s[ée]quent|cvt|dsg|robot|\brob\b|embray|edc|eat\d?/i.test(v) ? 'Automatique' : v || null };
+  return { gearbox: gearboxFr(v) }; // « A Var Continu » (variateur) = Automatique, comme Rob Double / Simple Embray
 }
 /**
  * ENRICHISSEMENT PAR FICHE DÉTAIL (14/11, mission « 100 % des vitrines lues, et lues en entier ») — généralise la
