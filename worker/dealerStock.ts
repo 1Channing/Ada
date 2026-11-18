@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -155,6 +155,9 @@ export interface DealerStockResult { provider: DealerProvider; total: number | n
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15';
 const MAX_PAGES = 150;
 const PAGE_DELAY_MS = 250;
+/** Pause entre deux requêtes sur un même site pour les lecteurs du 14/11 : la règle de politesse de la mission
+ *  (« pas plus d'une requête toutes les 350 ms par site »), plus stricte que PAGE_DELAY_MS (250 ms). */
+const SITE_DELAY_MS = 350;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -337,6 +340,9 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   // catalogpager (Groupe DMD, 04/11) : site Symfony maison, cartes <a class="fiche_vehicule">, pages chargées en POST
   // sur « /ajax/search?flag=html » avec filters[page]=N (liens « catalog-pager-link » data-page).
   if (/class="fiche_vehicule/.test(html) && /catalog-pager-link/.test(html) && /data-ajax-request-search="/.test(html)) return 'catalogpager';
+  // audaris (J.W. Handelsgesellschaft, 14/11) : widget « widget-showroom-cms.audaris.de », configuration « defaultSettings »
+  // (audaris_id + client_id) ; voitures lues par l'API publique d'audaris (sans clé).
+  if (/widget-showroom-cms\.audaris\.de\/widget\.js/.test(html) && /defaultSettings\s*=\s*\{"audaris_id":"[0-9a-f]{24}","client_id":\d+/.test(html)) return 'audaris';
   if (/"@type":\s*"ItemList"/.test(html) && /"Car"/.test(html)) return 'datamotive';
   if (/"listerpage":\s*\{[^}]*"ajax_url"/.test(html)) return 'listerpage';
   if (/data-update-url="[^"]*\/voorraad-api\/vehiclelist\/\d+\/vehicles\.json/.test(html)) return 'dvapi';
@@ -3538,6 +3544,102 @@ async function scrapeDtcVmNext(url: string, firstHtml: string): Promise<DealerSt
   return { provider: 'dtcvm', total: out.length, declared: failed ? null : out.length, vehicles: out, pages: 1 + maps.length + cap, warnings };
 }
 
+// ── audaris (J.W. Handelsgesellschaft, www.jwhg.tech, 14/11) : vitrine « Webdesign by audaris.de » — la page
+//    /angebote/ ne contient AUCUNE voiture : le widget widget-showroom-cms.audaris.de les charge depuis l'API publique
+//    d'audaris, sans clé ni compte (preuve 14/11 : GET …/v1/clients/2682/website-vehicles?website=<id>&limit=500 → 200,
+//    « total »: 784 ; sans le paramètre website → HTTP 500). Le client (client_id) et le site (audaris_id) sont dans
+//    `let defaultSettings = {"audaris_id":"…","client_id":2682,…,"showroomPath":"/angebote/","detailUrlMode":…}`.
+//    Chaque véhicule : marque, modèle, version (title), km, 1re immatriculation, énergie (engineType), boîte
+//    (gearboxType), prix, VIN, n° interne, photos, date de création. 500 par page (« skip »), tri stable par date de
+//    création (paramètres « sort[0][field] » comme le widget ; un tri en JSON est ignoré par l'API).
+const AUDARIS_API = 'https://api.x.aks-prod.audaris.net/v1';
+const AUDARIS_FUEL: Record<string, string> = {
+  DIESEL: 'Diesel', PETROL: 'Benzin', PETROL_E10: 'Benzin', PETROL_SUPER: 'Benzin', PETROL_SUPER_PLUS: 'Benzin',
+  ELECTRIC: 'Elektro', HYBRID_PETROL: 'Hybrid (Benzin/Elektro)', HYBRID_PETROL_E10: 'Hybrid (Benzin/Elektro)',
+  HYBRID_DIESEL: 'Hybrid (Diesel/Elektro)', LPG: 'Autogas (LPG)', CNG: 'Erdgas (CNG)', HYDROGEN: 'Wasserstoff',
+};
+interface AudarisConfig { clientId: number; websiteId: string; showroomPath: string; urlMode: string }
+export function audarisConfig(html: string): AudarisConfig | null {
+  const m = html.match(/defaultSettings\s*=\s*(\{"audaris_id":"[0-9a-f]{24}","client_id":\d+[\s\S]*?\});\s*\n/);
+  let s: Record<string, unknown> | null = null;
+  if (m) { try { s = JSON.parse(m[1]) as Record<string, unknown>; } catch { s = null; } }
+  // Repli : les deux identifiants seuls (le JSON complet peut évoluer).
+  const websiteId = String(s?.audaris_id ?? html.match(/"audaris_id":"([0-9a-f]{24})"/)?.[1] ?? '');
+  const clientId = num(s?.client_id ?? html.match(/"client_id":(\d+)/)?.[1]);
+  if (!websiteId || clientId == null) return null;
+  return { clientId, websiteId, showroomPath: String(s?.showroomPath ?? '/angebote/').replace(/\/?$/, '/'), urlMode: String(s?.detailUrlMode ?? 'VEHICLE_ID') };
+}
+type AudarisAd = {
+  audaris_id?: string; vehicle?: { audaris_id?: string }; manufacturerName?: string; modelName?: string; title?: string;
+  mileage?: number | null; registration?: string | null; engineType?: string | null; fuels?: string[] | null; gearboxType?: string | null;
+  price?: number | null; priceConsumer?: number | null; priceOnRequest?: boolean | null; vin?: string | null; numberPlate?: string | null;
+  internalNumber?: string | null; vehicleClientInternalNumber?: string | null; enginePower?: number | null; categories?: string[] | null;
+  images?: Array<{ full?: string }> | null; vehicleCreatedAt?: string | null; isInStock?: boolean | null; reservedUntil?: string | null;
+  usageState?: string | null; locationName?: string | null; numberOfGears?: number | null;
+};
+/** Adresse de la fiche, construite comme le widget (route « /angebote/:marque/:marque-modèle-titre/:numéro/ »). */
+function audarisUrl(origin: string, cfg: AudarisConfig, a: AudarisAd): string {
+  const vid = a.vehicle?.audaris_id ?? a.audaris_id ?? '';
+  const number = cfg.urlMode === 'INTERNAL_NUMBER' ? a.internalNumber : cfg.urlMode === 'VEHICLE_CLIENT_INTERNAL_NUMBER' ? a.vehicleClientInternalNumber : cfg.urlMode === 'VIN' ? a.vin : vid;
+  const dash = (s: string | undefined) => String(s ?? '').replace(/[^a-zA-Z0-9]+/g, '-');
+  const words = String(a.title ?? '').split(/[^a-zA-Z0-9]+/).filter(Boolean).reduce((acc, w) => (acc.length < 20 ? `${acc}-${w}` : acc), '');
+  const make = dash(a.manufacturerName);
+  const path = `${cfg.showroomPath}${make.toLowerCase()}/${`${make}-${dash(a.modelName)}${words}`.toLowerCase()}/${encodeURIComponent(number || vid)}/`;
+  return `${origin}${path}${number ? '' : `?vId=${vid}`}`;
+}
+/** Une annonce de l'API audaris → véhicule ADA (fonction pure). */
+export function audarisToVehicle(a: AudarisAd, origin: string, cfg: AudarisConfig): DealerVehicle | null {
+  const id = a.vehicle?.audaris_id ?? a.audaris_id;
+  if (!id) return null;
+  const raw = a.priceOnRequest ? null : priceOrNull(a.price ?? a.priceConsumer);
+  const price = raw != null ? Math.round(raw) : null; // l'API rend des flottants (« 82989.9999999996 » pour 82 990 €)
+  const fuelKey = String(a.engineType ?? '').toUpperCase();
+  const fuel = AUDARIS_FUEL[fuelKey] ?? (fuelKey ? fuelKey.toLowerCase() : (a.fuels ?? []).join(' / ').toLowerCase() || null);
+  const status: DealerVehicleStatus | null = a.reservedUntil ? 'reserved' : a.isInStock === false ? 'expected' : price == null ? 'price_on_request' : null;
+  const kw = num(a.enginePower);
+  return {
+    external_id: id, url: audarisUrl(origin, cfg, a), title: [a.manufacturerName, a.modelName, a.title].filter(Boolean).join(' '),
+    brand: a.manufacturerName ?? null, model: a.modelName ?? null, price, currency: 'EUR',
+    km: num(a.mileage), year: num(String(a.registration ?? '').slice(0, 4)), fuel,
+    // Électrique sans boîte renseignée (3 sur 784 le 14/11, « numberOfGears »: 1) : réducteur à un rapport = automatique.
+    gearbox: gearboxOf(a.gearboxType ?? null) ?? (fuelKey === 'ELECTRIC' || a.numberOfGears === 1 ? 'Automatique' : null),
+    plate: a.numberPlate || null, vin: a.vin || null, body: (a.categories ?? [])[0]?.split('\u001e').pop()?.toLowerCase() ?? null,
+    image: a.images?.[0]?.full ?? null, listed_at: a.vehicleCreatedAt ? new Date(a.vehicleCreatedAt).toISOString() : null, status,
+    power_ch: kw != null ? Math.round(kw * 1.35962) : null, location: a.locationName ?? null,
+  };
+}
+async function scrapeAudaris(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const cfg = audarisConfig(firstHtml);
+  if (!cfg) return { provider: 'audaris', total: null, declared: null, vehicles: [], pages: 1, warnings: ['configuration audaris (client_id / audaris_id) introuvable dans la page'] };
+  const warnings: string[] = [];
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const LIMIT = 500;
+  let declared: number | null = null;
+  let pages = 0;
+  for (let skip = 0; pages < 100; skip += LIMIT) {
+    if (pages > 0) await sleep(SITE_DELAY_MS);
+    const api = `${AUDARIS_API}/clients/${cfg.clientId}/website-vehicles?website=${encodeURIComponent(cfg.websiteId)}&skip=${skip}&limit=${LIMIT}`
+      + '&sort%5B0%5D%5Bfield%5D=vehicleCreatedAt&sort%5B0%5D%5Border%5D=ASC';
+    const r = await getTextPatient(api, { headers: { accept: 'application/json', origin, referer: url } });
+    if (r.status !== 200) { warnings.push(`API audaris (décalage ${skip}) : HTTP ${r.status}`); break; }
+    let d: { total?: number; data?: AudarisAd[] };
+    try { d = JSON.parse(r.text); } catch { warnings.push(`API audaris (décalage ${skip}) : réponse illisible`); break; }
+    pages++;
+    declared = declared ?? num(d.total);
+    let added = 0;
+    for (const a of d.data ?? []) {
+      const v = audarisToVehicle(a, origin, cfg);
+      if (!v || seen.has(v.external_id)) continue;
+      seen.add(v.external_id); out.push(v); added++;
+    }
+    if (added === 0 || (d.data ?? []).length < LIMIT || (declared != null && out.length >= declared)) break;
+  }
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  return { provider: 'audaris', total: declared ?? out.length, declared, vehicles: out, pages: Math.max(1, pages), warnings };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getTextPatient(url); // 04/11 : MotorK (Sofibrie, SIPA) répond 429 dès la première page après une rafale
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -3571,6 +3673,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'autopalace') return scrapeAutopalace(url, first.text);
   if (provider === 'acaicms') return scrapeAcai(url, first.text);
   if (provider === 'carmarketb2c') return scrapeCarmarketB2c(url, first.text);
+  if (provider === 'audaris') return scrapeAudaris(url, first.text);
   if (provider === 'autosphere') return scrapeAutosphere(url);
   if (provider === 'carsearchwp') return scrapeCarSearchWp(url);
   if (provider === 'stocklisting') return scrapeStockListing(url, first.text);
