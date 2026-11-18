@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -333,6 +333,8 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/id="advancedSearchForm"/.test(html) && /returnid" value="\d+"/.test(html)) return 'cmsms';
   if (/data-vehicle-overview='\{[^']*dmUpdateUrl/.test(html) || /data-vehicle-overview="\{[^"]*dmUpdateUrl/.test(html)) return 'dmapi';
   if (/autovoorraad\.uname-it\.nl\/cawclient/.test(html) && /productList__item/.test(html)) return 'cartelcaw';
+  // infinit (Le Bon Plan Auto, 18/11) : <div id="root"><div data-prerendered> + script module /assets/index-….js.
+  if (/<div id="root"><div data-prerendered>/.test(html) && /<script type="module" crossorigin src="\/assets\/index-[\w-]+\.js">/.test(html)) return 'infinit';
   return null;
 }
 
@@ -3132,6 +3134,68 @@ export function readSfxDetail(html: string): DetailFields {
   };
 }
 
+// ── infinit (Le Bon Plan Auto / Groupe Maurin, 18/11) : site React (Vite) rendu dans le navigateur ; la liste vient de
+//    l'API PUBLIQUE de l'éditeur Infinit, « multipost-public.app.infinit.cc/api/public/inventory/profiles/<profil> »
+//    (GET, sans clé ni jeton : le profil est l'identifiant public du garage, écrit en clair dans le script du site, comme
+//    un numéro de concession). 100 par page, « total » et « pages » dans la réponse.
+type InfItem = { id?: string; reference?: string | null; make?: string | null; model?: string | null; trim?: string | null; title?: string | null; price_cents?: number | null; registration_date?: string | null; manufacture_year?: number | null; fuel?: string | null; transmission?: string | null; odometer?: { value?: number | null; unit?: string | null } | null; body_type?: string | null; engine_power?: number | null; photo_urls?: string[] | null; site_name?: string | null; created_at?: string | null; is_in_transit?: boolean | null; status?: string | null };
+const infSlug = (s: unknown) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+export function parseInfinitInventory(json: string, siteOrigin: string): { total: number | null; pages: number | null; vehicles: DealerVehicle[] } {
+  let d: { items?: InfItem[]; total?: number; pages?: number };
+  try { d = JSON.parse(json); } catch { return { total: null, pages: null, vehicles: [] }; }
+  const vehicles: DealerVehicle[] = [];
+  for (const it of d.items ?? []) {
+    if (!it.id) continue;
+    const price = it.price_cents != null && it.price_cents > 0 ? Math.round(it.price_cents / 100) : null;
+    // Adresse de la fiche, construite comme le site (oT) : /voitures-occasions/<marque>/<modèle>/<finition>-<id>.
+    const model = String(it.model ?? '').trim();
+    const trim = String(it.trim ?? '').trim();
+    const trimSlug = infSlug(model && trim.toLowerCase().startsWith(model.toLowerCase()) ? trim.slice(model.length) : trim) || infSlug(trim);
+    const km = it.odometer?.value ?? null;
+    vehicles.push({
+      external_id: it.id, url: `${siteOrigin}/voitures-occasions/${infSlug(it.make) || 'vehicule'}/${infSlug(it.model) || 'modele'}/${trimSlug ? `${trimSlug}-${it.id}` : it.id}`,
+      title: it.title ?? [it.make, it.model, it.trim].filter(Boolean).join(' '), brand: it.make ?? null, model: it.model ?? null, price,
+      km: km != null ? Math.round(/mile/i.test(it.odometer?.unit ?? '') ? km * 1.609 : km) : null,
+      year: it.manufacture_year ?? yearOf(it.registration_date ?? null), fuel: it.fuel ?? null, gearbox: gearboxOf(it.transmission ?? null),
+      plate: null, vin: null, body: it.body_type ?? null, image: it.photo_urls?.[0] ?? null, listed_at: it.created_at ?? null,
+      status: it.is_in_transit ? 'expected' : price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: it.engine_power ?? powerFromText(trim), location: it.site_name ?? null,
+    });
+  }
+  return { total: typeof d.total === 'number' ? d.total : null, pages: typeof d.pages === 'number' ? d.pages : null, vehicles };
+}
+/** Profil Infinit lu dans le script principal du site (la littérale UUID qui précède le test « .infinitsite.com »). */
+export function infinitProfileOf(js: string): string | null {
+  if (!/multipost-public\.app\.infinit\.cc/.test(js)) return null;
+  const at = js.indexOf('.infinitsite.com');
+  const before = at > 0 ? js.slice(Math.max(0, at - 600), at) : '';
+  return [...before.matchAll(/"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"/g)].pop()?.[1] ?? null;
+}
+export async function scrapeInfinit(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const warnings: string[] = [];
+  const script = firstHtml.match(/<script type="module" crossorigin src="(\/assets\/index-[\w-]+\.js)">/)?.[1];
+  const js = script ? await getTextPatient(origin + script) : null;
+  const profile = js && js.status === 200 ? infinitProfileOf(js.text) : null;
+  if (!profile) return { provider: 'infinit', total: null, declared: null, vehicles: [], pages: 0, warnings: ['site React sans API Infinit reconnue dans son script : vitrine non lue'] };
+  const api = `https://multipost-public.app.infinit.cc/api/public/inventory/profiles/${profile}`;
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  let declared: number | null = null;
+  let pages = 0;
+  for (let p = 1; p <= 200; p++) {
+    await sleep(PAGE_DELAY_MS);
+    const r = await getTextPatient(`${api}?page=${p}&size=100&order_by=-created_at`, { headers: { Accept: 'application/json' } });
+    if (r.status !== 200) { warnings.push(`API Infinit page ${p} : HTTP ${r.status}`); break; }
+    const { total, pages: last, vehicles } = parseInfinitInventory(r.text, origin);
+    declared = declared ?? total;
+    pages = p;
+    for (const v of vehicles) if (!seen.has(v.external_id)) { seen.add(v.external_id); out.push(v); }
+    if (vehicles.length === 0 || (last != null && p >= last)) break;
+  }
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  return { provider: 'infinit', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getTextPatient(url); // 04/11 : MotorK (Sofibrie, SIPA) répond 429 dès la première page après une rafale
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -3167,6 +3231,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'carsearchwp') return scrapeCarSearchWp(url);
   if (provider === 'stocklisting') return scrapeStockListing(url, first.text);
   if (provider === 'sfxlisting') return scrapeSfxListing(url, first.text);
+  if (provider === 'infinit') return scrapeInfinit(url, first.text);
   if (provider === 'jetlisting') return scrapeJetListing(url, first.text);
   if (provider === 'gatsbyvehicles') return scrapeGatsbyVehicles(url);
   if (provider === 'dvnl') return scrapeDv(url, first.text);
