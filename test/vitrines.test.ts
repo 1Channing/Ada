@@ -139,6 +139,37 @@ ok(readDmdDetail(box('Rob Double Embray')).gearbox === 'Automatique' && readDmdD
   && readDmdDetail('<p>rien</p>').gearbox === null, 'DMD : robotisée double embrayage = Automatique, Manuelle, rien = inconnu');
 ok(Object.values(DETAIL_READERS).every((r) => r && r.fields.length > 0), 'chaque lecteur de fiche dit les champs qu\'il rend');
 
+console.log('\n=== DAS WELTAUTO (HONGRIE, 19/11) : LA CONCESSION, RIEN QUE LA CONCESSION ===\n');
+{
+  const ds2 = await import('../worker/dealerStock');
+  const html = '<script id="ng-state" type="application/json">{"u":"https://dwa.test/api/locales/hu_HU/vehicles/search/","c":"https://dwa.test/api/locales/hu_HU/dwa/configuration"}</script>';
+  const item = (vid: string, o: Record<string, unknown> = {}) => ({ id: { dealerIdNumber: 4859, fiveDigitsVehicleId: vid }, brand: 'VW', modelVariant: 'Passat Variant 2.0 TDI DSG', nameLabel: 'Passat',
+    price: 5290000, mileage: 146209, registration: '2018-05-02', fuelText: 'Dízel', transmission: 'Automata, DSG, Tiptronic', vin: 'WVWZZZ3CZJE000001', reserved: false,
+    priceHistory: [{ changedAt: '2026-11-05T15:45:10Z', price: 5290000 }, { changedAt: '2026-10-12T08:00:00Z', price: 5490000 }], dealer: { name: 'Porsche Buda', city: 'Budapest' }, ...o });
+  const api = 'https://dwa.test/api/locales/hu_HU/vehicles/search/?dealerId=';
+  pages['https://dwa.test/haendler/porschebuda/4859/s'] = html;
+  pages[`${api}4859&pageSize=100&page=1&sortBy=price&sortAscending=true`] = JSON.stringify({ count: 2, pruned: false, resultListPage: { content: [item('11623'),
+    item('11541', { brand: 'Škoda', modelVariant: 'Octavia Combi Style 1.0 TSI', fuelText: 'Egyéb', transmission: 'Sebességváltó', reserved: true }), { ...item('77777'), id: { dealerIdNumber: 603, fiveDigitsVehicleId: '77777' } }] } });
+  // Filtre TVA sans résultat : l'API « élargit » (pruned) et rend toutes les voitures — ce n'est pas un résultat.
+  pages[`${api}4859&pageSize=100&page=1&pretaxDeductible=true`] = JSON.stringify({ count: 0, pruned: true, resultListPage: { content: [item('11623'), item('11541')] } });
+  ok(ds2.detectDealerProvider(html) === 'dasweltauto', 'Das WeltAuto reconnu (ng-state + configuration /api/locales/hu_HU/dwa/)');
+  const st = await ds2.fetchDealerStock('https://dwa.test/haendler/porschebuda/4859/s');
+  const g = (id: string) => st.vehicles.find((v) => v.external_id === id);
+  ok(st.vehicles.length === 2 && !g('60377777'), 'seules les voitures de la concession 4859 sont gardées (une voiture d\'une autre concession dans la réponse : écartée)', st.vehicles.map((v) => v.external_id));
+  ok(st.vehicles.every((v) => !/TVA/.test(v.title)), 'filtre TVA « élargi » (pruned, count 0) : aucune voiture marquée TVA récupérable', st.vehicles.map((v) => v.title));
+  ok(g('485911623')?.currency === 'HUF' && g('485911623')?.url === 'https://dwa.test/vehicle/485911623' && g('485911623')?.listed_at === '2026-10-12T08:00:00.000Z'
+    && g('485911623')?.gearbox === 'Automatique' && g('485911623')?.vin === 'WVWZZZ3CZJE000001' && g('485911623')?.year === 2018,
+    'voiture : forints, lien public, en ligne au moins depuis le plus ancien prix, boîte, VIN, année', g('485911623'));
+  ok(g('485911541')?.fuel === 'Benzin' && g('485911541')?.gearbox === 'Manuelle' && g('485911541')?.status === 'reserved',
+    '« Egyéb » → énergie lue dans la version (TSI = essence) ; « Sebességváltó » = manuelle ; réservée', g('485911541'));
+  pages['https://dwa.test/haendler/babjakauto/956/s'] = html;
+  pages[`${api}956&pageSize=100&page=1&sortBy=price&sortAscending=true`] = JSON.stringify({ count: 0, pruned: true, resultListPage: { content: [item('11623')] } });
+  const empty = await ds2.fetchDealerStock('https://dwa.test/haendler/babjakauto/956/s');
+  ok(empty.vehicles.length === 0 && empty.declared === 0, 'concession sans occasion : 0 voiture (pas celles que l\'API rend en élargissant)', [empty.vehicles.length, empty.declared]);
+  ok(JSON.stringify(['https://x.hu/haendler/porschebuda/4859/s', 'https://x.hu/gruppe/hu_walter/HU_WALTER/849/s', 'https://x.hu/s?dealerId=999'].map((u) => ds2.dwaConfig(u, html).dealerId)) === '["4859","849","999"]',
+    'n° de concession : page concession, page de groupe (identifiant en lettres), recherche filtrée');
+}
+
 console.log('\n=== POLITESSE : PAS PLUS D\'UNE REQUÊTE TOUTES LES 350 MS PAR SITE ===\n');
 {
   const { reserveSiteSlot, SITE_MIN_GAP_MS } = await import('../worker/dealerStock');

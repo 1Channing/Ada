@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -352,6 +352,8 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   // carmarketb2c (Ayvens, 18/11) : boutique VO grand public used-cars.ayvens.com (Angular rendu serveur) — l'état de la
   // page (app-root-state) embarque la réponse complète de l'API « …/carmarket/b2c/vehicleads » (count + items).
   if (/<script id="(?:app-root-state|ng-state|serverApp-state)" type="application\/json">/.test(html) && /rms\/carmarket\/b2c\/vehicleads/.test(html)) return 'carmarketb2c';
+  // dasweltauto (Das WeltAuto HU, 19/11) : Angular rendu serveur (« ng-state ») + configuration « /api/locales/<xx_XX>/dwa/ ».
+  if (/<script id="ng-state"/.test(html) && /\/api\/locales\/[a-z]{2}_[A-Z]{2}\/dwa\/configuration/.test(html)) return 'dasweltauto';
   // catalogpager (Groupe DMD, 04/11) : site Symfony maison, cartes <a class="fiche_vehicule">, pages chargées en POST
   // sur « /ajax/search?flag=html » avec filters[page]=N (liens « catalog-pager-link » data-page).
   if (/class="fiche_vehicule/.test(html) && /catalog-pager-link/.test(html) && /data-ajax-request-search="/.test(html)) return 'catalogpager';
@@ -4463,6 +4465,121 @@ async function scrapeCarlution(url: string, firstHtml: string, firstHeaders?: He
   return { provider: 'carlution', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
 }
 
+// ── dasweltauto (Das WeltAuto, Hongrie, 19/11 nuit) : vitrine d'occasions de TOUT le réseau Volkswagen Group d'un pays
+//    de Porsche Holding (dasweltauto.hu ; même plateforme Porsche Informatik ailleurs : .at, .cz, .sk, .si, .hr…) — VW,
+//    Audi, Škoda, SEAT, CUPRA, utilitaires VW et les reprises d'autres marques. Page Angular rendue serveur (« ng-state ») ;
+//    la liste vient de l'API publique que la page appelle elle-même, sans clé ni cookie :
+//    /api/locales/<xx_XX>/vehicles/search/?dealerId=<n° de concession>&pageSize=100&page=N (100 au plus, pages à partir de
+//    1, total dans « count »). Adresse de la fiche ADA : la page de la concession « /haendler/<nom>/<n°>/s » (ou
+//    « /gruppe/<nom>/<groupe>/<n°>/s », « /s?dealerId=<n°> ») ; sans n° de concession, refus (tout le pays n'est pas UNE
+//    vitrine). Chaque voiture : prix TTC (forints sur .hu), km, 1re immatriculation, énergie, boîte, puissance, VIN,
+//    carrosserie, couleur, réservé, flotte, garantie, historique des prix — tenu depuis le 30/09/2026 : sa plus ancienne
+//    date = « en ligne au moins depuis » (jamais une date plus récente que la vraie). TVA récupérable : une lecture
+//    « pretaxDeductible=true » (filtre du site) en plus, notée dans le titre comme ailleurs.
+const DWA_CURRENCY: Record<string, string> = { hu: 'HUF', cs: 'CZK', pl: 'PLN', ro: 'RON', bg: 'BGN' };
+type DwaItem = {
+  id?: { dealerIdNumber?: number; fiveDigitsVehicleId?: string; vehicleIdNumber?: number };
+  imageUrls?: string[] | null; price?: number | null; powerPs?: number | null; powerKw?: number | null; modelVariant?: string | null;
+  mileage?: number | null; registration?: string | null; dealer?: { name?: string | null; city?: string | null } | null; fleetVehicle?: boolean | null;
+  brand?: string | null; nameLabel?: string | null; ldJsonExtra?: { colorTextNew?: string | null } | null; reserved?: boolean | null;
+  fuelText?: string | null; bodyType?: string | null; transmission?: string | null; gearTypeText?: string | null; vin?: string | null;
+  warranty?: string | null; priceHistory?: Array<{ changedAt?: string | null; price?: number | null }> | null;
+};
+/** Origine, langue de l'API (« hu_HU ») et n° de concession de l'adresse de la fiche. */
+export function dwaConfig(url: string, html: string): { origin: string; locale: string; dealerId: string | null } {
+  const u = new URL(url);
+  const tld = u.hostname.split('.').pop() ?? '';
+  const locale = html.match(/\/api\/locales\/([a-z]{2}_[A-Z]{2})\//)?.[1] ?? `${tld}_${tld.toUpperCase()}`;
+  // Groupe : « /gruppe/hu_walter/HU_WALTER/849/s » (identifiant de groupe en lettres).
+  const m = u.pathname.match(/\/haendler\/[^/]+\/(\d+)(?:\/|$)/) ?? u.pathname.match(/\/gruppe\/[^/]+\/[^/]+\/(\d+)(?:\/|$)/);
+  return { origin: u.origin, locale, dealerId: m?.[1] ?? u.searchParams.get('dealerId') ?? u.searchParams.get('dealerPageId') };
+}
+/** Énergie : le libellé du site ; « Egyéb » (autre, 45 % des fiches du centre de l'importateur) → lue dans la version. */
+export const dwaFuel = (fuel: string | null | undefined, variant: string): string | null => {
+  const f = (fuel ?? '').trim();
+  if (f && !/^(egy[ée]b|other|in[ée]|ostatn[ée]|sonstige|ostalo|drugo)$/i.test(f)) return f;
+  if (/\b(e-?hybrid|plug-?in|phev)\b/i.test(variant)) return 'Plug-in hybrid';
+  if (/\b(e-tron|e-up!?|e-golf|id\.\s?\d|ivv?|iv|elroq|enyaq|born|tavascan|electric)\b/i.test(variant)) return 'Elektro';
+  if (/\bTDI\b/i.test(variant)) return 'Diesel';
+  if (/\bTGI\b/i.test(variant)) return 'CNG';
+  if (/\b(TFSI|TSI|MPI|FSI)\b/i.test(variant)) return 'Benzin';
+  return null;
+};
+/** Boîte : « Automata, DSG, Tiptronic » ; « Sebességváltó » (« boîte de vitesses », sans plus) = manuelle. */
+export const dwaGear = (t: string | null | undefined): string | null =>
+  !t ? null : /automat|dsg|tiptronic|s ?tronic|cvt/i.test(t) ? 'Automatique' : /sebess[ée]gv[áa]lt[óo]|manu[áa]l|k[ée]zi|schalt|manu/i.test(t) ? 'Manuelle' : t;
+export function dwaToVehicle(it: DwaItem, origin: string, currency: string, vat?: Set<string>): DealerVehicle | null {
+  const d = it.id?.dealerIdNumber;
+  const v = it.id?.fiveDigitsVehicleId ?? (it.id?.vehicleIdNumber != null ? String(it.id.vehicleIdNumber).padStart(5, '0') : null);
+  if (d == null || !v) return null;
+  const id = `${d}${v}`;                               // = adresse publique « /vehicle/<id> » et API « /vehicles/<id>/detail »
+  const brand = it.brand?.trim() || null;
+  const variant = (it.modelVariant ?? '').trim();
+  const base = brand && variant && !variant.toLowerCase().startsWith(brand.toLowerCase()) ? `${brand} ${variant}` : variant || [brand, it.nameLabel].filter(Boolean).join(' ');
+  const price = priceOrNull(it.price);
+  const since = (it.priceHistory ?? []).map((p) => p.changedAt).filter((x): x is string => !!x && !Number.isNaN(Date.parse(x))).sort()[0];
+  const kw = num(it.powerKw);
+  return {
+    external_id: id, url: `${origin}/vehicle/${id}`, title: vat?.has(id) ? `${base} · TVA récupérable` : base, brand,
+    model: it.nameLabel?.trim() || splitTitle(base).model, price, currency, km: num(it.mileage), year: num(String(it.registration ?? '').slice(0, 4)),
+    fuel: dwaFuel(it.fuelText, variant), gearbox: dwaGear(it.transmission ?? it.gearTypeText) ?? gearboxOfVersion(variant), plate: null, vin: it.vin?.trim() || null,
+    body: [it.bodyType, it.ldJsonExtra?.colorTextNew, it.fleetVehicle ? 'ex-flotte' : null, it.warranty === 'DASWELTAUTO' ? 'garantie Das WeltAuto' : null].filter(Boolean).join(' · ') || null,
+    image: it.imageUrls?.[0] ?? null, listed_at: since ? new Date(since).toISOString() : null,
+    status: it.reserved ? 'reserved' : price == null ? 'price_on_request' : null,
+    power_ch: num(it.powerPs) ?? (kw != null ? Math.round(kw * 1.35962) : null),
+    location: [it.dealer?.name, it.dealer?.city].filter(Boolean).join(', ') || null,
+  };
+}
+async function scrapeDasWeltAuto(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const { origin, locale, dealerId } = dwaConfig(url, firstHtml);
+  if (!dealerId) throw new Error('adresse Das WeltAuto sans n° de concession (attendu : …/haendler/<nom>/<n°>/s ou ?dealerId=<n°>) : la recherche de tout le pays n\'est pas la vitrine d\'une concession');
+  const currency = DWA_CURRENCY[locale.slice(0, 2)] ?? 'EUR';
+  const warnings: string[] = [];
+  let pages = 0;
+  const readAll = async (query: string): Promise<{ items: DwaItem[]; count: number | null; ok: boolean }> => {
+    const items: DwaItem[] = [];
+    let count: number | null = null;
+    for (let p = 1; p <= 60; p++) {
+      await sleep(SITE_DELAY_MS);
+      const r = await getTextPatient(`${origin}/api/locales/${locale}/vehicles/search/?dealerId=${encodeURIComponent(dealerId)}&pageSize=100&page=${p}${query}`, { headers: { accept: 'application/json' } });
+      if (r.status !== 200) { warnings.push(`API Das WeltAuto (${query || 'liste'}), page ${p} : HTTP ${r.status}`); return { items, count, ok: false }; }
+      let d: { count?: number; pruned?: boolean; resultListPage?: { content?: DwaItem[] } };
+      try { d = JSON.parse(r.text); } catch { warnings.push(`API Das WeltAuto (${query || 'liste'}), page ${p} : réponse illisible`); return { items, count, ok: false }; }
+      pages++;
+      count = count ?? num(d.count);
+      // RECHERCHE ÉLARGIE (19/11) : sans résultat, l'API relâche les filtres (« pruned »: true, « count »: 0) et rend
+      // d'autres voitures — prises telles quelles, toutes les voitures d'une concession devenaient « TVA récupérable »,
+      // et une concession sans occasion aurait reçu celles d'une autre. Réponse élargie = aucun résultat ; et seules
+      // les voitures de LA concession sont gardées.
+      if (d.pruned || count === 0) { count = 0; break; }
+      const got = (d.resultListPage?.content ?? []).filter((it) => String(it.id?.dealerIdNumber ?? '') === dealerId);
+      items.push(...got);
+      if ((d.resultListPage?.content ?? []).length < 100 || (count != null && items.length >= count)) break;
+    }
+    return { items, count, ok: true };
+  };
+  const byId = new Map<string, DwaItem>();
+  const keyOf = (it: DwaItem) => (it.id?.dealerIdNumber != null && it.id?.fiveDigitsVehicleId ? `${it.id.dealerIdNumber}${it.id.fiveDigitsVehicleId}` : null);
+  const first = await readAll('&sortBy=price&sortAscending=true');
+  for (const it of first.items) { const k = keyOf(it); if (k && !byId.has(k)) byId.set(k, it); }
+  const declared = first.count;
+  // Des prix égaux peuvent glisser d'une page à l'autre : il en manque → second tri (les plus récentes), réunis.
+  if (declared != null && byId.size < declared) {
+    const second = await readAll('&sortBy=recent&sortAscending=false');
+    for (const it of second.items) { const k = keyOf(it); if (k && !byId.has(k)) byId.set(k, it); }
+  }
+  const vat = new Set<string>();
+  if (byId.size > 0) {
+    const v = await readAll('&pretaxDeductible=true');
+    for (const it of v.items) { const k = keyOf(it); if (k) vat.add(k); }
+  }
+  const vehicles = [...byId.values()].map((it) => dwaToVehicle(it, origin, currency, vat)).filter((x): x is DealerVehicle => !!x);
+  if (declared != null && vehicles.length < declared) warnings.push(`${vehicles.length} voiture(s) lue(s) pour ${declared} annoncée(s)`);
+  const unknownFuel = vehicles.filter((x) => !x.fuel).length;
+  if (unknownFuel) warnings.push(`${unknownFuel} voiture(s) sans énergie publiée (« Egyéb » et version muette)`);
+  return { provider: 'dasweltauto', total: declared ?? vehicles.length, declared, vehicles, pages, warnings };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getTextPatient(url); // 04/11 : MotorK (Sofibrie, SIPA) répond 429 dès la première page après une rafale
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -4496,6 +4613,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'autopalace') return scrapeAutopalace(url, first.text);
   if (provider === 'acaicms') return scrapeAcai(url, first.text);
   if (provider === 'carmarketb2c') return scrapeCarmarketB2c(url, first.text);
+  if (provider === 'dasweltauto') return scrapeDasWeltAuto(url, first.text);
   if (provider === 'audaris') return scrapeAudaris(url, first.text);
   if (provider === 'kleynvans') return scrapeKleynVans(url, first.text);
   if (provider === 'ocasionplus') return scrapeOcasionPlus(url, first.text);
