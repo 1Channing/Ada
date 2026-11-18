@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -349,6 +349,8 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/self\.__next_f\.push/.test(html) && /img\.ocasionplus\.com/.test(html) && /\\"vehicleList\\":\{/.test(html)) return 'ocasionplus';
   // autralis (Van Mossel Mertens BE, 14/11) : Gatsby sans gatsby-theme-vehicles, fonds digitalexperience.b-cdn.net, API « /graphql ».
   if (/<meta name="generator" content="Gatsby/.test(html) && /window\.pagePath="[^"]*"/.test(html) && /digitalexperience\.b-cdn\.net/.test(html) && !/gatsby-theme-vehicles/.test(html)) return 'autralis';
+  // carlution (Autohaus Keller, 14/11) : bloc <div class="_cl_marketplace" data-uuid="3|list">, script carlution.biz.
+  if (/class="_cl_marketplace"/.test(html) && /data-uuid="[^"]+"/.test(html) && /carlution\.biz\//.test(html)) return 'carlution';
   if (/"@type":\s*"ItemList"/.test(html) && /"Car"/.test(html)) return 'datamotive';
   if (/"listerpage":\s*\{[^}]*"ajax_url"/.test(html)) return 'listerpage';
   if (/data-update-url="[^"]*\/voorraad-api\/vehiclelist\/\d+\/vehicles\.json/.test(html)) return 'dvapi';
@@ -3932,6 +3934,87 @@ async function scrapeAutralis(url: string): Promise<DealerStockResult> {
   return { provider: 'autralis', total: declared ?? out.length, declared, vehicles: out, pages: Math.max(1, pages), warnings };
 }
 
+// ── carlution (Autohaus Keller, www.toyota-keller.de/fahrzeugbestand, 14/11) : CMS automobile Carlution (script
+//    carlution.biz/assets/js/core.js). La page n'a que des gabarits (« data-text="make_public" ») : le bloc
+//    <div class="_cl_marketplace" data-uuid="3|list"> se remplit par un GET sur la racine du site avec les en-têtes
+//    « clv4: init|paginate », « needed: {"items":true,…} », « uuid: 3|list » et q=<paramètres de l'adresse> (« page=N »).
+//    Réponse JSON sans clé : { items: {"0":{…},…}, pagination: { total_items: 350, total_pages: 30, … } } — marque, modèle,
+//    version, prix « 18.450 », km « 26.652 », EZ « 04/2023 », énergie « Hybrid (Benzin) », boîte « Automatik », PS,
+//    agence, lien. Il faut le cookie de session (PHPSESSID) posé par la page de liste : sans lui, HTTP 500 (prouvé 14/11).
+//    12 par page. AUCUN TRI N'EST STABLE SEUL (18/11 : tri par défaut « newest desc », 346 voitures distinctes sur 347
+//    annoncées en 29 pages — un ex æquo a glissé d'une page à l'autre) : réunion de lectures « newest desc »,
+//    « price asc », « mileage asc » jusqu'au compte annoncé, comme eveho. Neuves (« Neufahrzeug », sans EZ) : année
+//    de construction (« construction ») publiée par le site.
+type CarlutionItem = {
+  id?: string; link?: string; make_public?: string; model_public?: string; model_extended?: string; price?: string | number | null;
+  mileage?: string | number | null; ez?: string | null; firstRegistration?: string | null; construction?: string | null; condition_string?: string | null;
+  fuel_string?: string | null; gearbox_string?: string | null; power_hp?: string | number | null; store?: string | null; img?: string | null; category?: string | null;
+};
+/** Un véhicule de l'API Carlution → véhicule ADA (fonction pure). */
+export function carlutionToVehicle(it: CarlutionItem, origin: string): DealerVehicle | null {
+  if (!it.id) return null;
+  const price = priceOrNull(it.price);
+  return {
+    external_id: String(it.id), url: it.link ? new URL(it.link, origin).toString() : null,
+    title: [it.make_public, it.model_public, it.model_extended].filter(Boolean).join(' '), brand: it.make_public ?? null, model: it.model_public ?? null,
+    price, currency: 'EUR', km: num(it.mileage), year: yearOf(it.ez) ?? num(String(it.firstRegistration ?? '').slice(0, 4) || null) ?? num(it.construction),
+    fuel: it.fuel_string ?? null, gearbox: gearboxOf(it.gearbox_string ?? null), plate: null, vin: null, body: it.category ?? null,
+    image: it.img ? new URL(it.img, origin).toString() : null, listed_at: null, status: price == null ? 'price_on_request' : null,
+    power_ch: num(it.power_hp), location: it.store ?? null,
+  };
+}
+async function scrapeCarlution(url: string, firstHtml: string, firstHeaders?: Headers): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const warnings: string[] = [];
+  // Le bloc « liste » (un site peut aussi porter un carrousel « top_offers »).
+  const uuids = [...firstHtml.matchAll(/data-uuid="([^"]+)"/g)].map((m) => unesc(m[1]));
+  const uuid = uuids.find((s) => /\|list$/.test(s)) ?? uuids[0];
+  if (!uuid) return { provider: 'carlution', total: null, declared: null, vehicles: [], pages: 1, warnings: ['bloc _cl_marketplace (data-uuid) introuvable'] };
+  // Cookie de session de la page de liste (en-têtes de la première lecture, sinon une relecture de la page).
+  let cookies = (firstHeaders?.getSetCookie?.() ?? []).map((c) => c.split(';')[0]).join('; ');
+  if (!cookies) {
+    await sleep(SITE_DELAY_MS);
+    const again = await getTextPatient(url);
+    cookies = (again.headers.getSetCookie?.() ?? []).map((c) => c.split(';')[0]).join('; ');
+  }
+  const own = new URL(url).searchParams; own.delete('page');
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  let declared: number | null = null;
+  let pages = 0;
+  let unregistered = 0;
+  for (const sort of [own.get('sort') ?? '', 'price asc', 'mileage asc']) {
+    if (declared != null && out.length >= declared) break;
+    let last = 1;
+    for (let p = 1; p <= Math.min(last, 400); p++) {
+      await sleep(SITE_DELAY_MS);
+      const q = new URLSearchParams(own);
+      if (sort) q.set('sort', sort); else q.delete('sort');
+      if (p > 1) q.set('page', String(p));
+      const r = await getTextPatient(`${origin}/?q=${encodeURIComponent(q.toString())}`, {
+        headers: { accept: 'application/json', 'x-requested-with': 'XMLHttpRequest', referer: url, cookie: cookies, clv4: p === 1 ? 'init' : 'paginate', needed: '{"items":true,"pagination":true,"pageFilter":false}', uuid },
+      });
+      if (r.status !== 200) { warnings.push(`tri « ${sort || 'du site'} », page ${p} : HTTP ${r.status}${cookies ? '' : ' (pas de cookie de session)'}`); break; }
+      let d: { items?: Record<string, CarlutionItem> | CarlutionItem[]; pagination?: { total_items?: number; total_pages?: number } };
+      try { d = JSON.parse(r.text); } catch { warnings.push(`tri « ${sort || 'du site'} », page ${p} : réponse illisible`); break; }
+      pages++;
+      declared = declared ?? num(d.pagination?.total_items);
+      last = num(d.pagination?.total_pages) ?? last;
+      const items = Object.values(d.items ?? {});
+      for (const it of items) {
+        const v = carlutionToVehicle(it, origin);
+        if (!v || seen.has(v.external_id)) continue;
+        seen.add(v.external_id); out.push(v);
+        if (!it.ez && it.construction) unregistered++;
+      }
+      if (items.length === 0 || (declared != null && out.length >= declared)) break;
+    }
+  }
+  if (unregistered) warnings.push(`${unregistered} voiture(s) neuve(s) sans immatriculation (EZ) : année = année de construction publiée par le site`);
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  return { provider: 'carlution', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getTextPatient(url); // 04/11 : MotorK (Sofibrie, SIPA) répond 429 dès la première page après une rafale
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -3969,6 +4052,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'kleynvans') return scrapeKleynVans(url, first.text);
   if (provider === 'ocasionplus') return scrapeOcasionPlus(url, first.text);
   if (provider === 'autralis') return scrapeAutralis(url);
+  if (provider === 'carlution') return scrapeCarlution(url, first.text, first.headers);
   if (provider === 'autosphere') return scrapeAutosphere(url);
   if (provider === 'carsearchwp') return scrapeCarSearchWp(url);
   if (provider === 'stocklisting') return scrapeStockListing(url, first.text);
