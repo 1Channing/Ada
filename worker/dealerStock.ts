@@ -159,6 +159,18 @@ const PAGE_DELAY_MS = 250;
  *  (« pas plus d'une requête toutes les 350 ms par site »), plus stricte que PAGE_DELAY_MS (250 ms). */
 const SITE_DELAY_MS = 350;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** POLITESSE, PLANCHER COMMUN (18/11, règle de la mission : « pas plus d'une requête toutes les 350 ms par site ») :
+ *  les pauses des lecteurs (PAGE_DELAY_MS 250 ms, SITE_DELAY_MS) se comptent après la réponse, et certains appels
+ *  (compteurs d'un moteur de recherche, formulaire) suivaient une page sans pause. getText réserve donc à chaque
+ *  requête un créneau par hôte, au moins 350 ms après le DÉPART de la précédente vers le même hôte — pour tous les
+ *  lecteurs, fiches détail comprises. Exporté pour le test. */
+export const SITE_MIN_GAP_MS = 350;
+const siteSlots = new Map<string, number>();
+export function reserveSiteSlot(host: string, now = Date.now(), slots: Map<string, number> = siteSlots): number {
+  const slot = Math.max(now, (slots.get(host) ?? -Infinity) + SITE_MIN_GAP_MS);
+  slots.set(host, slot);
+  return slot - now;
+}
 
 /**
  * SITE DERRIÈRE CLOUDFLARE (02/10, Vallei Auto Groep : « page du stock :
@@ -176,6 +188,9 @@ const isChallenge = (status: number, headers: Headers, text: string) =>
   (status === 403 || status === 503) && (headers.get('cf-mitigated') === 'challenge' || /just a moment|cf-chl|challenge-platform|_cf_chl/i.test(text.slice(0, 20_000)));
 
 async function getText(url: string, init?: RequestInit, opts?: { noZyte?: boolean }): Promise<{ status: number; text: string; headers: Headers }> {
+  let host = '';
+  try { host = new URL(url).hostname; } catch { /* adresse invalide : fetch le dira */ }
+  if (host) { const wait = reserveSiteSlot(host); if (wait > 0) await sleep(wait); }
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 30_000);
   let direct: { status: number; text: string; headers: Headers };

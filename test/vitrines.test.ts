@@ -139,6 +139,21 @@ ok(readDmdDetail(box('Rob Double Embray')).gearbox === 'Automatique' && readDmdD
   && readDmdDetail('<p>rien</p>').gearbox === null, 'DMD : robotisée double embrayage = Automatique, Manuelle, rien = inconnu');
 ok(Object.values(DETAIL_READERS).every((r) => r && r.fields.length > 0), 'chaque lecteur de fiche dit les champs qu\'il rend');
 
+console.log('\n=== POLITESSE : PAS PLUS D\'UNE REQUÊTE TOUTES LES 350 MS PAR SITE ===\n');
+{
+  const { reserveSiteSlot, SITE_MIN_GAP_MS } = await import('../worker/dealerStock');
+  const slots = new Map<string, number>();
+  const t = 1_000_000;
+  const waits = [reserveSiteSlot('a.test', t, slots), reserveSiteSlot('a.test', t, slots), reserveSiteSlot('a.test', t + 100, slots), reserveSiteSlot('b.test', t + 100, slots), reserveSiteSlot('a.test', t + 2000, slots)];
+  ok(SITE_MIN_GAP_MS === 350 && JSON.stringify(waits) === JSON.stringify([0, 350, 600, 0, 0]),
+    'même site : départs espacés de 350 ms (0, 350, 600 ms d\'attente), autre site sans attente, site au repos sans attente', waits);
+  // Bout en bout : trois lectures du même site à la suite, sans pause du lecteur → au moins 2 × 350 ms.
+  const t0 = Date.now();
+  const { fetchDealerStock } = await import('../worker/dealerStock');
+  for (const u of ['https://dmd.test/b', 'https://dmd.test/c', 'https://dmd.test/f']) await fetchDealerStock(u).catch(() => null); // une requête chacune (page non reconnue)
+  ok(Date.now() - t0 >= 2 * 350 - 5, 'trois requêtes vers un même site, sans pause du lecteur : au moins 700 ms', Date.now() - t0);
+}
+
 console.log('\n=== LES ÉCRANS LISENT LES MOTS DES SITES (valeurs réelles en base, 14/11) ===\n');
 const { fuelFamily, gearboxFamily } = await import('../src/lib/vehicleFamilies');
 const fuels: Array<[string, string | null]> = [
