@@ -219,7 +219,7 @@ const fuels: Array<[string, string | null]> = [
   ['Ibrida', 'hybrid'], ['Erdgas', 'gas'], ['Metano', 'gas'], ['Hibrido', 'hybrid'], ['E85', 'petrol'], ['Super Plus', 'petrol'], ['Gasolio', 'diesel'],
   ['Benzine', 'petrol'], ['Gasolina', 'petrol'], ['Diésel', 'diesel'], ['Hybride rechargeable', 'phev'], ['Elettrica', 'electric'], ['Plug-in Hybrid', 'phev'],
   ['Autogas', 'gas'], ['Autogas (LPG)', 'gas'], ['Etanol', 'petrol'], ['Hybrid-Benzin', 'hybrid'],
-  ['Dízel', 'diesel'], ['Nafta', 'diesel'], ['Hibr.B/E külső töltő', 'phev'], ['Benzin/elektromos', 'hybrid'], ['Hibrid', 'hybrid'], ['Elektromos', 'electric'], ['Benzín', 'petrol'], ['Elektrický', 'electric'],
+  ['Dízel', 'diesel'], ['Gázolaj', 'diesel'], ['Benzin(mild) Hybrid', 'hybrid'], ['Nafta', 'diesel'], ['Hibr.B/E külső töltő', 'phev'], ['Benzin/elektromos', 'hybrid'], ['Hibrid', 'hybrid'], ['Elektromos', 'electric'], ['Benzín', 'petrol'], ['Elektrický', 'electric'],
   ['Waterstof', null], ['autre', null],
 ];
 const fuelBad = fuels.filter(([v, want]) => fuelFamily(v) !== want);

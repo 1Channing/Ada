@@ -27,8 +27,8 @@ export function fuelFamily(text: string | null | undefined): FuelFamily | null {
   if (/hybrid|hybride|hybridi|\bhibrid|\bhibr\b|\bibrid|\bhev\b|mhev|e-tech|\bh\b|\d{2,3}h\b/.test(t)
     || /(?:benzin|dizel|diesel|nafta|petrol|essence)\s*[\/+]\s*(?:elektr|electr)|(?:elektr|electr)\w*\s*[\/+]\s*(?:benzin|dizel|diesel|nafta|petrol|essence)/.test(t)) return 'hybrid';
   if (/electri|elektr|sahko|\bev\b|\bbev\b|\bel\b|elettric|electric|\belectra\b/.test(t)) return 'electric';
-  // 19/11 : « Dízel » (HU), « Nafta » (SK).
-  if (/diesel|\bdizel\b|\bnafta\b|gasolio|\btdi\b|\bhdi\b|\bdci\b|\bcdi\b|\bcrdi\b|\bd4d\b|bluehdi|\bgazole\b/.test(t)) return 'diesel';
+  // 19/11 : « Dízel », « Gázolaj » (HU), « Nafta » (SK).
+  if (/diesel|\bdizel\b|\bgazolaj\b|\bnafta\b|gasolio|\btdi\b|\bhdi\b|\bdci\b|\bcdi\b|\bcrdi\b|\bd4d\b|bluehdi|\bgazole\b/.test(t)) return 'diesel';
   if (/essence|benzin|bensin|bensiini|petrol|gasolin|super ?plus|\be85\b|ethanol|etanol|\btsi\b|\btfsi\b|\btce\b|puretech|\bvti\b/.test(t)) return 'petrol';
   if (/\bgpl\b|\bglp\b|\blpg\b|\bcng\b|\bgnv\b|metano|erdgas|autogas|kaasu|\bgaz\b|\bgas\b/.test(t)) return 'gas';
   return null;
