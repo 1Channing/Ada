@@ -98,5 +98,36 @@ const gears: Array<[string, string]> = [['Autom. 7-Gang', 'auto'], ['A Var Conti
 const gearBad = gears.filter(([v, want]) => gearboxFamily(v) !== want);
 ok(gearBad.length === 0, `boîte : ${gears.length} mots de sites classés`, gearBad.map(([v]) => `${v} → ${gearboxFamily(v)}`));
 
+console.log('\n=== LECTEURS : EXTRAITS RÉELS DES SITES (18/11) ===\n');
+const ds = await import('../worker/dealerStock');
+// datamotive (Jazzoni, Romana) : 1re immatriculation du JSON-LD ; adresse BYMYCAR d'abord ; « 1970 » = bouche-trou.
+ok(ds.ldCarYear({ dateVehicleFirstRegistered: '2023-07-31', modelDate: '1970' }, 'https://www.jazzoni.com/auto-usate/fiat-500') === 2023
+  && ds.ldCarYear({}, 'https://www.bymycar.fr/peugeot-3008-occasion-2021-x') === 2021
+  && ds.ldCarYear({ modelDate: '1970' }, 'https://x/y') === null, 'datamotive : année = adresse, sinon 1re immatriculation, jamais « 1970 »');
+// dutchvans : énergie par adresse dans le JSON-LD ItemList de la page.
+const dv = ds.ldFuelByUrl(`<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org/', '@type': 'ItemList', itemListElement: [
+  { '@type': 'ListItem', position: 1, item: { '@type': ['Product', 'Car'], url: 'https://www.dutchvans.com/bedrijfswagen/ford-transit-2-0tdci-165pk-automaat-l4h3-jumbo-3/', fuelType: 'Diesel' } },
+] })}</script>`);
+ok(dv.get('https://www.dutchvans.com/bedrijfswagen/ford-transit-2-0tdci-165pk-automaat-l4h3-jumbo-3') === 'Diesel', 'dutchvans : énergie lue par adresse (« / » final ignoré)', [...dv]);
+// vehiclelistapi (Bossoni) : neuves sans km ni année, « in arrivo » = attendue, réservée.
+const vrow = (o: Partial<import('../worker/dealerStock').VehicleListRow>) => ({ id: 1, urlName: '/auto/x', brand: 'Fiat', model: '500', finalPrice: 15000, ...o });
+const nuovo = ds.vehicleListRowToVehicle(vrow({ archive: 'nuovo', vehicleStatus: 'stock' }), 'https://www.gruppobossoni.it');
+ok(nuovo.km === null && nuovo.year === null && nuovo.status === null && nuovo.url === 'https://www.gruppobossoni.it/auto/x', 'Bossoni : une neuve reste sans km ni année, en vente');
+ok(ds.vehicleListRowToVehicle(vrow({ vehicleStatus: 'assigned' }), '').status === 'expected' && ds.vehicleListRowToVehicle(vrow({ isBooked: true }), '').status === 'reserved',
+  'Bossoni : « Veicolo in arrivo » = attendue, réservée = réservée');
+ok(ds.vehicleListGaps([vrow({ archive: 'nuovo' }), vrow({ archive: 'km0', km: null })]).length === 2, 'Bossoni : le bilan dit ce que le site ne publie pas (neuves, km 0 sans km)');
+// rswusato (Ghedini) : « Km Zero » → 0 ; fiche réelle.
+const rsw = ds.readRswDetail(`<span class="feature-label">Immatricolazione</span>
+  <span class="feature-value">07/2026</span> <span class="feature-label">Alimentazione</span>
+  <span class="feature-value">Ibrida</span> <span class="feature-label">Chilometraggio</span>
+  <span class="feature-value">Km Zero</span> <span class="feature-label">Cambio</span>
+  <span class="feature-value">Manuale a 6 marce</span> <span class="price">11.850<span class="currency">&euro;</span></span>`);
+ok(ds.rswKm('Km Zero') === 0 && ds.rswKm('92.535 km') === 92535 && rsw.km === 0 && rsw.year === 2026 && rsw.fuel === 'Ibrida' && rsw.gearbox === 'Manuelle' && rsw.price === 11850,
+  'Ghedini : « Km Zero » = 0 km ; fiche : année, énergie, km, boîte, prix', rsw);
+// autodata (Krimpenerwaard) : fiche réelle ; le prix n'est pas un champ relu.
+const ad = ds.readAutodataDetail('<ul><li>Tellerstand<strong>116500 KM</strong></li><li>Brandstof<strong>Benzine</strong></li><li>Transmissie<strong>Handgeschakeld</strong></li><li>Bouwjaar<strong>2013</strong></li></ul>');
+ok(ad.fuel === 'Benzine' && ad.gearbox === 'Manuelle' && ad.km === 116500 && ad.year === 2013, 'Krimpenerwaard : fiche → énergie, boîte, km, année', ad);
+ok(JSON.stringify(ds.DETAIL_READERS.autodata?.fields) === JSON.stringify(['fuel', 'gearbox', 'km', 'year']), 'Krimpenerwaard : la fiche n\'est relue que pour énergie, boîte, km, année (jamais pour un prix « op aanvraag »)');
+
 console.log(`\n${fails === 0 ? 'Tout est bon.' : `${fails} échec(s).`}`);
 if (fails) process.exit(1);
