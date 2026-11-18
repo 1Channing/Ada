@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -282,6 +282,8 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   // stocklisting (Groupe Sellens, De Willermin, 18/11) : site ASP.NET maison, cartes <a class="stock-listing--card …">,
   // pagination « stock-pagination » / « bouton-page » data-page, « ?page=N » rendu serveur.
   if (/<a class="stock-listing--card[^"]*" href="/.test(html) && /class="stock-pagination/.test(html)) return 'stocklisting';
+  // sfxlisting (SCALA, 18/11) : WordPress + extension « scala-flux », <div class="sfx-listing-wrap">, cartes sfx-card.
+  if (/class="sfx-listing-wrap"/.test(html) && /<article class="sfx-card" data-id="\d+"/.test(html) && /class="sfx-card-prix"/.test(html)) return 'sfxlisting';
   // webspark / dealerk (Cobredia, 04/11) : WordPress + plugin webspark, cartes « vcard » data-id, paires label/info, « page=N ».
   // 04/11 : variante compacte (Bony, Sofibrie, Edenauto, SIPA) — pas d'étiquettes, la ligne « 12/2025 - 10 Km - Hybride »
   // est dans vcard-consumption__title.
@@ -3033,6 +3035,103 @@ export function readStockListingDetail(html: string): DetailFields {
   };
 }
 
+// ── sfxlisting (SCALA, 18/11) : WordPress + extension « scala-flux » (flux openflex) ; cartes « sfx-card », 12 par page ;
+//    les pages suivantes ne viennent qu'en AJAX signé par un nonce WordPress (refusé sans : HTTP 403 « -1 ») → non
+//    utilisé. Le serveur relit les filtres de l'adresse : « ?sfx_orderby=prix_asc&sfx_prix_min=N » rend les 12 voitures
+//    les moins chères à partir de N (N INCLUS, mesuré le 13/11 : 1 107 = 10 sous 10 990 € + 1 097 à partir de 10 990 €).
+//    Lecture « par clé » : chaque page repart du plus haut prix lu ; si les 12 voitures sont au même prix, ce prix est
+//    départagé par le km (« sfx_prix_max=N&sfx_orderby=km_asc&sfx_km_min=K »). Énergie et boîte sont dans l'adresse
+//    de la fiche (/vehicule/occasion/<ville>/<marque>/<modèle>/<énergie>/<boîte>/<n° openflex>/).
+export function parseSfxCards(html: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  for (const part of html.split(/<article class="sfx-card" data-id="/).slice(1)) {
+    const postId = part.match(/^(\d+)"/)?.[1];
+    const href = part.match(/<a class="sfx-card-link" href="([^"]+)"/)?.[1];
+    if (!postId || !href) continue;
+    const segs = new URL(href).pathname.split('/').filter(Boolean); // vehicule, occasion, ville, marque, modèle, énergie, boîte, n°
+    // Identifiant : le n° openflex en fin d'adresse (stable), sinon le n° d'article WordPress (data-id).
+    const id = /^\d+$/.test(segs[segs.length - 1] ?? '') ? segs[segs.length - 1] : postId;
+    const slug = (i: number) => { const s = segs[segs.length - 1 - i]; return s && s !== 'autre' ? decodeURIComponent(s) : null; };
+    const brand = htmlText(part.match(/class="sfx-card-marque">([\s\S]*?)<\/h3>/)?.[1] ?? '') || null;
+    const modelBlock = part.match(/class="sfx-card-modele">([\s\S]*?)<\/div>/)?.[1] ?? '';
+    const model = htmlText(modelBlock.replace(/<span class="sfx-card-finition">[\s\S]*?<\/span>/, '')) || null;
+    const finition = htmlText(modelBlock.match(/<span class="sfx-card-finition">([\s\S]*?)<\/span>/)?.[1] ?? '');
+    const version = htmlText(part.match(/class="sfx-card-version">([\s\S]*?)<\/div>/)?.[1] ?? '');
+    const price = euro(htmlText(part.match(/class="sfx-card-prix">([\s\S]*?)<\/div>/)?.[1] ?? ''));
+    const fuelSlug = slug(2), gearSlug = slug(1);
+    out.push({
+      external_id: id, url: href, title: [brand, model, version, finition].filter(Boolean).join(' '), brand, model, price,
+      km: kmOf(htmlText(part.match(/class="sfx-card-km">([\s\S]*?)<\/span>/)?.[1] ?? '')), year: yearOf(htmlText(part.match(/class="sfx-card-annee">([\s\S]*?)<\/span>/)?.[1] ?? '')),
+      fuel: fuelSlug ? fuelSlug.charAt(0).toUpperCase() + fuelSlug.slice(1).replace(/-/g, ' ') : null, gearbox: gearboxOf(gearSlug),
+      plate: null, vin: null, body: null, image: part.match(/<img src="([^"]+)"/)?.[1] ?? null, listed_at: null,
+      status: price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: powerFromText(version), location: slug(5),
+    });
+  }
+  return out;
+}
+export async function scrapeSfxListing(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const base = new URL(url);
+  for (const k of [...base.searchParams.keys()]) if (/^sfx_(orderby|prix_min|prix_max|km_min|km_max)$/.test(k)) base.searchParams.delete(k);
+  const declared = num(firstHtml.match(/sfx-count-number">\s*(\d+)/)?.[1]);
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const warnings: string[] = [];
+  let requests = 0;
+  const page = async (params: Record<string, string>): Promise<{ count: number | null; cards: DealerVehicle[] } | null> => {
+    const u = new URL(base.toString());
+    for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+    if (requests++ > 0) await sleep(PAGE_DELAY_MS);
+    const r = await getTextPatient(u.toString());
+    if (r.status !== 200) { warnings.push(`${u.search} : HTTP ${r.status}`); return null; }
+    return { count: num(r.text.match(/sfx-count-number">\s*(\d+)/)?.[1]), cards: parseSfxCards(r.text) };
+  };
+  const take = (cards: DealerVehicle[]) => { for (const v of cards) if (!seen.has(v.external_id)) { seen.add(v.external_id); out.push(v); } };
+  const PER = 12;
+  // Ex æquo de prix (plus de 12 voitures au même prix) : départage par le km, même principe.
+  const tiePrice = async (p: number) => {
+    let kmMin = 0;
+    for (let guard = 0; guard < 60; guard++) {
+      const r = await page({ sfx_orderby: 'km_asc', sfx_prix_min: String(p), sfx_prix_max: String(p), ...(kmMin > 0 ? { sfx_km_min: String(kmMin) } : {}) });
+      if (!r) return;
+      take(r.cards);
+      if (r.cards.length < PER) return;
+      const kms = r.cards.map((c) => c.km ?? -1);
+      const maxKm = Math.max(...kms);
+      if (maxKm <= kmMin) { warnings.push(`plus de ${PER} voitures à ${p} € et ${kmMin} km : lecture partielle de ce prix`); return; }
+      kmMin = maxKm;
+    }
+  };
+  let min: number | null = null;
+  for (let guard = 0; guard < 2000; guard++) {
+    const r = await page({ sfx_orderby: 'prix_asc', ...(min != null ? { sfx_prix_min: String(min) } : {}) });
+    if (!r) break;
+    take(r.cards);
+    if (r.cards.length < PER) break;
+    const prices = r.cards.map((c) => c.price).filter((p): p is number => p != null);
+    if (prices.length === 0) { warnings.push('page sans prix lisible : lecture interrompue'); break; }
+    const maxP = Math.max(...prices);
+    if (min != null && maxP <= min) { await tiePrice(min); min = min + 1; continue; }
+    min = maxP;
+  }
+  // Voitures sans prix (exclues dès qu'un prix minimum est posé) : comptées par différence avec le total annoncé.
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  return { provider: 'sfxlisting', total: declared ?? out.length, declared, vehicles: out, pages: requests, warnings };
+}
+
+/** Fiche détail sfxlisting (SCALA) : bloc « vehicule-info » (prix, « 54 500 km | 2023 ») et liste « vehicule-details »
+ *  (énergie, boîte, « Depuis le 05/10/2023 »). Sert aux quelques cartes sans année. */
+export function readSfxDetail(html: string): DetailFields {
+  const info = html.match(/<div class="vehicule-info">([\s\S]*?)<div class="et_pb_module/)?.[1] ?? '';
+  const meta = htmlText(info.match(/<div class="meta">([\s\S]*?)<\/div>/)?.[1] ?? '');
+  const items = [...(html.match(/<ul class="vehicule-details">([\s\S]*?)<\/ul>/)?.[1] ?? '').matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => htmlText(m[1]));
+  const since = items.find((x) => /^Depuis le \d{2}\/\d{2}\/\d{4}$/i.test(x)) ?? null;
+  return {
+    price: euro(htmlText(info.match(/<div class="prix">([\s\S]*?)<\/div>/)?.[1] ?? '')), km: kmOf(meta),
+    year: yearOf(meta.split('|')[1] ?? null) ?? yearOf(since), fuel: items.find((x) => /essence|diesel|hybride|[ée]lectrique|gpl|gnv|e85|éthanol/i.test(x)) ?? null,
+    gearbox: gearboxOf(items.find((x) => /^(automatique|manuelle|auto|manu)/i.test(x)) ?? null),
+  };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getTextPatient(url); // 04/11 : MotorK (Sofibrie, SIPA) répond 429 dès la première page après une rafale
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -3067,6 +3166,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'autosphere') return scrapeAutosphere(url);
   if (provider === 'carsearchwp') return scrapeCarSearchWp(url);
   if (provider === 'stocklisting') return scrapeStockListing(url, first.text);
+  if (provider === 'sfxlisting') return scrapeSfxListing(url, first.text);
   if (provider === 'jetlisting') return scrapeJetListing(url, first.text);
   if (provider === 'gatsbyvehicles') return scrapeGatsbyVehicles(url);
   if (provider === 'dvnl') return scrapeDv(url, first.text);
@@ -3196,6 +3296,7 @@ export const DETAIL_READERS: Partial<Record<DealerProvider, DetailReader>> = {
   dmapi: { fields: ['gearbox', 'fuel', 'km', 'year'], read: readDatamotiveDetail },
   autopalace: { fields: ['gearbox'], read: readAutopalaceDetail },
   stocklisting: { fields: ['gearbox', 'year'], read: readStockListingDetail },
+  sfxlisting: { fields: ['year'], read: readSfxDetail },
 };
 
 /** Relève le stock d'une concession de la carte et le compare au relevé précédent. Avec `prefetched` (vitrine
