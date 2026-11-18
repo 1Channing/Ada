@@ -2402,13 +2402,17 @@ async function scrapeVgrf(url: string, firstHtml: string): Promise<DealerStockRe
       const price = euro(iPrix >= 0 ? t[iPrix + 1] : t.find((x) => /\d\s*€$/.test(x)));
       const year = num(t.find((x) => /^(19|20)\d{2}$/.test(x)));
       const km = kmOf(t.find((x) => /km$/i.test(x)));
-      const fuel = t.find((x) => /^(essence|diesel|hybride|électrique|electrique|gpl|hybride rechargeable|hybride non rechargeable)/i.test(x)) ?? null;
-      const gear = t.find((x) => /^(manuelle|automatique|séquentielle|sequentielle)$/i.test(x)) ?? null;
+      // « … | 44700 Orvault | Essence | Rob double embray | 2024 | 125 156 Km » : la boîte est le jeton qui suit l'énergie
+      // (18/11 : 82 « Rob double embray » sur 120 n'étaient pas lues).
+      const iFuel = t.findIndex((x) => /^(essence|diesel|hybride|électrique|electrique|gpl|ethanol|gnv)/i.test(x));
+      const fuel = iFuel >= 0 ? t[iFuel] : null;
+      const next = iFuel >= 0 ? t[iFuel + 1] : undefined;
+      const gear = next && !/^(19|20)\d{2}$|km$/i.test(next) ? next : t.find(isGearFr) ?? null;
       const { brand, model } = splitTitle(alt);
       const version = brand && model ? alt.replace(new RegExp(`^${brand}\\s+${model}\\s*`, 'i'), '') : alt;
       seen.add(id); added++;
       out.push({
-        external_id: id, url: href, title: alt, brand, model, price, km, year, fuel, gearbox: gearboxOf(gear), plate: null, vin: null, body: null,
+        external_id: id, url: href, title: alt, brand, model, price, km, year, fuel, gearbox: gearboxFr(gear), plate: null, vin: null, body: null,
         image: part.match(/data-src="([^"]+)"/)?.[1] ?? null, listed_at: null, status: price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: powerFromText(version),
       });
     }
