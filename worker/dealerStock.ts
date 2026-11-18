@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -343,6 +343,8 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   // audaris (J.W. Handelsgesellschaft, 14/11) : widget « widget-showroom-cms.audaris.de », configuration « defaultSettings »
   // (audaris_id + client_id) ; voitures lues par l'API publique d'audaris (sans clé).
   if (/widget-showroom-cms\.audaris\.de\/widget\.js/.test(html) && /defaultSettings\s*=\s*\{"audaris_id":"[0-9a-f]{24}","client_id":\d+/.test(html)) return 'audaris';
+  // kleynvans (Bestelbus.nl / Kleyn Vans, 14/11) : cartes « vehicle-card » + route « /load-more-results » (JSON, 30 par page).
+  if (/data-route="https?:\/\/[^"]*\/load-more-results"/.test(html) && /class="vehicle-card__title"/.test(html) && /meta-item--registration-year/.test(html)) return 'kleynvans';
   if (/"@type":\s*"ItemList"/.test(html) && /"Car"/.test(html)) return 'datamotive';
   if (/"listerpage":\s*\{[^}]*"ajax_url"/.test(html)) return 'listerpage';
   if (/data-update-url="[^"]*\/voorraad-api\/vehiclelist\/\d+\/vehicles\.json/.test(html)) return 'dvapi';
@@ -3640,6 +3642,121 @@ async function scrapeAudaris(url: string, firstHtml: string): Promise<DealerStoc
   return { provider: 'audaris', total: declared ?? out.length, declared, vehicles: out, pages: Math.max(1, pages), warnings };
 }
 
+// ── kleynvans (Kleyn Vans / Bestelbus.nl, Vuren, 14/11) : site maison du groupe Kleyn (bestelbus.nl, kleynvans.com,
+//    camionette.eu — kleynvans.nl ne répond plus : HTTP 522 de Cloudflare). Page « /nl/voorraad » : 30 cartes
+//    <div class="vehicle-card …" data-price="9450"> (titre, Nr., Soort, Carrosserievorm, Registratiejaar « 2022-2 »,
+//    KM stand, Versnellingsbak, Motor capaciteit « 101 PK », prix EUR « Excl. BTW »), total « data-resultscount="605" ».
+//    Pages suivantes : GET /nl/load-more-results?facet=<filtres>&page=N → JSON { result_count, vehicleCards (HTML des
+//    mêmes cartes), nextPage } (route lue dans data-route, sans clé). L'ÉNERGIE n'est PAS sur la carte : elle est lue
+//    par le filtre du site — une lecture par valeur du filtre « filters.drivetrain.fuel_type » (diesel 560,
+//    elektrisch 29, benzine 10, aardgas 2 le 14/11) ; un véhicule dans deux filtres (4 : Transit Custom PHEV ×3,
+//    Multivan « Hybride » — elektrisch ET benzine) est un hybride ; hors de tous (8 sur 605 : arrivages pas encore
+//    inspectés, « Brandstof : - » sur la fiche) il reste sans énergie.
+export function parseKleynCards(html: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  const meta = (card: string, key: string): string | null => {
+    const m = card.match(new RegExp(`meta-item--${key}">\\s*<span class="vehicle-card__meta-label">[^<]*</span>\\s*<span class="vehicle-card__meta-value">([\\s\\S]*?)</span>`));
+    return m ? htmlText(m[1]) || null : null;
+  };
+  for (const card of html.split(/<div class="vehicle-card(?:\s[^"]*)?"(?=[\s>])/).slice(1)) {
+    const link = card.match(/<a href="([^"]*\/voertuig\/gegevens\/(\d+)\/[^"]*)" class="vehicle-card__title"[^>]*>([\s\S]*?)<\/a>/);
+    if (!link) continue; // bloc publicitaire inséré entre les cartes
+    const [, href, id, rawTitle] = link;
+    const title = htmlText(rawTitle);
+    // « OPEL - COMBO 1.5 » (texte alternatif de la photo) : la marque avant « - », le modèle = mots sans chiffre qui suivent.
+    const alt = unesc(card.match(/class="vehicle-card__image[^"]*"[^>]*\balt="([^"]*)"/)?.[1] ?? card.match(/\balt="([^"]* - [^"]*)"/)?.[1] ?? '');
+    const [brandRaw, rest = ''] = alt.includes(' - ') ? [alt.split(' - ')[0], alt.split(' - ').slice(1).join(' - ')] : [title.split(/\s+/)[0], title.split(/\s+/).slice(1).join(' ')];
+    const words = rest.split(/\s+/).filter(Boolean);
+    const modelWords = words.slice(0, Math.max(1, words.findIndex((w) => /\d/.test(w)) === -1 ? words.length : words.findIndex((w) => /\d/.test(w))));
+    const eur = card.match(/currency--eur">\s*<span class="price\s*" data-price="(\d+)"/)?.[1] ?? card.match(/^[^>]*data-price="(\d+)"/)?.[1];
+    const price = priceOrNull(eur);
+    const ribbon = htmlText(card.match(/class="vehicle-card__ribbon">([\s\S]*?)<\/span>/)?.[1] ?? '');
+    const hp = meta(card, 'engine-capacity-hp');
+    out.push({
+      external_id: id, url: unesc(href), title, brand: brandRaw || null, model: modelWords.join(' ') || null, price, currency: 'EUR',
+      km: kmOf(meta(card, 'mileage')), year: yearOf(meta(card, 'registration-year')), fuel: null, gearbox: gearboxOf(meta(card, 'gearbox-kind')),
+      plate: null, vin: null, body: meta(card, 'specification') ?? meta(card, 'kind'),
+      image: card.match(/data-original="([^"]+)"/)?.[1] ?? null, listed_at: null,
+      status: statusFromText(ribbon) ?? (price == null ? 'price_on_request' : null),
+      power_ch: num(hp?.match(/(\d+)\s*PK/i)?.[1]) ?? powerFromText(title),
+    });
+  }
+  return out;
+}
+async function scrapeKleynVans(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const warnings: string[] = [];
+  const declared = num(firstHtml.match(/data-resultscount="(\d+)"/)?.[1]);
+  const route = unesc(firstHtml.match(/data-route="([^"]*\/load-more-results)"/)?.[1] ?? `${origin}/nl/load-more-results`);
+  // Filtres de l'adresse enregistrée (« /nl/voorraad?facet=make:FORD » ou « /nl/voorraad/make:FORD ») gardés tels quels.
+  const u = new URL(url);
+  const baseFacets = [u.searchParams.get('facet'), ...(u.pathname.match(/\/voorraad\/(.+)$/)?.[1]?.split('/') ?? [])].filter(Boolean).join(';');
+  const loadMore = (facet: string, page: number, sort?: string) => `${route}?facet=${[baseFacets, facet].filter(Boolean).join(';')}${sort ? `&${sort}` : ''}&page=${page}`;
+  // Une lecture complète d'un filtre : cartes de toutes les pages (30 par page) ; rend null si une page échoue.
+  const readAll = async (facet: string, firstCards: DealerVehicle[] | null, sort?: string): Promise<{ cards: DealerVehicle[]; pages: number } | null> => {
+    const cards: DealerVehicle[] = [];
+    const ids = new Set<string>();
+    let count: number | null = null;
+    let pages = 0;
+    for (let p = 1; p <= 200; p++) {
+      let got: DealerVehicle[];
+      if (p === 1 && firstCards) got = firstCards;
+      else {
+        await sleep(SITE_DELAY_MS);
+        const r = await getTextPatient(loadMore(facet, p, sort), { headers: { accept: 'application/json', 'x-requested-with': 'XMLHttpRequest', referer: url } });
+        if (r.status !== 200) { warnings.push(`${facet || sort || 'liste'} page ${p} : HTTP ${r.status}`); return null; }
+        let d: { result_count?: number; vehicleCards?: string };
+        try { d = JSON.parse(r.text); } catch { warnings.push(`${facet || sort || 'liste'} page ${p} : réponse illisible`); return null; }
+        count = count ?? num(d.result_count);
+        got = parseKleynCards(d.vehicleCards ?? '');
+      }
+      pages = p;
+      let added = 0;
+      for (const v of got) if (!ids.has(v.external_id)) { ids.add(v.external_id); cards.push(v); added++; }
+      const expected = facet ? count : declared;
+      if (added === 0 || got.length < 30 || (expected != null && cards.length >= expected)) break;
+    }
+    return { cards, pages };
+  };
+  // RÉUNION DES LECTURES (18/11 : 624 voitures distinctes pour 625 annoncées en une lecture — une voiture ajoutée ou
+  // retirée pendant la lecture décale les pages) : liste, puis les lectures par énergie (elles rendent les mêmes
+  // cartes), puis, s'il en manque encore, la liste triée par prix (« sort[price]=asc », tri du site).
+  const byId = new Map<string, DealerVehicle>();
+  const merge = (cards: DealerVehicle[]) => { for (const v of cards) if (!byId.has(v.external_id)) byId.set(v.external_id, v); };
+  const all = await readAll('', parseKleynCards(firstHtml));
+  if (!all) return { provider: 'kleynvans', total: declared, declared, vehicles: [], pages: 1, warnings };
+  merge(all.cards);
+  let pages = all.pages;
+  // ÉNERGIE PAR LE FILTRE DU SITE : une lecture par valeur (« elektrisch », « diesel »…).
+  const fuels = [...new Set([...firstHtml.matchAll(/name="filters\.drivetrain\.fuel_type"\s+value="([^"]+)"/g)].map((m) => m[1]))];
+  const fuelOf = new Map<string, string[]>();
+  for (const f of fuels) {
+    const r = await readAll(`filters.drivetrain.fuel_type:${f}`, null);
+    if (!r) continue;
+    pages += r.pages;
+    for (const v of r.cards) fuelOf.set(v.external_id, [...(fuelOf.get(v.external_id) ?? []), f.charAt(0).toUpperCase() + f.slice(1)]);
+    merge(r.cards);
+  }
+  if (declared != null && byId.size < declared) {
+    const r = await readAll('', null, 'sort[price]=asc');
+    if (r) { pages += r.pages; merge(r.cards); }
+  }
+  const vehicles = [...byId.values()];
+  for (const v of vehicles) {
+    const fs = fuelOf.get(v.external_id) ?? [];
+    // Deux filtres à la fois (elektrisch + benzine) = hybride ; « PHEV » dans le titre = hybride rechargeable.
+    v.fuel = fs.length > 1 ? `${/\bphev\b|plug-?in/i.test(v.title) ? 'Plug-in hybride' : 'Hybride'} (${fs.join('/')})` : fs[0] ?? null;
+    // Utilitaire 100 % électrique sans boîte affichée : réducteur à un rapport = automatique.
+    if (v.gearbox == null && v.fuel === 'Elektrisch') v.gearbox = 'Automatique';
+  }
+  const noFuel = vehicles.filter((v) => v.fuel == null).length;
+  if (fuels.length === 0) warnings.push('filtre d\'énergie introuvable sur la page : énergie inconnue');
+  else if (noFuel) warnings.push(`${noFuel} véhicule(s) sans énergie publiée par le site (arrivages pas encore inspectés, remorques)`);
+  warnings.push('Prix affichés hors TVA (« Excl. BTW »).');
+  if (declared != null && vehicles.length < declared) warnings.push(`${vehicles.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  return { provider: 'kleynvans', total: declared ?? vehicles.length, declared, vehicles, pages, warnings };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getTextPatient(url); // 04/11 : MotorK (Sofibrie, SIPA) répond 429 dès la première page après une rafale
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -3674,6 +3791,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'acaicms') return scrapeAcai(url, first.text);
   if (provider === 'carmarketb2c') return scrapeCarmarketB2c(url, first.text);
   if (provider === 'audaris') return scrapeAudaris(url, first.text);
+  if (provider === 'kleynvans') return scrapeKleynVans(url, first.text);
   if (provider === 'autosphere') return scrapeAutosphere(url);
   if (provider === 'carsearchwp') return scrapeCarSearchWp(url);
   if (provider === 'stocklisting') return scrapeStockListing(url, first.text);
