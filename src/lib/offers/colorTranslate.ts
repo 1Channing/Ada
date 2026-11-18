@@ -78,29 +78,53 @@ export interface ColorTranslation {
   translated: boolean;
 }
 
-/** Traduit une couleur de fichier fournisseur ; l'original est rendu tel quel si rien n'est reconnu. */
+/** Mots qui annoncent un BITON (deux teintes carrosserie / toit) : retirés du libellé, dits en fin. */
+const TWO_TONE = /\b(bitono|bicolou?r|bicolore|bi-?tone?|two-?tone|zweifarbig|tweekleurig|duo-?tone|tvafarg(ad)?)\b/i;
+const TWO_TONE_LABEL = { fr: 'bicolore', en: 'two-tone' } as const;
+/** « PLATINIUM » → « Platinium » (nom commercial en capitales), un mot déjà mixte reste tel quel. */
+const titleCase = (w: string) => (w === w.toUpperCase() && /[A-Z]/.test(w) ? w.charAt(0) + w.slice(1).toLowerCase() : w);
+
+/**
+ * Traduit une couleur de fichier fournisseur ; l'original est rendu tel quel si rien n'est reconnu.
+ * 18/11 (liste ID. Buzz, Channing : « les couleurs ne sont pas entières ») : le NOM COMMERCIAL est gardé, seuls les
+ * mots de couleur et de finition sont traduits et mis en tête (« GRIS PLATINIUM MÉTALLISÉ » → « Gris Platinium
+ * métallisé », « Bay Leaf Green » → « Vert Bay Leaf ») ; un biton garde ses deux teintes (« Bitono Blanco Candy / Bay
+ * Leaf Green » → « Blanc Candy / Vert Bay Leaf bicolore ») — avant, tout se réduisait à « Blanc ».
+ */
 export function translateColor(raw: string | null | undefined, lang: 'fr' | 'en' = 'fr'): ColorTranslation {
   const original = (raw ?? '').trim();
   if (!original) return { label: '', key: null, finish: null, translated: false };
   // Extérieur = premier segment ; une ligne qui COMMENCE par l'intérieur (« , BLACK-BLACK/… ») n'a pas d'extérieur lisible.
   const segment = original.split(/[,;|]/)[0].replace(/\(.*?\)/g, '').trim();
   if (/^[\s?.-]*$/.test(segment) || UNKNOWN.test(norm(segment).replace(/[^a-z]/g, ''))) return { label: '', key: null, finish: null, translated: true };
-  const exterior = segment.split('/')[0].trim();
-  const tokens = norm(exterior).split(/[^a-z]+/).filter(Boolean);
+  const twoTone = TWO_TONE.test(segment);
+  const parts = segment.replace(TWO_TONE, ' ').split('/').map((p) => p.trim()).filter(Boolean);
   let key: ColorKey | null = null;
   let finish: Finish | null = null;
-  for (const t of tokens) {
-    if (!key) {
+  const translatedParts: string[] = [];
+  for (const part of parts) {
+    let partKey: ColorKey | null = null;
+    let partFinish: Finish | null = null;
+    const others: string[] = [];
+    for (const token of part.split(/\s+/).filter(Boolean)) {
+      const t = norm(token).replace(/[^a-z]/g, '');
+      if (!t) continue;
       const exact = WORD_TO_KEY.get(t);
-      if (exact) { key = exact; continue; }
-      // Mot composé : le mot de couleur en fin (« scubabla » → « bla »), au moins 3 lettres devant.
-      for (const c of COMPOUND) if (t.length > c.length + 2 && t.endsWith(c)) { key = WORD_TO_KEY.get(c) ?? null; break; }
-      if (key) continue;
+      if (exact) { if (!partKey) partKey = exact; else if (partKey !== exact) others.push(LABELS[exact][lang].toLowerCase()); continue; }
+      // Mot composé : le mot de couleur en fin (« saphirschwarz » → « schwarz »), le préfixe reste (« Saphir »).
+      let compound = false;
+      for (const c of COMPOUND) if (t.length > c.length + 2 && t.endsWith(c)) { const k = WORD_TO_KEY.get(c); if (k) { if (!partKey) partKey = k; others.push(titleCase(token.slice(0, token.length - c.length))); compound = true; } break; }
+      if (compound) continue;
+      const f = FINISH_TO_KEY.get(t);
+      if (f) { if (!partFinish) partFinish = f; continue; }
+      others.push(titleCase(token.replace(/^[-–]+/, '')));
     }
-    if (!finish) finish = FINISH_TO_KEY.get(t) ?? null;
+    if (!partKey) { translatedParts.push(part); continue; }
+    key ??= partKey; finish ??= partFinish;
+    translatedParts.push([LABELS[partKey][lang], ...others.filter(Boolean), partFinish ? FINISH_LABELS[partFinish][lang] : ''].filter(Boolean).join(' '));
   }
   if (!key) return { label: original.replace(/^[,/|;\s]+/, '').trim() || original, key: null, finish: null, translated: false };
-  const label = `${LABELS[key][lang]}${finish ? ` ${FINISH_LABELS[finish][lang]}` : ''}`;
+  const label = `${translatedParts.join(' / ')}${twoTone ? ` ${TWO_TONE_LABEL[lang]}` : ''}`;
   return { label, key, finish, translated: true };
 }
 
