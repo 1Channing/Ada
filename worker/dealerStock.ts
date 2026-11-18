@@ -83,15 +83,52 @@ export interface DealerVehicle {
 const priceOrNull = (v: unknown): number | null => { const n = num(v); return n != null && n > 0 ? n : null; };
 /** Chemin d'une adresse (« https://www.vanmossel.nl/voorraad/3473-… » → « /voorraad/3473-… »). */
 const pathOfUrl = (u: string): string => { try { return new URL(u).pathname; } catch { return u.replace(/^https?:\/\/[^/]+/, ''); } };
+/**
+ * PRIX DANS LA CHARGE NUXT (14/11, contrôle de la règle du 13/11) : la page Nuxt 3 embarque
+ * <script id="__NUXT_DATA__"> (format « devalue » : un tableau plat où chaque objet renvoie à ses valeurs par
+ * indice). Chaque voiture y est un objet { id: "19926744-1", slug: "audi-q2-…-2018", price: { purchase: {
+ * formatted: "€ 14.500", original: { amount }, discount: { isDiscounted } } } } — le prix d'achat structuré, rattaché
+ * à la voiture par son adresse (/voorraad/<id>-<slug>), sans dépendre de l'ordre des montants dans le HTML.
+ * Rend « <id>-<slug> » → prix d'achat en euros (> 0). Vide si la page n'a pas de charge Nuxt.
+ */
+export function nuxtPurchasePrices(html: string): Map<string, number> {
+  const out = new Map<string, number>();
+  const raw = html.match(/<script[^>]*id="__NUXT_DATA__"[^>]*>([\s\S]*?)<\/script>/)?.[1];
+  if (!raw) return out;
+  let a: unknown[];
+  try { a = JSON.parse(raw) as unknown[]; } catch { return out; }
+  // Valeur d'un indice, enveloppes Reactive / Ref suivies (["Reactive", 12] → a[12]).
+  const at = (i: unknown): unknown => {
+    let x: unknown = typeof i === 'number' && i >= 0 && i < a.length ? a[i] : undefined;
+    for (let k = 0; k < 4 && Array.isArray(x) && typeof x[0] === 'string' && /Ref|Reactive/.test(x[0]); k++) x = a[x[1] as number];
+    return x;
+  };
+  const obj = (x: unknown) => (x && typeof x === 'object' && !Array.isArray(x) ? (x as Record<string, unknown>) : null);
+  for (const x of a) {
+    const o = obj(x);
+    if (!o || !('id' in o) || !('slug' in o) || !('price' in o)) continue;
+    const id = at(o.id), slug = at(o.slug);
+    const formatted = at(obj(at(obj(at(o.price))?.purchase))?.formatted);
+    const eur = typeof formatted === 'string' ? priceOrNull(formatted) : null;
+    if (typeof id === 'string' && typeof slug === 'string' && eur != null) out.set(`${id}-${slug}`, eur);
+  }
+  return out;
+}
+/** Dernier segment d'une adresse de fiche (« https://www.vanmossel.nl/voorraad/19926744-1-audi-q2-… » → « 19926744-1-audi-q2-… »). */
+export const lastSegment = (u: string) => u.replace(/[?#].*$/, '').replace(/\/+$/, '').split('/').pop() ?? '';
 /** Prix lu dans chaque CARTE d'une liste : la page est découpée au premier lien de chaque véhicule (« /voorraad/… »),
- *  le premier montant « € 24.740 » du segment est celui de la carte (13/11, Van Mossel : 22 cartes, 22 prix). */
+ *  le premier montant « € 24.740 » du segment est celui de la carte (13/11, Van Mossel : 22 cartes, 22 prix). Le montant
+ *  de la REMISE (« Jouw korting: € 7.610 ») et l'ANCIEN prix barré (<span class="… line-through">€ 60.600</span>) sont
+ *  ôtés d'abord (18/11 : ID.7 enregistrée à 7 610 € au lieu de 52 990 €, 5008 à 6 800 € au lieu de 47 940 €). */
 export function cardPricesByHref(html: string): Map<string, number> {
   const firsts = new Map<string, number>();
   for (const m of html.matchAll(/href="(\/[a-z-]+\/\d{5,}[^"]*)"/g)) if (!firsts.has(m[1])) firsts.set(m[1], m.index ?? 0);
   const order = [...firsts.entries()].sort((a, b) => a[1] - b[1]);
   const out = new Map<string, number>();
   for (let i = 0; i < order.length; i++) {
-    const seg = html.slice(order[i][1], i + 1 < order.length ? order[i + 1][1] : order[i][1] + 12_000);
+    const seg = html.slice(order[i][1], i + 1 < order.length ? order[i + 1][1] : order[i][1] + 12_000)
+      .replace(/<(\w+)[^>]*\bline-through\b[^>]*>[^<]*<\/\1>/g, ' ')
+      .replace(/(?:korting|voordeel|remise|rabatt|sconto|descuento|discount|you save)[^€<]{0,30}€\s?[\d.\s]+/gi, ' ');
     const m = seg.match(/€\s?(\d{1,3}(?:[.\s]\d{3})+|\d{4,6})(?![\d,.])/);
     if (m) out.set(order[i][0], Number(m[1].replace(/[.\s]/g, '')));
   }
@@ -504,6 +541,7 @@ async function scrapeDatamotive(url: string, firstHtml: string, onProgress?: Sto
     // PRIX DE LA CARTE (13/11, Channing : Van Mossel « les prix de vente n'ont pas été enregistrés ») : le JSON-LD de
     // vanmossel.nl n'a pas d'offre, mais chaque carte affiche « Kopen € 24.740 » — lu à côté du lien du véhicule.
     const cardPrices = got.html ? cardPricesByHref(got.html) : new Map<string, number>();
+    const nuxtPrices = got.html ? nuxtPurchasePrices(got.html) : new Map<string, number>();
     // 404 = au-delà de la dernière page (Century : page 101 sur 100), fin normale.
     if (!parsed) { if (got.status !== 404) warnings.push(`arrêt à la page ${page} : HTTP ${got.status} ou JSON-LD absent — relevé partiel`); return false; }
     if (parsed.items.length === 0) return false;
@@ -524,7 +562,7 @@ async function scrapeDatamotive(url: string, firstHtml: string, onProgress?: Sto
       const year = ldCarYear(item, u);
       out.push({
         external_id: id, url: u || null, title: name, brand: brand || splitTitle(name).brand, model: item.model ? String(item.model) : splitTitle(name).model,
-        price: priceOrNull(offers.price) ?? cardPrices.get(pathOfUrl(u)) ?? null, km, year, fuel: item.fuelType ? String(item.fuelType) : null,
+        price: priceOrNull(offers.price) ?? (nuxtPrices.get(lastSegment(u)) ?? cardPrices.get(pathOfUrl(u))) ?? null, km, year, fuel: item.fuelType ? String(item.fuelType) : null,
         gearbox: item.vehicleTransmission ? String(item.vehicleTransmission) : null, plate: null,
         vin: item.vehicleIdentificationNumber ? String(item.vehicleIdentificationNumber) : null, body: item.bodyType ? String(item.bodyType) : null,
         image: Array.isArray(item.image) ? String(item.image[0] ?? '') || null : item.image ? String(item.image) : null, listed_at: null,
@@ -532,7 +570,7 @@ async function scrapeDatamotive(url: string, firstHtml: string, onProgress?: Sto
         // OutOfStock = vendue ; prix absent = sur demande.
         status: /preorder/i.test(String(offers.availability ?? '')) ? 'expected'
           : /soldout|outofstock|discontinued/i.test(String(offers.availability ?? '')) ? 'sold'
-            : priceOrNull(offers.price) == null && cardPrices.get(pathOfUrl(u)) == null ? 'price_on_request' : null,
+            : priceOrNull(offers.price) == null && (nuxtPrices.get(lastSegment(u)) ?? cardPrices.get(pathOfUrl(u))) == null ? 'price_on_request' : null,
       });
     }
     if (added === 0) { if (total != null && out.length < total) warnings.push(`page ${page} : aucun véhicule nouveau — arrêt à ${out.length} / ${total}`); return false; }
