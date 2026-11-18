@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -356,6 +356,8 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/<script id="ng-state"/.test(html) && /\/api\/locales\/[a-z]{2}_[A-Z]{2}\/dwa\/configuration/.test(html)) return 'dasweltauto';
   // pewneauto (Toyota / Lexus Hongrie, 19/11) : moteur pewneauto (panel.pewneauto.pl), total « N ajánlat » dans le titre.
   if (/pewneauto\.pl\//.test(html) && /<title>[^<]*\d\s*aj[áa]nlat/.test(html)) return 'pewneauto';
+  // vwgmarket (neuves du groupe VW, azonnalelviheto.<marque>.hu, 19/11) : React Router (turbo-stream), « storedByImporter ».
+  if (/__reactRouterContext/.test(html) && /routes\/search\/search\.route/.test(html) && /storedByImporter/.test(html)) return 'vwgmarket';
   // catalogpager (Groupe DMD, 04/11) : site Symfony maison, cartes <a class="fiche_vehicule">, pages chargées en POST
   // sur « /ajax/search?flag=html » avec filters[page]=N (liens « catalog-pager-link » data-page).
   if (/class="fiche_vehicule/.test(html) && /catalog-pager-link/.test(html) && /data-ajax-request-search="/.test(html)) return 'catalogpager';
@@ -4679,6 +4681,101 @@ async function scrapePewne(url: string, firstHtml: string): Promise<DealerStockR
   return { provider: 'pewneauto', total: declared ?? vehicles.length, declared, vehicles, pages, warnings };
 }
 
+// ── vwgmarket (place de marché des neuves du groupe VW, Hongrie, 19/11 nuit) : azonnalelviheto.volkswagen.hu / .audi.hu /
+//    .vwh.hu / .skoda.hu (Porsche Informatik) — neuves en stock et véhicules de démonstration de chaque concession. Adresse
+//    de la fiche ADA : le mode concession « /d-<n°>/search ». Les données sont celles de la page, au format « turbo-stream »
+//    de React Router (« /d-<n°>/search.data?size=100 », sans clé) : un tableau aplati où chaque objet renvoie à ses
+//    valeurs par indice (décodé par turboStreamDecode). 100 voitures au plus par requête, aucun paramètre de page ni de
+//    filtre d'adresse n'est pris en compte (vérifié le 19/11) : au-delà, relevé déclaré partiel (aucune voiture marquée
+//    disparue). La liste d'une concession contient aussi les voitures « stockées par l'importateur » (montrées chez
+//    toutes) et parfois celles d'autres concessions : seules celles de LA concession sont gardées. Prix brut en fillér
+//    (÷ 100), énergie, boîte, année de fabrication, puissance, couleur, démonstration / stock, TVA récupérable, réservé.
+/** Décodeur « turbo-stream » (React Router) : tableau aplati, objets aux clés « _<indice> », valeurs par indice. */
+export function turboStreamDecode(arr: unknown[]): unknown {
+  const memo = new Map<number, unknown>();
+  const special: Record<number, unknown> = { [-1]: null, [-2]: null, [-3]: null, [-4]: 0, [-5]: null, [-6]: null, [-7]: null };
+  const at = (i: unknown): unknown => {
+    if (typeof i !== 'number') return i;
+    if (i < 0) return special[i] ?? null;
+    if (memo.has(i)) return memo.get(i);
+    const v = arr[i];
+    if (Array.isArray(v)) {
+      if (v.length && typeof v[0] === 'string' && /^[DPZYREMSBW]$/.test(v[0])) { const r = v[0] === 'D' ? v[1] : null; memo.set(i, r); return r; }
+      const o: unknown[] = []; memo.set(i, o);
+      for (const x of v) o.push(at(x));
+      return o;
+    }
+    if (v && typeof v === 'object') {
+      const o: Record<string, unknown> = {}; memo.set(i, o);
+      for (const [k, vi] of Object.entries(v as Record<string, unknown>)) o[k.startsWith('_') ? String(arr[Number(k.slice(1))]) : k] = at(vi);
+      return o;
+    }
+    memo.set(i, v);
+    return v;
+  };
+  return at(0);
+}
+type VwgmCar = {
+  id?: string; mileageKm?: number | null; brand?: string | null; model?: { name?: string | null; groupName?: string | null; year?: number | null } | null;
+  flagData?: { stockVehicle?: boolean; testDrive?: boolean; storedByImporter?: boolean; vatDeductible?: boolean; reservedOnline?: boolean; usedVehicle?: boolean } | null;
+  colorData?: { exterior?: { name?: string | null } | null } | null;
+  technicalData?: { combinedFuelGroupName?: string | null; gearName?: string | null; manufacturingYear?: number | null; power?: { powerHp?: number | null } | null; driveName?: string | null } | null;
+  priceData?: { display?: { currency?: string | null; gross?: number | null } | null } | null;
+  images?: { sorted?: Array<{ sources?: Array<{ url?: string }> }> } | null;
+  patchedDealer?: { internetDealerId?: string | null; name?: string | null } | null;
+};
+const VWGM_BRAND: Record<string, string> = { VW: 'Volkswagen', VWN: 'Volkswagen Haszongépjármű', AUDI: 'Audi', SKODA: 'Škoda', SEAT: 'SEAT', CUPRA: 'CUPRA', PORSCHE: 'Porsche' };
+/** Voitures et pagination d'une réponse « search.data » (fonction pure). */
+export function parseVwgMarket(text: string): { cars: VwgmCar[]; page: { total?: number; size?: number } | null } {
+  const first = text.split('\n').find((l) => l.trim().startsWith('['));
+  if (!first) return { cars: [], page: null };
+  let arr: unknown[];
+  try { arr = JSON.parse(first) as unknown[]; } catch { return { cars: [], page: null }; }
+  const d = turboStreamDecode(arr) as Record<string, { data?: { resultList?: Array<{ type?: string; car?: VwgmCar }>; page?: { total?: number; size?: number } } }>;
+  const data = d?.['routes/search/search.route']?.data;
+  return { cars: (data?.resultList ?? []).filter((x) => x?.type === 'car' && x.car).map((x) => x.car as VwgmCar), page: data?.page ?? null };
+}
+export function vwgmToVehicle(c: VwgmCar, origin: string): DealerVehicle | null {
+  if (!c.id) return null;
+  const brand = VWGM_BRAND[(c.brand ?? '').toUpperCase()] ?? c.brand ?? null;
+  const name = (c.model?.name ?? '').trim();
+  const f = c.flagData ?? {};
+  const gross = num(c.priceData?.display?.gross);
+  const price = gross != null && gross > 0 ? Math.round(gross / 100) : null;   // fillér → forints
+  const gear = c.technicalData?.gearName ?? '';
+  const base = [brand, name].filter(Boolean).join(' ');
+  return {
+    external_id: c.id, url: `${origin}/search/car/${encodeURIComponent(c.id)}`, title: f.vatDeductible ? `${base} · TVA récupérable` : base,
+    brand, model: c.model?.groupName ?? splitTitle(base).model, price, currency: c.priceData?.display?.currency ?? 'HUF',
+    km: num(c.mileageKm), year: num(c.technicalData?.manufacturingYear) ?? num(c.model?.year), fuel: c.technicalData?.combinedFuelGroupName ?? null,
+    gearbox: !gear ? null : /k[ée]zi|manu/i.test(gear) ? 'Manuelle' : /dsg|automat|tiptronic|s ?tronic|cvt|e-?gear/i.test(gear) ? 'Automatique' : gear,
+    plate: null, vin: null, body: [f.testDrive ? 'démonstration' : f.stockVehicle ? 'neuve en stock' : null, c.colorData?.exterior?.name, c.technicalData?.driveName].filter(Boolean).join(' · ') || null,
+    image: c.images?.sorted?.[0]?.sources?.[0]?.url ?? null, listed_at: null,
+    status: f.reservedOnline ? 'reserved' : price == null ? 'price_on_request' : null, power_ch: num(c.technicalData?.power?.powerHp),
+    location: c.patchedDealer?.name ?? null,
+  };
+}
+async function scrapeVwgMarket(url: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  const id = u.pathname.match(/\/d-(\d+)\//)?.[1] ?? u.searchParams.get('dealer')?.match(/id:(\d+)/)?.[1];
+  if (!id) throw new Error('adresse de la place de marché sans concession (attendu : …/d-<n°>/search) : le stock national n\'est pas la vitrine d\'une concession');
+  const dealer = id.padStart(5, '0');
+  await sleep(SITE_DELAY_MS);
+  const r = await getTextPatient(`${u.origin}/d-${Number(id)}/search.data?size=100`, { headers: { accept: '*/*', 'accept-language': 'hu-HU,hu;q=0.9' } });
+  if (r.status !== 200) throw new Error(`place de marché : HTTP ${r.status}`);
+  const { cars, page } = parseVwgMarket(r.text);
+  const warnings: string[] = [];
+  if (!page) return { provider: 'vwgmarket', total: null, declared: null, vehicles: [], pages: 1, warnings: ['réponse « search.data » illisible (format turbo-stream changé ?)'] };
+  const own = cars.filter((c) => !c.flagData?.storedByImporter && (c.patchedDealer?.internetDealerId ?? '').padStart(5, '0') === dealer);
+  const vehicles = own.map((c) => vwgmToVehicle(c, u.origin)).filter((v): v is DealerVehicle => !!v);
+  const imported = cars.filter((c) => c.flagData?.storedByImporter).length;
+  if (imported) warnings.push(`${imported} voiture(s) stockée(s) par l'importateur (montrées chez toutes les concessions) : non comptées`);
+  // Plus de 100 voitures dans la liste : la place de marché ne pagine pas → relevé partiel déclaré (aucune disparition marquée).
+  const truncated = (page.total ?? 0) > cars.length;
+  if (truncated) warnings.push(`liste de ${page.total} voitures, ${cars.length} servies (la place de marché ne pagine pas) : relevé partiel`);
+  return { provider: 'vwgmarket', total: vehicles.length, declared: truncated ? (page.total ?? null) : vehicles.length, vehicles, pages: 1, warnings };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getTextPatient(url); // 04/11 : MotorK (Sofibrie, SIPA) répond 429 dès la première page après une rafale
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -4714,6 +4811,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'carmarketb2c') return scrapeCarmarketB2c(url, first.text);
   if (provider === 'dasweltauto') return scrapeDasWeltAuto(url, first.text);
   if (provider === 'pewneauto') return scrapePewne(url, first.text);
+  if (provider === 'vwgmarket') return scrapeVwgMarket(url);
   if (provider === 'audaris') return scrapeAudaris(url, first.text);
   if (provider === 'kleynvans') return scrapeKleynVans(url, first.text);
   if (provider === 'ocasionplus') return scrapeOcasionPlus(url, first.text);

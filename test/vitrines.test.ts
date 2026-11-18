@@ -197,6 +197,36 @@ console.log('\n=== TOYOTA HONGRIE (pewneauto, 19/11) : CARTES ET FICHES RÉELLES
   ok(JSON.stringify(ds3.readPewneDetail(fiche)) === JSON.stringify({ gearbox: 'Automatique', fuel: 'Hibrid', km: 27670, year: 2026 }), 'fiche : « Váltó », énergie, km, année (immatriculation « - » → année de fabrication)', ds3.readPewneDetail(fiche));
 }
 
+console.log('\n=== PLACE DE MARCHÉ DES NEUVES DU GROUPE VW (turbo-stream, 19/11) ===\n');
+{
+  const ds4 = await import('../worker/dealerStock');
+  // Encodeur minimal au format réel « search.data » : chaque valeur à un indice, objets aux clés « _<indice de la clé> », null = -5.
+  const enc = (root: unknown): unknown[] => {
+    const arr: unknown[] = [];
+    const put = (v: unknown): number => {
+      if (v === null) return -5;
+      const i = arr.length; arr.push(null);
+      if (Array.isArray(v)) arr[i] = v.map(put);
+      else if (v && typeof v === 'object') { const o: Record<string, number> = {}; for (const [k, x] of Object.entries(v)) { const ki = arr.length; arr.push(k); o[`_${ki}`] = put(x); } arr[i] = o; }
+      else arr[i] = v;
+      return i;
+    };
+    put(root);
+    return arr;
+  };
+  const real = { id: 'V-2026-0520490-HU', mileageKm: 0, brand: 'VW', model: { name: 'Polo Comfort 1.0 TSI', groupName: 'Polo', year: 2027 },
+    flagData: { stockVehicle: true, testDrive: false, storedByImporter: null, vatDeductible: true, reservedOnline: false },
+    colorData: { exterior: { name: 'Ascot-szürke' } }, technicalData: { combinedFuelGroupName: 'Gázolaj', gearName: 'Kézi 5 fokozatú', manufacturingYear: 2026, power: { powerHp: 95 } },
+    priceData: { display: { currency: 'HUF', gross: 731258000 } }, patchedDealer: { internetDealerId: '04859', name: 'Porsche Buda' } };
+  const arr = enc({ 'routes/search/search.route': { data: { resultList: [{ type: 'car', car: real }], page: { total: 1, size: 100 } } } });
+  const car = (ds4.turboStreamDecode(arr) as any)['routes/search/search.route'].data.resultList[0].car;
+  ok(car.id === 'V-2026-0520490-HU' && car.brand === 'VW' && car.flagData.storedByImporter === null && car.patchedDealer.internetDealerId === '04859'
+    && car.priceData.display.gross === 731258000, 'turbo-stream décodé (références par indice, clés « _n », -5 = null)', car);
+  const v = ds4.vwgmToVehicle(car, 'https://azonnalelviheto.volkswagen.hu');
+  ok(v?.price === 7312580 && v?.brand === 'Volkswagen' && v?.gearbox === 'Manuelle' && v?.fuel === 'Gázolaj' && /TVA récupérable$/.test(v?.title ?? '')
+    && v?.url === 'https://azonnalelviheto.volkswagen.hu/search/car/V-2026-0520490-HU', 'voiture : fillér → forints, « Kézi » = manuelle, TVA récupérable, lien de la fiche', v);
+}
+
 console.log('\n=== POLITESSE : PAS PLUS D\'UNE REQUÊTE TOUTES LES 350 MS PAR SITE ===\n');
 {
   const { reserveSiteSlot, SITE_MIN_GAP_MS } = await import('../worker/dealerStock');
