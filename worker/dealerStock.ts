@@ -452,6 +452,15 @@ function pageTotal(html: string): number | null {
     ?? text.match(new RegExp(`${n}\\s*(?:resultaten|résultats?)\\b`, 'i'));
   return m ? num(m[1].replace(/[\s  .]/g, '')) : null;
 }
+/** Année d'un Car JSON-LD : URL « -occasion-2023- » (BYMYCAR), sinon 1re immatriculation schema.org
+ *  « dateVehicleFirstRegistered » (13/11, Jazzoni / Romana Auto : "2023-07-31" sur 53 / 53 voitures, ni modelDate ni
+ *  année dans l'URL — année lue 0 %), sinon modelDate / productionDate (« 1970 » = bouche-trou, ignoré). */
+export function ldCarYear(item: Record<string, unknown>, url: string): number | null {
+  const yearFromUrl = num(url.match(/-(?:occasion|used|gebruikt)-((?:19|20)\d{2})-/)?.[1]);
+  const firstReg = num(String(item.dateVehicleFirstRegistered ?? '').match(/\b((?:19|20)\d{2})\b/)?.[1]);
+  const modelDate = num(String(item.modelDate ?? item.productionDate ?? item.vehicleModelDate ?? '').slice(0, 4));
+  return yearFromUrl ?? (firstReg != null && firstReg > 1970 ? firstReg : null) ?? (modelDate != null && modelDate > 1980 ? modelDate : null);
+}
 /** Progression d'un relevé long (03/11) : pages lues et véhicules déjà lus, pour le bilan en cours. */
 export type StockProgress = (pages: number, vehicles: number, pagesTotal: number | null) => void;
 async function scrapeDatamotive(url: string, firstHtml: string, onProgress?: StockProgress): Promise<DealerStockResult> {
@@ -508,9 +517,7 @@ async function scrapeDatamotive(url: string, firstHtml: string, onProgress?: Sto
       const name = brand && !rawName.toLowerCase().startsWith(brand.toLowerCase()) ? `${brand} ${rawName}` : rawName;
       const odo = item.mileageFromOdometer as { value?: unknown } | number | undefined;
       const km = num(typeof odo === 'object' && odo ? odo.value : odo);
-      const yearFromUrl = num(u.match(/-(?:occasion|used|gebruikt)-((?:19|20)\d{2})-/)?.[1]);
-      const modelDate = num(String(item.modelDate ?? item.productionDate ?? item.vehicleModelDate ?? '').slice(0, 4));
-      const year = yearFromUrl ?? (modelDate != null && modelDate > 1980 ? modelDate : null);
+      const year = ldCarYear(item, u);
       out.push({
         external_id: id, url: u || null, title: name, brand: brand || splitTitle(name).brand, model: item.model ? String(item.model) : splitTitle(name).model,
         price: priceOrNull(offers.price) ?? cardPrices.get(pathOfUrl(u)) ?? null, km, year, fuel: item.fuelType ? String(item.fuelType) : null,
