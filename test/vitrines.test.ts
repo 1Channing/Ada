@@ -98,6 +98,42 @@ ok(r2('Z').gone_at === null && partialRun.goneCount === 0 && partialRun.warnings
 const fullRun = await runDealerStock('c2', 'https://vm.test/voorraad', 'test', vm(2));
 ok(r2('Z').gone_at != null && fullRun.goneCount === 1, 'relevé complet (2 / 2) : Z est marquée disparue', [r2('Z').gone_at, fullRun.goneCount]);
 
+console.log('\n=== NUMÉROS TOUS CHANGÉS : LES VOITURES SONT RETROUVÉES, PAS VENDUES (18/11, Bierschneider) ===\n');
+db.network_contacts.push({ id: 'c3', name: 'Refonte test', website: 'https://refonte.test/fahrzeuge/', website2: null });
+const t0 = '2026-10-01T00:00:00.000Z';
+const known3 = (id: string, o: Record<string, unknown>) => ({ contact_id: 'c3', external_id: id, url: `https://refonte.test/alt/${id}`, price_prev: null, first_seen_at: t0, last_seen_at: t0, gone_at: null, vin: null, year: null, ...o });
+for (let i = 1; i <= 20; i++) db.network_stock_vehicles.push(known3(`u${i}`, { brand: 'Volkswagen', title: `Volkswagen Golf ${i}`, km: 10000 + i * 1000, year: 2020, price: 15000 + i * 100 }));
+db.network_stock_vehicles.push(
+  known3('v1', { brand: 'Volkswagen', title: 'Volkswagen ID.3 Pro', vin: 'WVWZZZE1ZPP000001', km: 5, price: 40000 }),
+  known3('n1', { brand: 'Skoda', title: 'Skoda Elroq 85 Sportline AHK KAMERA LED', km: 10, price: 47990 }),
+  known3('n2', { brand: 'Skoda', title: 'Skoda Fabia 1.0 TSI Selection', km: 10, price: 21990 }),
+  known3('n3', { brand: 'Skoda', title: 'Skoda Fabia 1.0 TSI Selection', km: 10, price: 21990 }),
+  known3('s1', { brand: 'Audi', title: 'Audi A4 Avant', km: 77777, year: 2018, price: 19000 }),
+  known3('k1', { brand: 'Seat', title: 'Seat Ibiza 1.0 TSI Style Navi', km: 19520, price: 17950 }),
+);
+const refonte = () => ({ provider: 'cfdnext' as const, total: 26, declared: 26, pages: 1, warnings: [] as string[], vehicles: [
+  ...Array.from({ length: 20 }, (_, k) => car({ external_id: `x${k + 1}`, brand: 'VW', title: `VW Golf ${k + 1} neu`, km: 10000 + (k + 1) * 1000, year: 2020, price: 15000 + (k + 1) * 100 + (k === 0 ? 200 : 0) })),
+  car({ external_id: 'xv1', brand: 'Volkswagen', title: 'Volkswagen ID.3 Pro Performance', vin: 'WVWZZZE1ZPP000001', price: 39000 }),
+  car({ external_id: 'xn1', brand: 'Skoda', title: 'Skoda Elroq 85 Sportline AHK KAMERA LED Pano', price: 47990 }),
+  car({ external_id: 'xn2', brand: 'Skoda', title: 'Skoda Fabia 1.0 TSI Selection', price: 21990 }),
+  car({ external_id: 'xn3', brand: 'Skoda', title: 'Skoda Fabia 1.0 TSI Selection', price: 21990 }),
+  car({ external_id: 'xk1', brand: 'Seat', title: 'Seat Ibiza 1.0 TSI Style Navi', km: 25000, price: 17950 }),
+  car({ external_id: 'xnew', brand: 'Cupra', title: 'Cupra Born', km: 10, price: 35000 }),
+] });
+const swap = await runDealerStock('c3', 'https://refonte.test/fahrzeuge/', 'test', refonte());
+const r3 = (id: string) => db.network_stock_vehicles.find((x) => x.contact_id === 'c3' && x.external_id === id) as Record<string, unknown> | undefined;
+const kept3 = [...Array.from({ length: 20 }, (_, k) => `x${k + 1}`), 'xv1', 'xn1'];
+ok(kept3.every((id) => r3(id)?.first_seen_at === t0 && r3(id)?.gone_at === null),
+  '22 voitures retrouvées sous leur nouveau numéro (VIN, marque « VW » = Volkswagen + km + année, titre + prix) : première vue gardée, en stock', kept3.filter((id) => r3(id)?.first_seen_at !== t0));
+ok(['u1', 'v1', 'n1'].every((id) => r3(id) === undefined), 'les anciens numéros n\'existent plus (la ligne a changé de numéro, pas de doublon)');
+ok(r3('x1')?.price === 15300 && r3('x1')?.price_prev === 15100, 'x1 : l\'historique suit la voiture (15 100 → 15 300 = changement de prix)', [r3('x1')?.price, r3('x1')?.price_prev]);
+ok(swap.newCount === 4 && swap.goneCount === 4, 'nouveautés = 4 (2 Fabia identiques, l\'Ibiza au km différent, la Born) ; sorties = 4 (2 Fabia indiscernables, l\'A4 vendue, l\'Ibiza) — pas 26', [swap.newCount, swap.goneCount]);
+ok(r3('s1')?.gone_at != null && r3('n2')?.gone_at != null && r3('k1')?.gone_at != null, 'A4 vendue, Fabia ambiguës et Ibiza au km incompatible (19 520 → 25 000) sortent normalement');
+ok(swap.warnings.some((w) => /Numéros de la vitrine tous changés \(0 voiture\(s\) sur 26 .*22 retrouvée\(s\).*4 sans correspondance/.test(w)), 'le bilan du relevé le dit', swap.warnings);
+const again = await runDealerStock('c3', 'https://refonte.test/fahrzeuge/', 'test', refonte());
+ok(!again.warnings.some((w) => /Numéros de la vitrine/.test(w)) && again.newCount === 0 && again.goneCount === 0, 'relevé suivant, numéros revus : aucune reprise, rien de nouveau ni de sorti', [again.newCount, again.goneCount, again.warnings]);
+ok(!fullRun.warnings.some((w) => /Numéros de la vitrine/.test(w)), 'moins de 20 voitures connues (Van Mossel test) : la règle ne joue pas');
+
 console.log('\n=== LECTEURS DE FICHE ===\n');
 ok(readDmdDetail(box('Rob Double Embray')).gearbox === 'Automatique' && readDmdDetail(box('Manuelle')).gearbox === 'Manuelle'
   && readDmdDetail('<p>rien</p>').gearbox === null, 'DMD : robotisée double embrayage = Automatique, Manuelle, rien = inconnu');

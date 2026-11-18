@@ -4450,6 +4450,45 @@ export const evGearbox = (gearbox: string | null, fuel: string | null): string |
 export const MISREAD_PRICE_RATIO = 0.35;
 /** Relevé partiel (18/11) : moins de 95 % du total que le site annonce — aucune voiture n'est alors marquée disparue. */
 export const isPartialRead = (read: number, declared: number | null): boolean => declared != null && declared > 0 && read < declared * 0.95;
+
+/** IDENTIFIANTS TOUS CHANGÉS (18/11, Bierschneider : refonte du site, carzilla → cfdnext, aucun numéro commun entre
+ *  les 6 360 voitures de l'ancien site et les 6 426 du nouveau). Sans reprise, le premier relevé sur la nouvelle
+ *  adresse marquait tout l'ancien stock « disparu » — 6 360 fausses ventes dans les palmarès — et tout le nouveau
+ *  « nouveau ». Règle : quand moins de 5 % des voitures en stock en base sont revues sous leur numéro (relevé complet,
+ *  au moins 20 voitures connues), chaque voiture connue est cherchée dans la nouvelle lecture, sans ambiguïté
+ *  (une seule de chaque côté) : par le VIN ; puis, pour une occasion (≥ 1 000 km), par marque + km + année ; puis par
+ *  le début du titre + le prix, km à 5 % près quand les deux le donnent. Preuve sur Bierschneider (13/11 → 18/11) :
+ *  4 364 occasions retrouvées par marque + km + année, toutes à moins de 15 % de prix ; 1 077 de plus par titre +
+ *  prix. Une voiture retrouvée garde sa ligne (première vue, historique des prix) sous son nouveau numéro ; les
+ *  autres sortent normalement (ventes entre deux relevés, ou neuves identiques indiscernables). Fonction pure. */
+export type ChangedIdRow = { external_id: string; brand?: string | null; title?: string | null; km?: number | null; year?: number | null; price?: number | null; vin?: string | null };
+export const CHANGED_IDS_RATIO = 0.05;
+export function matchChangedIds(known: ChangedIdRow[], vehicles: DealerVehicle[]): Map<string, string> {
+  const out = new Map<string, string>();
+  const taken = new Set<string>();
+  const brandKey = (b: string | null | undefined) => { const s = (b ?? '').toLowerCase().replace(/[^a-z]/g, ''); return ({ vw: 'volkswagen', mercedes: 'mercedesbenz' } as Record<string, string>)[s] ?? s; };
+  const titleKey = (t: string | null | undefined) => (t ?? '').replace(/·.*$/, '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 30);
+  type Row = ChangedIdRow | DealerVehicle;
+  const tier = (key: (r: Row) => string | null, agree?: (r: ChangedIdRow, v: DealerVehicle) => boolean) => {
+    const left = known.filter((r) => !out.has(r.external_id));
+    const fresh = vehicles.filter((v) => !taken.has(v.external_id));
+    const count = (xs: Row[]) => { const m = new Map<string, number>(); for (const x of xs) { const k = key(x); if (k) m.set(k, (m.get(k) ?? 0) + 1); } return m; };
+    const nOld = count(left), nNew = count(fresh);
+    const byKey = new Map<string, DealerVehicle>();
+    for (const v of fresh) { const k = key(v); if (k && nNew.get(k) === 1) byKey.set(k, v); }
+    for (const r of left) {
+      const k = key(r);
+      const v = k && nOld.get(k) === 1 ? byKey.get(k) : undefined;
+      if (!v || (agree && !agree(r, v))) continue;
+      out.set(r.external_id, v.external_id); taken.add(v.external_id);
+    }
+  };
+  tier((r) => (r.vin && r.vin.length >= 11 ? r.vin.toUpperCase() : null));
+  tier((r) => ((r.km ?? 0) >= 1000 && r.year ? `${brandKey(r.brand)}|${r.km}|${r.year}` : null));
+  tier((r) => (r.price && titleKey(r.title).length >= 12 ? `${titleKey(r.title)}|${r.price}` : null),
+    (r, v) => r.km == null || v.km == null || Math.abs(r.km - v.km) <= Math.max(50, r.km * 0.05));
+  return out;
+}
 /** Fiches lues au plus par relevé (le reste au relevé suivant, nouveaux d'abord) et pause entre deux fiches d'un site. */
 export const DETAIL_MAX_PER_RUN = 200;
 const DETAIL_DELAY_MS = 350;
@@ -4596,7 +4635,7 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
     // Prix précédents : pour compter les changements et garder price_prev.
     // Historique des prix (SQL du 01/10 soir) : lu s'il existe, sinon reconstruit
     // depuis price_prev / price — la lecture ne doit jamais bloquer le relevé.
-    type Prev = { external_id: string; gearbox?: string | null; fuel?: string | null; km?: number | null; year?: number | null; price: number | null; price_prev: number | null; first_seen_at: string; listed_at?: string | null; price_first?: number | null; price_history?: Array<{ at: string; price: number }> | null };
+    type Prev = { external_id: string; brand?: string | null; title?: string | null; vin?: string | null; url?: string | null; gone_at?: string | null; gearbox?: string | null; fuel?: string | null; km?: number | null; year?: number | null; price: number | null; price_prev: number | null; first_seen_at: string; listed_at?: string | null; price_first?: number | null; price_history?: Array<{ at: string; price: number }> | null };
     // PAR PAGES DE 1 000 (constat Channing 02/10 : « deuxième relevé Louwman,
     // aucun véhicule disparu ») : PostgREST ne rend jamais plus de 1 000
     // lignes. Le relevé précédent lu tronqué → 2 904 véhicules connus pris
@@ -4614,11 +4653,33 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
     };
     let prevRows: Prev[] | null = null;
     {
-      const full = await readPrev('external_id, gearbox, fuel, km, year, price, price_prev, first_seen_at, listed_at, price_first, price_history');
-      if (full.error) prevRows = (await readPrev('external_id, gearbox, fuel, km, year, price, price_prev, first_seen_at, listed_at')).rows;
+      const full = await readPrev('external_id, brand, title, vin, url, gone_at, gearbox, fuel, km, year, price, price_prev, first_seen_at, listed_at, price_first, price_history');
+      if (full.error) prevRows = (await readPrev('external_id, brand, title, vin, url, gone_at, gearbox, fuel, km, year, price, price_prev, first_seen_at, listed_at')).rows;
       else prevRows = full.rows;
     }
     const prev = new Map<string, Prev>(((prevRows ?? []) as Prev[]).map((r) => [r.external_id, r]));
+    // NUMÉROS TOUS CHANGÉS (18/11, Bierschneider : refonte du site, aucun numéro commun) : les voitures connues sont
+    // retrouvées sous leur nouveau numéro avant l'enregistrement (voir matchChangedIds) — sinon tout l'ancien stock
+    // sortait en « ventes » et tout le nouveau entrait en « nouveautés ». Relevé complet seulement.
+    {
+      const seenIds = new Set(stock.vehicles.map((v) => v.external_id));
+      const known = ((prevRows ?? []) as Prev[]).filter((r) => !r.gone_at && !keepHosts.some((h) => (r.url ?? '').includes(h)));
+      const common = known.filter((r) => seenIds.has(r.external_id)).length;
+      if (known.length >= 20 && common < known.length * CHANGED_IDS_RATIO && !isPartialRead(stock.vehicles.length, stock.declared)) {
+        const pairs = matchChangedIds(known.filter((r) => !seenIds.has(r.external_id)), stock.vehicles.filter((v) => !prev.has(v.external_id)));
+        let moved = 0;
+        for (const [oldId, newId] of pairs) {
+          const { error } = await sb.from('network_stock_vehicles').update({ external_id: newId }).eq('contact_id', contactId).eq('external_id', oldId);
+          if (error) continue;
+          const p = prev.get(oldId);
+          if (p) { prev.delete(oldId); prev.set(newId, { ...p, external_id: newId }); }
+          moved++;
+        }
+        const msg = `Numéros de la vitrine tous changés (${common} voiture(s) sur ${known.length} revue(s) sous son numéro : refonte ou changement de plateforme) — ${moved} retrouvée(s) sous leur nouveau numéro (VIN, marque + km + année, ou titre + prix), première vue et historique des prix gardés ; ${known.length - common - moved} sans correspondance sortent de la vitrine.`;
+        stock.warnings.push(msg);
+        console.warn(`[DEALER_STOCK] ${url} : ${msg}`);
+      }
+    }
     // FICHES DÉTAIL (14/11) : les véhicules dont un champ que la fiche sait rendre manque à la fois dans la liste et en
     // base, nouveaux d'abord ; chaque véhicule avec le lecteur de sa vitrine (vitrine 2 comprise).
     {
