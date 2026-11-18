@@ -825,6 +825,15 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
     // suédoise 13/10 : « AUDI A4 AV 2.0 TDI… » donnait le modèle « AUDI A4 ») :
     // la marque reconnue en tête est retirée, le modèle se lit sur le reste.
     if (brandPrefix && model.toUpperCase().startsWith(`${brandPrefix} `)) model = unDouble(model.slice(brandPrefix.length).trim());
+    // Marque en COLONNE et répétée en tête du modèle ou de la version (liste ID. Buzz 18/11 : « Make » = VOLKSWAGEN,
+    // « Model » = « Volkswagen ID. Buzz e-Motion 7 plazas… » → le modèle sortait « VOLKSWAGEN ID. ») : retirée des deux.
+    if (!brandPrefix && brand) {
+      const names = [...new Set([brand, ...knownBrandNames])];
+      const sm = splitBrand(model, names);
+      if (model && sm.rest && canonBrand(sm.brand) === brand) model = unDouble(sm.rest);
+      const sv = splitBrand(versionLine, names);
+      if (versionLine && sv.rest && canonBrand(sv.brand) === brand) versionLine = unDouble(sv.rest);
+    }
     // Colonne modèle du fournisseur (« ASTRA L », « DS 7 CROSSBACK / DS 7 »)
     // rapprochée des modèles connus (référentiel + taxonomie) et débarrassée
     // de son marqueur de génération ; sans colonne, la ligne libre est décomposée.
