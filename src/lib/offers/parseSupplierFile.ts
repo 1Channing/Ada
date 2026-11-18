@@ -49,7 +49,7 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   // « Årsmodell » (suédois), « Årgang » (danois), « Baujahr » (allemand).
   // « AÑO » (liste espagnole Delta Urban, 200 Polo DSG, 22/10) : normalisé en « ano ».
   // « Période (code) » (liste loueur MC Export 18/11 : « 25-2 » = 2025, 2e trimestre) : un millésime.
-  ['year', /^(year|annee|jahr|anno|millesime|model ?year|my|arsmodell|argang|baujahr|ano|annee modele|periode( code)?|period)$/],
+  ['year', /^(year|annee|jahr|anno|millesime|model ?year|my|arsmodell|argang|baujahr|ano|annee modele|periode( code)?|period|yr-?p|yr|year-?period)$/],
   // « Reg.nr » (liste suédoise Mixed Brands 13/10) : le NUMÉRO d'immatriculation,
   // pas une date — avant la règle des dates, qui attrape « reg » seul.
   ['plate', /(reg ?nr\b|regnr|\breg ?no\b|registreringsn|kennzeichen)/],
@@ -72,7 +72,8 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   // « Damage report » (offre Vito Mixto 03/11) = le RAPPORT de dommages (lien), pas le montant : avant la règle des dommages.
   // « Gutachten » (04/11, liste « 14 x Vito Kasten met Gutachten ») : colonne d'expertise, lien dans la cellule.
   ['report_url', /(damage|dommage|schaden|danni).*(report|rapport|link|url|lien)|\bgutachten\b/],
-  ['damages', /(damage|dommage|\bfre\b|frais|remise en etat|schaden|\bdanni\b|\bdanos?\b)/],
+  // « LIVRAISON » (export loueur 18/11 : 330 € de frais de livraison par véhicule) = des frais, comme « Frais (€) ».
+  ['damages', /(damage|dommage|\bfre\b|frais|remise en etat|schaden|\bdanni\b|\bdanos?\b|^livraison$|^delivery( fee)?$)/],
   // Prix du NEUF (« Prix catalogue VN », export enchères 30/10) : une référence, pas un prix fournisseur — ignoré (reste en extras).
   ['ignore', /(catalogue|prix neuf|\bvn\b|list price|msrp|neupreis|listino)/],
   // « sin IVA » (hors TVA, listes espagnoles 16/11) = un prix HT.
@@ -83,12 +84,12 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   // « Färg/Colour » (suédois), « Farve » (danois), « Farge » (norvégien).
   ['color', /(colou?r|couleur|farbe|teinte|colore|\bfarg\b|farve|farge)/],
   // « COMBUSTIBLE » (espagnol), « Brandstof » (néerlandais).
-  ['fuel', /(energy|energie|carburant|fuel|kraftstoff|carburante|alimentazione|bransle|braendstof|drivstoff|combustible|brandstof)/],
+  ['fuel', /(energy|energie|carburant|fuel|kraftstoff|carburante|alimentazione|bransle|braendstof|drivstoff|combustible|brandstof)|^(f|carb|nrj)$/],
   ['engine', /^(engine|moteur|motorisation|motor|motore)$/],
   ['power', /(power|puissance|^ch$|^cv$|^kw$|^hp$|^ps$|leistung|potenza|effekt)/],
   ['gearbox', /(gearbox|boite|transmission|getriebe|^bv$|cambio|vaxellada|gearkasse|girkasse)/],
   // « LOADING » (liste espagnole 22/10 : le pays de chargement, BÉLGICA) = le lieu d'enlèvement.
-  ['location', /(location|\blieu\b|stock|storage|standort|depot|\bparc\b|\bsite\b|\bsede\b|ubicazione|deposito|luogo|loading|ubicacion|\bcampa\b|\bville\b|\bcity\b)/],
+  ['location', /(location|\blieu\b|stock|storage|standort|depot|\bparc\b|\bsite\b|\bsede\b|ubicazione|deposito|luogo|loading|ubicacion|\bcampa\b|^parcs?$|compound|\bville\b|\bcity\b)/],
   // « Type de taxation » (export enchères 30/10 : « TVA récupérable (h.t.) ») = le régime de TVA.
   // « Facturation » (04/11) : « TVA Récupérable - Prix HT (HT) » / « TVA sur marge » = le régime de TVA.
   ['vat', /(\btva\b|\bvat\b|mwst|\biva\b|\bmoms\b|taxation|facturation)/],
@@ -102,7 +103,7 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   // seule (liste Polo DSG), elle porte toute la désignation et se lit comme ligne libre.
   // « Modellgruppe » = le modèle (« Vito Kasten »), « Modellname » = la désignation complète (« Vito 116 CDI Extralang ») — 04/11.
   // « Modèle (code) » (liste loueur 18/11 : TRCU, DUCA, 2SER…) : la colonne modèle, en code — résolu plus bas.
-  ['model', /^(model|modele|modello|modell|modelo|modellgruppe|modelgroep|model ?group|baureihe|modellreihe)( code)?$/],
+  ['model', /^(model|modele|modello|modell|modelo|modl|mdl|modellgruppe|modelgroep|model ?group|baureihe|modellreihe)( code)?$/],
   ['version', /^(modellname|modelnaam|model ?name|carline|trim ?model)$/], // « Carline » (04/11) : « Byd Atto 3 Comfort », « Ev9 Rwd Earth… » — modèle + version
   ['version', /(version|modele|designation|description|variante|ausfuhrung|vehicule|vehicle|versione|allestimento|descrizione|veicolo|commercial name|nom commercial|denomination|bezeichnung)/],
 ];
