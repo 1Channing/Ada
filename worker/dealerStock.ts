@@ -2341,6 +2341,21 @@ async function scrapeAutopalace(url: string, firstHtml: string): Promise<DealerS
   const last = Math.max(1, ...[...firstHtml.matchAll(/\/page:(\d+)"/g)].map((m) => Number(m[1])));
   const r = await paginate(firstHtml, parse, pageUrl, { cap: Math.min(MAX_PAGES, last + 2) });
   if (declared != null && out.length < declared) r.warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  // DATE DE MISE EN LIGNE (18/11, Channing : « on n'a pas les dates de mise en ligne ? ») : ni la carte ni la fiche ne
+  // la donnent, mais le plan du site porte un <lastmod> PAR FICHE véhicule (de septembre à aujourd'hui, pas une
+  // régénération uniforme). C'est une date de dernière modification : la voiture est en ligne AU MOINS depuis —
+  // prise comme mise en ligne quand elle est dans le passé (l'âge n'est jamais surestimé), sinon première vue par ADA.
+  try {
+    const sm = await getTextPatient(`${origin}/sitemap.xml`);
+    if (sm.status === 200) {
+      const byId = new Map<string, string>();
+      for (const m of sm.text.matchAll(/<loc>[^<]*\/ponuka-vozidiel\/[^<]*-(\d+)<\/loc>\s*<lastmod>(\d{4}-\d{2}-\d{2})/g)) byId.set(m[1], m[2]);
+      const today = new Date().toISOString().slice(0, 10);
+      let dated = 0;
+      for (const v of out) { const d = byId.get(v.external_id); if (d && d < today) { v.listed_at = `${d}T00:00:00Z`; dated++; } }
+      if (dated) r.warnings.push(`date de mise en ligne : ${dated} fiche(s) datée(s) par le plan du site (dernière modification = en ligne au moins depuis)`);
+    }
+  } catch { /* plan du site indisponible : première vue par ADA */ }
   return { provider: 'autopalace', total: declared ?? out.length, declared, vehicles: out, pages: r.pages, warnings: r.warnings };
 }
 
@@ -2537,7 +2552,7 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
     // Prix précédents : pour compter les changements et garder price_prev.
     // Historique des prix (SQL du 01/10 soir) : lu s'il existe, sinon reconstruit
     // depuis price_prev / price — la lecture ne doit jamais bloquer le relevé.
-    type Prev = { external_id: string; gearbox?: string | null; fuel?: string | null; km?: number | null; year?: number | null; price: number | null; price_prev: number | null; first_seen_at: string; price_first?: number | null; price_history?: Array<{ at: string; price: number }> | null };
+    type Prev = { external_id: string; gearbox?: string | null; fuel?: string | null; km?: number | null; year?: number | null; price: number | null; price_prev: number | null; first_seen_at: string; listed_at?: string | null; price_first?: number | null; price_history?: Array<{ at: string; price: number }> | null };
     // PAR PAGES DE 1 000 (constat Channing 02/10 : « deuxième relevé Louwman,
     // aucun véhicule disparu ») : PostgREST ne rend jamais plus de 1 000
     // lignes. Le relevé précédent lu tronqué → 2 904 véhicules connus pris
@@ -2555,8 +2570,8 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
     };
     let prevRows: Prev[] | null = null;
     {
-      const full = await readPrev('external_id, gearbox, fuel, km, year, price, price_prev, first_seen_at, price_first, price_history');
-      if (full.error) prevRows = (await readPrev('external_id, gearbox, fuel, km, year, price, price_prev, first_seen_at')).rows;
+      const full = await readPrev('external_id, gearbox, fuel, km, year, price, price_prev, first_seen_at, listed_at, price_first, price_history');
+      if (full.error) prevRows = (await readPrev('external_id, gearbox, fuel, km, year, price, price_prev, first_seen_at, listed_at')).rows;
       else prevRows = full.rows;
     }
     const prev = new Map<string, Prev>(((prevRows ?? []) as Prev[]).map((r) => [r.external_id, r]));
@@ -2626,7 +2641,9 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
         price: v.price ?? (v.status === 'price_on_request' || v.status === 'expected' ? null : p?.price ?? null),
         price_prev: changed ? before : (p?.price_prev ?? null),
         km: v.km ?? p?.km ?? null, year: v.year ?? p?.year ?? null, fuel: v.fuel ?? p?.fuel ?? null, gearbox: v.gearbox ?? p?.gearbox ?? null,
-        plate: v.plate, vin: v.vin, body: v.body, image: v.image, listed_at: v.listed_at,
+        // Date de mise en ligne : la plus ANCIENNE connue (18/11, Auto Palace : le plan du site date une fiche jusqu'à sa
+        // prochaine modification, puis plus rien — une date lue un jour ne s'efface pas, et une date plus ancienne gagne).
+        plate: v.plate, vin: v.vin, body: v.body, image: v.image, listed_at: [v.listed_at, p?.listed_at].filter((d): d is string => !!d).sort()[0] ?? null,
         first_seen_at: p?.first_seen_at ?? startedAt, last_seen_at: startedAt, gone_at: null, last_run_id: runId,
         status: v.status, price_first: priceFirst, price_history: history,
         // Devise du site (06/10) : prix gardés tels quels, conversion à l'affichage.
