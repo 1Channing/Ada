@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -347,6 +347,8 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/data-route="https?:\/\/[^"]*\/load-more-results"/.test(html) && /class="vehicle-card__title"/.test(html) && /meta-item--registration-year/.test(html)) return 'kleynvans';
   // ocasionplus (ES, 14/11) : Next.js « app router », liste « vehicleList » dans le flux RSC (self.__next_f), photos img.ocasionplus.com.
   if (/self\.__next_f\.push/.test(html) && /img\.ocasionplus\.com/.test(html) && /\\"vehicleList\\":\{/.test(html)) return 'ocasionplus';
+  // autralis (Van Mossel Mertens BE, 14/11) : Gatsby sans gatsby-theme-vehicles, fonds digitalexperience.b-cdn.net, API « /graphql ».
+  if (/<meta name="generator" content="Gatsby/.test(html) && /window\.pagePath="[^"]*"/.test(html) && /digitalexperience\.b-cdn\.net/.test(html) && !/gatsby-theme-vehicles/.test(html)) return 'autralis';
   if (/"@type":\s*"ItemList"/.test(html) && /"Car"/.test(html)) return 'datamotive';
   if (/"listerpage":\s*\{[^}]*"ajax_url"/.test(html)) return 'listerpage';
   if (/data-update-url="[^"]*\/voorraad-api\/vehiclelist\/\d+\/vehicles\.json/.test(html)) return 'dvapi';
@@ -3858,6 +3860,78 @@ async function scrapeOcasionPlus(url: string, firstHtml: string): Promise<Dealer
   return { provider: 'ocasionplus', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
 }
 
+// ── autralis (Van Mossel Dendermonde / Mertens, BE, 14/11) : vitrine Gatsby de la plateforme belge Autralis
+//    (« dealersite/stock », fonds digitalexperience.b-cdn.net) — PAS la plateforme de Van Mossel NL (datamotive). Le
+//    site www.garage-mertens.be (→ www.vanmossel-mertens.be, Drupal) n'a qu'une sélection ; le stock d'occasions est sur
+//    stock.vanmossel-mertens.be/nl/aanbod-wagens/ (ancien hôte stock.garage-mertens.be redirigé), page vide (squelette)
+//    remplie par l'API GraphQL publique du même hôte, sans clé : « /graphql », requête vehiclesV3 (marque, modèle,
+//    version, 1re immatriculation, km, énergie, boîte, prix TTC, vendu / réservé, agence). Lue en GET (l'ancien hôte
+//    redirige en 301 : un POST y serait changé en GET par la redirection et échouerait), 100 par page, curseur
+//    « after », tri stable par clé primaire (orderBy: ["pk"]). Trois agences : Dendermonde, Lokeren, Sint-Niklaas.
+type AutralisNode = {
+  url?: string; pk?: string; reference?: string; identification?: string; vin?: string; make?: string; model?: string; modelFamily?: string;
+  version?: string; firstRegistrationYear?: number | null; mileage?: number | null; body?: string | null; fuel?: string | null;
+  gearbox?: string | null; price?: number | null; sold?: boolean | null; reserved?: boolean | null; kw?: number | null; hp?: number | null;
+  images?: unknown; dealer?: { name?: string | null } | null;
+};
+/** Un nœud vehiclesV3 → véhicule ADA (fonction pure). */
+export function autralisToVehicle(n: AutralisNode, origin: string): DealerVehicle | null {
+  const id = n.reference ?? n.pk;
+  if (!id) return null;
+  const price = priceOrNull(n.price);
+  // Version « VOLKSWAGEN Tiguan 1.5TSI Life… » (marque et modèle répétés) ou « 30TFSI S line… » (sans eux) : le titre
+  // est toujours marque + modèle + version, sans doublon.
+  const make = n.make ? n.make.charAt(0) + n.make.slice(1).toLowerCase() : null; // « VOLKSWAGEN » → « Volkswagen »
+  let version = String(n.version ?? '').trim();
+  if (make && version.toLowerCase().startsWith(make.toLowerCase() + ' ')) version = version.slice(make.length + 1).trim();
+  const model = n.model ?? n.modelFamily ?? null;
+  const withModel = model && !version.toLowerCase().startsWith(model.toLowerCase()) ? `${model} ${version}` : version;
+  const img = Array.isArray(n.images) ? n.images[0] : null;
+  return {
+    external_id: String(id), url: n.url ? `${origin}${n.url}` : null, title: [make, withModel.trim()].filter(Boolean).join(' '),
+    brand: make, model, price, currency: 'EUR', km: num(n.mileage), year: num(n.firstRegistrationYear),
+    // Électrique sans boîte (20 sur 391 le 18/11, toutes « Elektrisch ») : réducteur à un rapport = automatique.
+    fuel: n.fuel ?? null, gearbox: gearboxOf(n.gearbox ?? null) ?? (/elektri|electri/i.test(n.fuel ?? '') ? 'Automatique' : null), plate: null, vin: n.vin || null, body: n.body ?? null,
+    image: typeof img === 'string' ? img : (img as { url?: string } | null)?.url ?? null, listed_at: null,
+    status: n.sold ? 'sold' : n.reserved ? 'reserved' : price == null ? 'price_on_request' : null,
+    power_ch: num(n.hp) ?? (num(n.kw) != null ? Math.round((num(n.kw) as number) * 1.35962) : null), location: n.dealer?.name ?? null,
+  };
+}
+async function scrapeAutralis(url: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const warnings: string[] = [];
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const FIELDS = 'url pk reference identification vin make model modelFamily version firstRegistrationYear mileage body fuel gearbox price sold reserved kw hp images dealer { name }';
+  let declared: number | null = null;
+  let after: string | null = null;
+  let pages = 0;
+  for (; pages < 100;) {
+    await sleep(SITE_DELAY_MS); // la page de liste vient d'être lue sur ce même hôte
+    const q = `{ vehiclesV3(first: 100, orderBy: ["pk"]${after ? `, after: ${JSON.stringify(after)}` : ''}) { totalCount pageInfo { hasNextPage endCursor } edges { node { ${FIELDS} } } } }`;
+    // « accept-language: nl » exact (comme le site) : avec la valeur par défaut du relevé (« nl,en;q=0.8,fr;q=0.6 »),
+    // l'API rend énergie et boîte à null et des liens sans « /nl/aanbod-wagens » (prouvé 18/11 : 391 voitures, 0 énergie).
+    const r = await getTextPatient(`${origin}/graphql?query=${encodeURIComponent(q)}`, { headers: { accept: 'application/json', 'accept-language': 'nl' } });
+    if (r.status !== 200) { warnings.push(`API GraphQL (page ${pages + 1}) : HTTP ${r.status}`); break; }
+    let d: { data?: { vehiclesV3?: { totalCount?: number; pageInfo?: { hasNextPage?: boolean; endCursor?: string }; edges?: Array<{ node?: AutralisNode }> } }; errors?: Array<{ message?: string }> };
+    try { d = JSON.parse(r.text); } catch { warnings.push(`API GraphQL (page ${pages + 1}) : réponse illisible`); break; }
+    const conn = d.data?.vehiclesV3;
+    if (!conn) { warnings.push(`API GraphQL : ${d.errors?.[0]?.message ?? 'réponse sans vehiclesV3'}`); break; }
+    pages++;
+    declared = declared ?? num(conn.totalCount);
+    let added = 0;
+    for (const e of conn.edges ?? []) {
+      const v = e.node ? autralisToVehicle(e.node, origin) : null;
+      if (!v || seen.has(v.external_id)) continue;
+      seen.add(v.external_id); out.push(v); added++;
+    }
+    after = conn.pageInfo?.endCursor ?? null;
+    if (!conn.pageInfo?.hasNextPage || !after || added === 0) break;
+  }
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  return { provider: 'autralis', total: declared ?? out.length, declared, vehicles: out, pages: Math.max(1, pages), warnings };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getTextPatient(url); // 04/11 : MotorK (Sofibrie, SIPA) répond 429 dès la première page après une rafale
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -3894,6 +3968,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'audaris') return scrapeAudaris(url, first.text);
   if (provider === 'kleynvans') return scrapeKleynVans(url, first.text);
   if (provider === 'ocasionplus') return scrapeOcasionPlus(url, first.text);
+  if (provider === 'autralis') return scrapeAutralis(url);
   if (provider === 'autosphere') return scrapeAutosphere(url);
   if (provider === 'carsearchwp') return scrapeCarSearchWp(url);
   if (provider === 'stocklisting') return scrapeStockListing(url, first.text);
