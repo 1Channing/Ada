@@ -257,6 +257,26 @@ console.log('\n=== NEUVES KIA HONGRIE (kia.com « piacter », 19/11) ===\n');
   ok(ds6.detectDealerProvider('<div data-url="/hu/buy-my-kia/piacter/piacter-lista/_jcr_content/contents_1/aggregationlist.allOffersResults/"></div>') === 'kiaosp', 'liste « piacter » reconnue');
 }
 
+console.log('\n=== PAPPAS (Mercedes / Kia Hongrie, 19/11) ===\n');
+{
+  const ds7 = await import('../worker/dealerStock');
+  const card = `<section class="vehicle-teaser stretch-link h-100"><a href="/hasznaltauto/szemelyautok/kia/804659901228-kia-sportage" class="stretch-link__link"></a>
+    <div class="vehicle-teaser__content"><div class="vehicle-teaser__content-badges"><span class="badge bg-dark">Ajánlat</span></div>
+    <h2 class="vehicle-teaser__content-title" tabindex="0"><span>Kia Sportage</span></h2><div class="vehicle-teaser__name">SPORTAGE 239 HEV</div>
+    <div class="vehicle-teaser__content-detail"><span>11/2026</span><span>Benzin-Hibrid</span><span>0 km</span><span>SUV</span><span>132 kW / 179 LE</span><span></span></div>
+    <div class="vehicle-teaser__content-bottom"><span class="vehicle-teaser__price text-success text-nowrap">-22%</span>
+    <span class="vehicle-teaser__price vehicle-teaser__price--instead">Listaár <span class="text-nowrap">17 908 000 Ft</span></span>
+    <span class="vehicle-teaser__price text-nowrap">13 990 000 Ft</span><span class="text-muted">ÁFA-val, Regisztrációs adóval</span></div></div></section>`;
+  const page = `<form><input name="conditionCategory[]"></form><p>pappas.hu — 147 jármű</p>${card}`;
+  const v = ds7.parsePappasCards(page, 'https://www.pappas.hu')[0];
+  ok(v?.external_id === '804659901228' && v?.price === 13990000 && v?.year === 2026 && v?.km === 0 && v?.fuel === 'Benzin-Hibrid' && v?.power_ch === 179 && v?.gearbox === null,
+    'carte réelle : le prix est le DERNIER montant (pas la liste barrée ni la remise), 1re immatriculation, énergie, km, ch ; boîte laissée à la fiche', v);
+  ok(ds7.pappasDeclared(page) === 147 && ds7.detectDealerProvider(page) === 'pappas', 'total « 147 jármű » et site reconnu');
+  const empty = '<form><input name="conditionCategory[]"></form><div>Pappas Auto</div><p>Nincsenek a keresési feltételeknek megfelelő járművek.</p>';
+  ok(ds7.detectDealerProvider(empty) === 'pappas' && ds7.pappasDeclared(empty) === 0, 'liste vide reconnue, total 0 (pas « site non reconnu »)');
+  ok(ds7.readPappasDetail('<dl><dt class="key-value__key">Váltó típusa</dt><dd class="key-value__value">Automata</dd><dt>Évjárat</dt><dd>12/2024</dd></dl>').gearbox === 'Automatique', 'fiche : « Váltó típusa » = boîte');
+}
+
 console.log('\n=== POLITESSE : PAS PLUS D\'UNE REQUÊTE TOUTES LES 350 MS PAR SITE ===\n');
 {
   const { reserveSiteSlot, SITE_MIN_GAP_MS } = await import('../worker/dealerStock');

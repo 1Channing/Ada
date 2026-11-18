@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused' | 'kiaosp';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused', 'kiaosp'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused' | 'kiaosp' | 'pappas';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused', 'kiaosp', 'pappas'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -363,6 +363,9 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/name="dealer\[\$or\]"/.test(html) && /name="series\[\$or\]"/.test(html)) return 'bmwused';
   // kiaosp (neuves Kia Hongrie, 19/11) : liste « piacter » de kia.com (fragment « aggregationlist.allOffersResults »).
   if (/aggregationlist\.allOffersResults/.test(html) && /buy-my-kia\/piacter/.test(html)) return 'kiaosp';
+  // pappas (Pappas Auto Hongrie, 19/11) : cartes « vehicle-teaser » + total « N jármű » (Pimcore).
+  // Liste vide : pas de carte, mais le message « Nincsenek a keresési feltételeknek megfelelő járművek » (vérifié le 19/11).
+  if (/conditionCategory/.test(html) && /pappas/i.test(html) && (/<section class="vehicle-teaser/.test(html) || /Nincsenek a keresési feltételeknek megfelelő járművek/.test(html))) return 'pappas';
   // catalogpager (Groupe DMD, 04/11) : site Symfony maison, cartes <a class="fiche_vehicule">, pages chargées en POST
   // sur « /ajax/search?flag=html » avec filters[page]=N (liens « catalog-pager-link » data-page).
   if (/class="fiche_vehicule/.test(html) && /catalog-pager-link/.test(html) && /data-ajax-request-search="/.test(html)) return 'catalogpager';
@@ -4908,6 +4911,85 @@ async function scrapeKiaOsp(url: string): Promise<DealerStockResult> {
   return { provider: 'kiaosp', total: vehicles.length, declared: vehicles.length, vehicles, pages: Math.max(1, nat.pages), warnings };
 }
 
+// ── pappas (Pappas Auto Magyarország, 19/11 nuit) : site du groupe (Pimcore, rendu serveur) — occasions, neuves et
+//    démonstration de ses concessions (Mercedes-Benz, Kia, …). Adresse de la fiche ADA : la liste filtrée par site et
+//    catégorie (« /hasznaltauto/szemelyautok?location[]=<n°>&conditionCategory[]=group_used ») ; pages « page=N » de 36 ;
+//    total « N jármű » ; un filtre vide affiche « 0 jármű » (vérifié le 18/11). Carte <section class="vehicle-teaser"> :
+//    marque modèle, version, 1re immatriculation (MM/AAAA), énergie, km, carrosserie, puissance, couleur, prix (le DERNIER
+//    montant : prix barré « Listaár » et remise à part). Boîte : pas sur la carte → fiche (« Váltó típusa », DETAIL_READERS).
+export function parsePappasCards(html: string, origin: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  for (const m of html.matchAll(/<section class="vehicle-teaser[\s\S]*?<\/section>/g)) {
+    const s = m[0];
+    const href = s.match(/href="(\/[a-z-]+\/[a-z-]+\/[^"]*?\/(\d{9,})-[^"]*)"/);
+    if (!href) continue;
+    const makeModel = htmlText(s.match(/vehicle-teaser__content-title[^>]*>\s*<span>([^<]+)<\/span>/)?.[1] ?? '');
+    const version = htmlText(s.match(/vehicle-teaser__name">([\s\S]*?)<\/div>/)?.[1] ?? '');
+    const detail = s.split('vehicle-teaser__content-detail')[1]?.split('vehicle-teaser__content-bottom')[0] ?? '';
+    const toks = [...detail.matchAll(/<span>\s*([^<]*?)\s*<\/span>/g)].map((x) => htmlText(x[1])).filter(Boolean);
+    const date = toks.find((t) => /^\d{2}\/\d{4}$/.test(t));
+    const km = toks.find((t) => /km$/i.test(t));
+    const power = toks.find((t) => /\bkW\b|\bLE\b/.test(t));
+    const fuel = toks.find((t) => /benzin|d[ií]zel|elektromos|hibrid|g[áa]z|lpg|cng|hidrog/i.test(t)) ?? null;
+    const prices = [...s.matchAll(/class="vehicle-teaser__price text-nowrap">\s*([\d\s ]+)Ft/g)].map((x) => x[1]);
+    const price = priceOrNull((prices[prices.length - 1] ?? '').replace(/[\s ]/g, ''));
+    const badges = htmlText(s.match(/vehicle-teaser__content-badges">([\s\S]*?)<\/div>/)?.[1] ?? '');
+    const bottom = htmlText(s.split('vehicle-teaser__content-bottom')[1] ?? '');
+    const { brand, model } = splitTitle(makeModel);
+    const title = [makeModel, version].filter(Boolean).join(' ');
+    const vat = /visszaig[ée]nyelhet/i.test(bottom);
+    out.push({
+      external_id: href[2], url: `${origin}${href[1]}`, title: vat ? `${title} · TVA récupérable` : title, brand, model,
+      price, currency: 'HUF', km: km ? num(km.replace(/\D/g, '')) : null, year: date ? num(date.slice(3)) : null, fuel,
+      gearbox: gearboxOfVersion(version), plate: null, vin: null,
+      body: [toks.filter((t) => t !== date && t !== km && t !== power && t !== fuel).join(' · '), badges].filter(Boolean).join(' · ') || null,
+      image: null, listed_at: null, status: statusFromText(badges) ?? (/foglalt/i.test(badges) ? 'reserved' : price == null ? 'price_on_request' : null),
+      power_ch: num(power?.match(/(\d+)\s*LE/)?.[1]) ?? powerFromText(version), location: null,
+    });
+  }
+  return out;
+}
+export const pappasDeclared = (html: string): number | null =>
+  /Nincsenek a keresési feltételeknek megfelelő járművek/.test(html) && !/<section class="vehicle-teaser/.test(html) ? 0 : num(html.match(/(\d[\d\s\u00a0]*)\s*jármű/)?.[1]?.replace(/\D/g, '') ?? null);
+/** Fiche Pappas : liste <dt>/<dd> (« Váltó típusa », « Évjárat », « Futásteljesítmény », « Üzemanyag »). */
+export function readPappasDetail(html: string): { gearbox?: string | null; fuel?: string | null; km?: number | null; year?: number | null } {
+  const spec = new Map<string, string>();
+  for (const m of html.matchAll(/<dt[^>]*>([\s\S]*?)<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/g)) { const k = htmlText(m[1]).toLowerCase(); if (!spec.has(k)) spec.set(k, htmlText(m[2])); }
+  const gear = spec.get('váltó típusa') ?? spec.get('váltó') ?? '';
+  return {
+    gearbox: !gear ? null : /automat/i.test(gear) ? 'Automatique' : /manu|k[ée]zi/i.test(gear) ? 'Manuelle' : gear,
+    fuel: spec.get('üzemanyag') ?? spec.get('üzemanyag típusa') ?? null, km: kmOf(spec.get('futásteljesítmény') ?? spec.get('kilométeróra állás')),
+    year: yearOf(spec.get('évjárat') ?? spec.get('első forgalomba helyezés') ?? null),
+  };
+}
+async function scrapePappas(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  if (!u.searchParams.getAll('location[]').length) throw new Error('adresse Pappas sans site (attendu : …?location[]=<n°>&conditionCategory[]=…) : tout le groupe n\'est pas la vitrine d\'une concession');
+  const warnings: string[] = [];
+  const declared = pappasDeclared(firstHtml);
+  const byId = new Map<string, DealerVehicle>();
+  let pages = 0;
+  const last = declared != null ? Math.ceil(declared / 36) : 50;
+  for (let p = 1; p <= Math.min(Math.max(last, 1), 60); p++) {
+    let html = p === 1 && !u.searchParams.has('page') ? firstHtml : null;
+    if (html == null) {
+      await sleep(SITE_DELAY_MS);
+      const r = await getTextPatient(withParam(url, 'page', String(p)));
+      if (r.status !== 200) { warnings.push(`page ${p} : HTTP ${r.status}`); break; }
+      html = r.text;
+    }
+    pages++;
+    const cards = parsePappasCards(html, u.origin);
+    let added = 0;
+    for (const v of cards) if (!byId.has(v.external_id)) { byId.set(v.external_id, v); added++; }
+    if (cards.length === 0 || added === 0 || (declared != null && byId.size >= declared)) break;
+  }
+  const vehicles = [...byId.values()];
+  if (declared != null && vehicles.length < declared) warnings.push(`${vehicles.length} voiture(s) lue(s) pour ${declared} annoncée(s)`);
+  if (vehicles.some((v) => !v.gearbox)) warnings.push('boîte absente de la carte : lue sur la fiche (DETAIL_READERS, 200 par nuit)');
+  return { provider: 'pappas', total: declared ?? vehicles.length, declared, vehicles, pages, warnings };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getTextPatient(url); // 04/11 : MotorK (Sofibrie, SIPA) répond 429 dès la première page après une rafale
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -4946,6 +5028,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'vwgmarket') return scrapeVwgMarket(url);
   if (provider === 'bmwused') return scrapeBmwUsed(url, first.text);
   if (provider === 'kiaosp') return scrapeKiaOsp(url);
+  if (provider === 'pappas') return scrapePappas(url, first.text);
   if (provider === 'audaris') return scrapeAudaris(url, first.text);
   if (provider === 'kleynvans') return scrapeKleynVans(url, first.text);
   if (provider === 'ocasionplus') return scrapeOcasionPlus(url, first.text);
@@ -5135,6 +5218,8 @@ export const DETAIL_READERS: Partial<Record<DealerProvider, DetailReader>> = {
   cfdnext: { fields: ['km'], read: readCfdnextDetail },
   // pewneauto (Toyota Hongrie) : la boîte que la version ne dit pas (« Váltó » de la fiche).
   pewneauto: { fields: ['gearbox'], read: readPewneDetail },
+  // pappas (Hongrie) : la boîte n'est pas sur la carte (« Váltó típusa » de la fiche).
+  pappas: { fields: ['gearbox'], read: readPappasDetail },
 };
 
 /** Relève le stock d'une concession de la carte et le compare au relevé précédent. Avec `prefetched` (vitrine
