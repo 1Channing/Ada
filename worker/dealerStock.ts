@@ -30,6 +30,7 @@ import { recordLearningCase, resolveLearningCase } from './learningBox';
 import { fetchHtmlWithZyte } from './scraper';
 import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
+import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
 export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace';
 const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace'];
@@ -2893,6 +2894,10 @@ export interface DetailFields { gearbox?: string | null; fuel?: string | null; k
 export type DetailField = keyof DetailFields;
 /** Un lecteur de fiche : les champs qu'il sait rendre (un véhicule n'est relu que si l'un d'eux manque), et la lecture. */
 export interface DetailReader { fields: DetailField[]; read: (html: string) => DetailFields }
+/** UNE ÉLECTRIQUE N'A PAS DE BOÎTE MANUELLE (18/11, Bony : 9 électriques neuves sur 24 annoncées « Manuelle » par le
+ *  site — Scénic, R5, Mégane E-Tech, Spring) : rapport unique, comparée comme une automatique. */
+export const evGearbox = (gearbox: string | null, fuel: string | null): string | null =>
+  gearbox && fuelFamily(fuel) === 'electric' && gearboxFamily(gearbox) === 'manual' ? 'Automatique' : gearbox;
 /** Un prix inférieur à ce ratio du nouveau prix lu était une lecture fausse (remise, mensualité), pas un prix (18/11). */
 export const MISREAD_PRICE_RATIO = 0.35;
 /** Relevé partiel (18/11) : moins de 95 % du total que le site annonce — aucune voiture n'est alors marquée disparue. */
@@ -3129,7 +3134,7 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
         // site le dit (« sur demande », « bientôt ») reste absent.
         price: v.price ?? (v.status === 'price_on_request' || v.status === 'expected' ? null : p?.price ?? null),
         price_prev: changed ? before : misread ? null : (p?.price_prev ?? null),
-        km: v.km ?? p?.km ?? null, year: v.year ?? p?.year ?? null, fuel: v.fuel ?? p?.fuel ?? null, gearbox: v.gearbox ?? p?.gearbox ?? null,
+        km: v.km ?? p?.km ?? null, year: v.year ?? p?.year ?? null, fuel: v.fuel ?? p?.fuel ?? null, gearbox: evGearbox(v.gearbox ?? p?.gearbox ?? null, v.fuel ?? p?.fuel ?? null),
         // Date de mise en ligne : la plus ANCIENNE connue (18/11, Auto Palace : le plan du site date une fiche jusqu'à sa
         // prochaine modification, puis plus rien — une date lue un jour ne s'efface pas, et une date plus ancienne gagne).
         plate: v.plate, vin: v.vin, body: v.body, image: v.image, listed_at: [v.listed_at, p?.listed_at].filter((d): d is string => !!d).sort()[0] ?? null,

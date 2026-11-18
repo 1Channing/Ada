@@ -149,5 +149,30 @@ const ad = ds.readAutodataDetail('<ul><li>Tellerstand<strong>116500 KM</strong><
 ok(ad.fuel === 'Benzine' && ad.gearbox === 'Manuelle' && ad.km === 116500 && ad.year === 2013, 'Krimpenerwaard : fiche → énergie, boîte, km, année', ad);
 ok(JSON.stringify(ds.DETAIL_READERS.autodata?.fields) === JSON.stringify(['fuel', 'gearbox', 'km', 'year']), 'Krimpenerwaard : la fiche n\'est relue que pour énergie, boîte, km, année (jamais pour un prix « op aanvraag »)');
 
+console.log('\n=== LECTEURS FRANÇAIS : EXTRAITS RÉELS (18/11) ===\n');
+// webspark (SIPA, Sofibrie, Edenauto, Bony) : boîte, km, VIN lus dans le JSON-LD de la liste ; « autre » = inconnue.
+const wsld = ds.websparkLdById(`<script type="application/ld+json" class="yoast-schema-graph">${JSON.stringify({ '@graph': [{ '@type': 'ItemList', itemListElement: [
+  { '@type': 'ListItem', position: 1, item: { '@type': 'Vehicle', sku: '5353760', fuelType: 'Électrique', vehicleTransmission: 'Automatique', vehicleModelDate: 2023, vehicleIdentificationNumber: 'ZFAEFAG45PX162816', mileageFromOdometer: { '@type': 'QuantitativeValue', value: 23379, unitCode: 'KMT' }, offers: { '@type': 'Offer', priceCurrency: 'EUR', price: 19490 } } },
+  { '@type': 'ListItem', position: 2, item: { '@type': 'Vehicle', sku: '5415712', fuelType: 'Hybride', vehicleTransmission: 'autre' } },
+] }] })}</script>`);
+ok(wsld.get('5353760')?.gearbox === 'Automatique' && wsld.get('5353760')?.km === 23379 && wsld.get('5353760')?.price === 19490 && wsld.get('5353760')?.vin === 'ZFAEFAG45PX162816' && wsld.get('5415712')?.gearbox === null,
+  'webspark : boîte, km, prix, VIN du JSON-LD de la liste ; « autre » = inconnue', [...wsld]);
+ok(ds.websparkDeclared('<span class="stock-listing__results-counter" x-ref="resultsFoundText">\n        <strong>3193</strong> résultats trouvés') === 3193, 'webspark : total annoncé (Bony, 3 193)');
+// openflex (Vikings) : « vehiculeinfos » lu par forme ; boîte de la fiche.
+ok(JSON.stringify(ds.openflexInfos('2026 / Essence')) === JSON.stringify({ year: 2026, km: null, fuel: 'Essence' })
+  && ds.openflexInfos('2020 / 102666km / Essence / Electrique').fuel === 'Hybride Essence / Electrique' && ds.openflexInfos('2016 / 123844km / Essence').km === 123844,
+  'openflex : neuve sans km (plus de 0 lu dans « Essence »), hybride « Essence / Electrique »');
+const ofd = ds.readOpenflexDetail('<ul class="grille-3 caracteristiques">\n<li class="km">123844 km</li><li class="boite">Boîte manuelle</li>\n<li class="carburant">Essence</li>\n<li class="date">11-08-2016</li></ul>');
+ok(ofd.gearbox === 'Manuelle' && ofd.km === 123844 && ofd.year === 2016 && ofd.fuel === 'Essence', 'openflex : fiche (boîte, km, année, énergie)', ofd);
+// VGRF / Yooflex / DMD : libellés de boîte français ; version lue en mots entiers.
+ok(['Rob double embray', 'Automate à fonct. Continu', 'A Var Continu', 'Boîte hybride multimode', 'Auto Séquent.', 'Rob Simple Embray'].every((s) => ds.gearboxFr(s) === 'Automatique') && ds.gearboxFr('Manuelle') === 'Manuelle' && ds.gearboxFr('Boîte manuelle') === 'Manuelle',
+  'boîte FR : robotisée, variateur, multimode = Automatique');
+ok(ds.gearboxOfVersion('Up 1.0 75 BlueMotion Technology BVM5 Up! Beats Audio') === 'Manuelle' && ds.gearboxOfVersion('Kona 1.0 T-gdi 120ch Fap Creative') === null && ds.gearboxOfVersion('Clio TCe 130 EDC FAP Intens') === 'Automatique',
+  'version en mots entiers : « Beats », « Creative » ne sont pas EAT ; EDC = automatique');
+ok(ds.readDmdDetail('<span>Boîte de vitesse</span>\n <span>A Var Continu</span>').gearbox === 'Automatique', 'DMD : « A Var Continu » = Automatique');
+
+ok(ds.evGearbox('Manuelle', 'Électrique') === 'Automatique' && ds.evGearbox('Manuelle', 'Hybride') === 'Manuelle' && ds.evGearbox('Manuelle', 'Essence') === 'Manuelle' && ds.evGearbox(null, 'Électrique') === null,
+  'une électrique annoncée « Manuelle » est comparée comme une automatique (hybride et essence inchangées)');
+
 console.log(`\n${fails === 0 ? 'Tout est bon.' : `${fails} échec(s).`}`);
 if (fails) process.exit(1);
