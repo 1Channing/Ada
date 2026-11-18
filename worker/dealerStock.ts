@@ -1965,8 +1965,11 @@ export const gearboxFr = (t: string | null | undefined): string | null => {
 const isGearFr = (x: string) => x.length <= 30 && /^(manuelle|automatique|s[ée]quentielle|auto s[ée]quent|a var continu|automate|rob |robotis|variat|bo[iî]te)/i.test(x);
 /** Boîte lue dans une VERSION, en MOTS ENTIERS (18/11 : « Beats », « Creative » contiennent « eat » → manuelles lues
  *  automatiques ; « EDC », « CVT », « Powershift » n'étaient pas lus). */
+// 18/11 (soir) : « full hybrid », « E-Tech » (Renault / Dacia : électrique, hybride et rechargeable, toujours à boîte
+// automatique), « e-Power » (Nissan) et une puissance suivie de « auto » (« Eco-G 120 auto ») disent aussi la boîte —
+// jamais « clim auto » ni « phares auto » (pas de puissance devant).
 export const gearboxOfVersion = (v: string | null | undefined): string | null =>
-  /\b(BVA\d?|DSG\d?|EAT\d|DCT\d?|EDC\d?|e-?CVT|CVT|automatique|automatic|powershift|S-?tronic|steptronic|tiptronic)\b/i.test(v ?? '') ? 'Automatique' : /\bBVM\d?\b/i.test(v ?? '') ? 'Manuelle' : null;
+  /\b(BVA\d?|DSG\d?|EAT\d|DCT\d?|EDC\d?|e-?CVT|CVT|automatique|automatic|powershift|S-?tronic|steptronic|tiptronic|full ?hybrid|e-?tech|e-?power)\b|\b\d{2,3}(?:\s?ch)?\s+auto\b/i.test(v ?? '') ? 'Automatique' : /\bBVM\d?\b/i.test(v ?? '') ? 'Manuelle' : null;
 
 /** JSON-LD des pages webspark (18/11) : chaque page de liste porte un ItemList Yoast de « Vehicle », un par carte
  *  (sku = data-id) avec boîte (vehicleTransmission), énergie, km, année, prix et VIN — y compris sur les cartes
@@ -2203,7 +2206,10 @@ async function scrapeWebspark(url: string, firstHtml: string): Promise<DealerSto
         external_id: id, url: link?.[1] ?? null, title: [makeModel, version].filter(Boolean).join(' ').trim(), brand: makeModel.split(/\s+/)[0] || null, model: makeModel.split(/\s+/).slice(1).join(' ') || null,
         price: priceAll, km: num(params.get('kilométrage')?.replace(/km/i, '').replace(/\s/g, '')) ?? d?.km ?? (isNew ? 0 : null), year: year ?? d?.year ?? null,
         fuel: params.get('energie') ?? params.get('énergie') ?? d?.fuel ?? null,
-        gearbox: (/auto/i.test(gear) ? 'Automatique' : /manu/i.test(gear) ? 'Manuelle' : gear || null) ?? d?.gearbox ?? null,
+        // Boîte : l'étiquette de la carte, sinon la VERSION (18/11 soir : le JSON-LD met « Manuelle » par défaut — Clio
+        // « full hybrid E-Tech 160 », Sandero « Eco-G 120 auto », Symbioz E-Tech annoncées manuelles : 14 sur 148 voitures),
+        // sinon le JSON-LD.
+        gearbox: (/auto/i.test(gear) ? 'Automatique' : /manu/i.test(gear) ? 'Manuelle' : gear || null) ?? gearboxOfVersion(`${makeModel} ${version}`) ?? d?.gearbox ?? null,
         plate: null, vin: d?.vin ?? null, body: null, image: part.match(/<img src="([^"]+)"/)?.[1] ?? null,
         listed_at: mec && /^\d{2}\/\d{4}$/.test(mec) ? null : null,
         status: sold ? 'sold' : priceAll == null ? 'price_on_request' : null, currency: 'EUR',

@@ -206,6 +206,13 @@ ok(['Rob double embray', 'Automate à fonct. Continu', 'A Var Continu', 'Boîte 
   'boîte FR : robotisée, variateur, multimode = Automatique');
 ok(ds.gearboxOfVersion('Up 1.0 75 BlueMotion Technology BVM5 Up! Beats Audio') === 'Manuelle' && ds.gearboxOfVersion('Kona 1.0 T-gdi 120ch Fap Creative') === null && ds.gearboxOfVersion('Clio TCe 130 EDC FAP Intens') === 'Automatique',
   'version en mots entiers : « Beats », « Creative » ne sont pas EAT ; EDC = automatique');
+// Versions réelles de Bony (page du 18/11) que le JSON-LD annonçait « Manuelle » ; et ce qui doit rester sans signal.
+const autoVersions = ['Dacia Sandero stepway expression Eco-G 120 auto - 25', 'Renault Symbioz evolution full hybrid E-Tech 160 ch - 26b',
+  'Renault Clio techno full hybrid E-Tech 160 ch - 26', 'Renault 4 E-Tech Electric techno 150 ch autonomie confort - 26', 'Nissan X-Trail NEW T33C N-CONNECTA E-POWER 204CH'];
+const quietVersions = ['FIAT 500 1.0 70 ch Hybride BSG S/S 3p', 'Peugeot 208 1.2 PureTech 100 Active Clim Auto GPS', 'Dacia Duster TCe 130 4x4 Extreme', 'Renault Kangoo VAN L2 BLUE DCI 115 GRAND CONFORT - 22'];
+ok(autoVersions.every((v) => ds.gearboxOfVersion(v) === 'Automatique') && quietVersions.every((v) => ds.gearboxOfVersion(v) === null),
+  'version : « full hybrid », « E-Tech », « e-Power », « 120 auto » = automatique ; « Clim Auto », hybride légère BSG, TCe, dCi = pas de signal',
+  [...autoVersions, ...quietVersions].map((v) => `${v} → ${ds.gearboxOfVersion(v)}`));
 ok(ds.readDmdDetail('<span>Boîte de vitesse</span>\n <span>A Var Continu</span>').gearbox === 'Automatique', 'DMD : « A Var Continu » = Automatique');
 
 ok(ds.evGearbox('Manuelle', 'Électrique') === 'Automatique' && ds.evGearbox('Manuelle', 'Hybride') === 'Manuelle' && ds.evGearbox('Manuelle', 'Essence') === 'Manuelle' && ds.evGearbox(null, 'Électrique') === null,
