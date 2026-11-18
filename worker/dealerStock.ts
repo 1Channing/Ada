@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -279,6 +279,9 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/initialValues\\?":\{\\?"total\\?":\d+/.test(html) && /media\.autosphere\.fr/.test(html)) return 'autosphere';
   // carsearchwp (Auto Brass, 18/11) : WordPress + extension « car-search-plugin » (API REST car-search/v1, aussi sur l'accueil).
   if (/\/wp-content\/plugins\/car-search-plugin\//.test(html)) return 'carsearchwp';
+  // stocklisting (Groupe Sellens, De Willermin, 18/11) : site ASP.NET maison, cartes <a class="stock-listing--card …">,
+  // pagination « stock-pagination » / « bouton-page » data-page, « ?page=N » rendu serveur.
+  if (/<a class="stock-listing--card[^"]*" href="/.test(html) && /class="stock-pagination/.test(html)) return 'stocklisting';
   // webspark / dealerk (Cobredia, 04/11) : WordPress + plugin webspark, cartes « vcard » data-id, paires label/info, « page=N ».
   // 04/11 : variante compacte (Bony, Sofibrie, Edenauto, SIPA) — pas d'étiquettes, la ligne « 12/2025 - 10 Km - Hybride »
   // est dans vcard-consumption__title.
@@ -2940,6 +2943,96 @@ export async function scrapeCarSearchWp(url: string): Promise<DealerStockResult>
   return { provider: 'carsearchwp', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
 }
 
+// ── stocklisting (Groupe Sellens, De Willermin, 18/11) : site ASP.NET maison, 24 cartes par page rendues côté serveur,
+//    « ?page=N » (les autres paramètres de l'adresse — « TypeEnum=2 » chez De Willermin — sont gardés), total « data-nb »
+//    ou « N Résultats ». Le lien porte marque, modèle et version (« /stock-<groupe>/vehicules-occasions/S16E1340406?
+//    marque=…&modele=…&version=… ») ; la carte donne site, km, énergie, prix et, selon le site, boîte et date.
+//    Entités hexadécimales (&#x202F; &#x20AC; &#xE9;) : décodées ici, htmlText ne lit que les décimales.
+const hexText = (s: string) => htmlText(s.replace(/&#x([0-9a-f]+);/gi, (_, h: string) => String.fromCharCode(parseInt(h, 16))));
+const STOCK_FUEL = /^(essence|diesel|hybride|électrique|electrique|gpl|gnv|e85|ethanol|éthanol|hydrog[eè]ne|bioéthanol|superéthanol|hybride rechargeable|micro-hybride|mild hybrid)/i;
+export function parseStockListingCards(html: string, origin: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  for (const m of html.matchAll(/<a class="stock-listing--card[^"]*" href="([^"]+)">([\s\S]*?)<\/a>/g)) {
+    const href = m[1].replace(/&amp;/g, '&');
+    const inner = m[2];
+    const u = new URL(href, origin);
+    const id = u.pathname.split('/').filter(Boolean).pop() ?? '';
+    if (!/^S\d+E\d+$/.test(id)) continue;
+    const head = hexText(inner.match(/class="card-info--marque[^"]*">([\s\S]*?)<\/h2>/)?.[1] ?? '');
+    const version = hexText(inner.match(/class="card-info--modele[^"]*">([\s\S]*?)<\/h3>/)?.[1] ?? '') || u.searchParams.get('version') || '';
+    const brandQ = (u.searchParams.get('marque') ?? '').trim();
+    const modelQ = (u.searchParams.get('modele') ?? u.searchParams.get('vehicule') ?? '').trim();
+    const brand = brandQ || splitTitle(head).brand;
+    const model = modelQ || (brand && head.toLowerCase().startsWith(brand.toLowerCase()) ? head.slice(brand.length).trim() : splitTitle(head).model) || null;
+    const metaBlock = inner.match(/class="card-meta-list">([\s\S]*?)<\/ul>/)?.[1] ?? '';
+    const items = [...metaBlock.matchAll(/<li>([\s\S]*?)<\/li>/g)].map((x) => ({ icon: x[1].match(/class="bi bi-([a-z-]+)"/)?.[1] ?? '', text: hexText(x[1]) }));
+    const site = hexText(inner.match(/class="veh-site">[\s\S]*?<div class="h6">([\s\S]*?)<\/div>/)?.[1] ?? '') || items.find((x) => x.icon === 'geo-alt')?.text || null;
+    const texts = items.filter((x) => x.icon !== 'geo-alt').map((x) => x.text);
+    const kmText = texts.find((x) => /\d\s*km$/i.test(x)) ?? null;
+    const dateText = texts.find((x) => /^(\d{2}\/)?(19|20)\d{2}$/.test(x)) ?? null;
+    const gearText = texts.find((x) => /^(automatique|manuelle|auto|séquentielle|robotisée)/i.test(x)) ?? null;
+    const fuel = texts.find((x) => STOCK_FUEL.test(x)) ?? null;
+    const powerText = texts.find((x) => /^\d+\s*ch$/i.test(x)) ?? null;
+    const price = euro(hexText(inner.match(/class="card-prices--main[^"]*">([\s\S]*?)<\/div>/)?.[1] ?? ''));
+    const title = [brand, model, version].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    out.push({
+      external_id: id, url: origin + u.pathname, title, brand: brand || null, model, price, km: kmOf(kmText), year: yearOf(dateText),
+      fuel, gearbox: gearboxOf(gearText), plate: null, vin: null, body: null,
+      image: inner.match(/<img data-src="(https?:[^"]+)"/)?.[1] ?? null, listed_at: null,
+      status: price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: num(powerText?.match(/\d+/)?.[0]) ?? powerFromText(version), location: site,
+    });
+  }
+  return out;
+}
+export async function scrapeStockListing(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const declared = num(firstHtml.match(/data-nb="(\d+)"/)?.[1] ?? hexText(firstHtml.match(/(\d[\d\s ]*)\s*R[ée]sultats?/)?.[1] ?? '').replace(/\s/g, ''));
+  const last = Math.max(1, ...[...firstHtml.matchAll(/class="bouton-page[^"]*"[^>]*data-page="(\d+)"/g)].map((m) => Number(m[1])));
+  const parse = (html: string): number => {
+    let added = 0;
+    for (const v of parseStockListingCards(html, origin)) if (!seen.has(v.external_id)) { seen.add(v.external_id); out.push(v); added++; }
+    return added;
+  };
+  let pages = 1;
+  const warnings: string[] = [];
+  // La page enregistrée peut être « ?page=3 » : on repart toujours de la page 1.
+  const firstIsPage1 = !/[?&]page=(?!1(?:&|$))\d+/.test(url);
+  if (firstIsPage1) parse(firstHtml);
+  const cap = Math.min(MAX_PAGES * 2, last + 2);
+  for (let p = firstIsPage1 ? 2 : 1; p <= cap; p++) {
+    await sleep(PAGE_DELAY_MS);
+    const r = await getTextPatient(withParam(url, 'page', String(p)));
+    if (r.status !== 200) { warnings.push(`page ${p} : HTTP ${r.status}`); break; }
+    const added = parse(r.text);
+    if (added > 0) pages = p;
+    if (added === 0 || (declared != null && out.length >= declared)) break;
+  }
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  return { provider: 'stocklisting', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
+}
+/** Fiche détail stocklisting (De Willermin : la carte ne donne ni boîte ni, parfois, l'année) : JSON-LD « Car »
+ *  (vehicleTransmission, fuelType, vehicleModelDate), sinon le tableau « Caractéristiques » (Boîte | Manuelle). */
+export function readStockListingDetail(html: string): DetailFields {
+  type LdCar = { '@type'?: string; vehicleTransmission?: string; fuelType?: string; vehicleModelDate?: string; productionDate?: string; mileageFromOdometer?: { value?: unknown } };
+  let car: LdCar | null = null;
+  for (const m of html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)) {
+    try {
+      const d = JSON.parse(m[1]) as { '@graph'?: LdCar[] } & LdCar;
+      car = car ?? (d['@type'] === 'Car' ? d : (d['@graph'] ?? []).find((x) => x['@type'] === 'Car') ?? null);
+    } catch { /* bloc JSON-LD cassé : on passe au suivant */ }
+  }
+  const toks = htmlTokens((html.match(/Caract[ée]ristiques[\s\S]{0,8000}/)?.[0] ?? '').replace(/&#x([0-9a-f]+);/gi, (_, h: string) => String.fromCharCode(parseInt(h, 16))));
+  const pairs = pairsOf(toks, /^(Boîte|Énergie|kilométrage|1ère mise en circulation)$/i);
+  return {
+    gearbox: gearboxOf(car?.vehicleTransmission ?? pairs.get('boîte') ?? null), fuel: car?.fuelType ?? pairs.get('énergie') ?? null,
+    km: num(car?.mileageFromOdometer?.value) ?? num(pairs.get('kilométrage')?.replace(/\s/g, '')),
+    // Année de 1re mise en circulation (productionDate « 2017-05-23 ») avant l'année-modèle (vehicleModelDate « 2027 » sur une MG 2026).
+    year: yearOf(car?.productionDate ?? pairs.get('1ère mise en circulation') ?? null) ?? num(car?.vehicleModelDate),
+  };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getTextPatient(url); // 04/11 : MotorK (Sofibrie, SIPA) répond 429 dès la première page après une rafale
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -2973,6 +3066,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'autopalace') return scrapeAutopalace(url, first.text);
   if (provider === 'autosphere') return scrapeAutosphere(url);
   if (provider === 'carsearchwp') return scrapeCarSearchWp(url);
+  if (provider === 'stocklisting') return scrapeStockListing(url, first.text);
   if (provider === 'jetlisting') return scrapeJetListing(url, first.text);
   if (provider === 'gatsbyvehicles') return scrapeGatsbyVehicles(url);
   if (provider === 'dvnl') return scrapeDv(url, first.text);
@@ -3101,6 +3195,7 @@ export const DETAIL_READERS: Partial<Record<DealerProvider, DetailReader>> = {
   // dmapi (Pon) : secours seulement — l'API Datamotive rend énergie, km, année, boîte.
   dmapi: { fields: ['gearbox', 'fuel', 'km', 'year'], read: readDatamotiveDetail },
   autopalace: { fields: ['gearbox'], read: readAutopalaceDetail },
+  stocklisting: { fields: ['gearbox', 'year'], read: readStockListingDetail },
 };
 
 /** Relève le stock d'une concession de la carte et le compare au relevé précédent. Avec `prefetched` (vitrine
