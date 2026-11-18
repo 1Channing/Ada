@@ -2446,16 +2446,23 @@ async function scrapeYooflex(url: string, firstHtml: string): Promise<DealerStoc
       const title = t[0] ?? '';
       const { brand, model } = splitTitle(title);
       const price = euro(t.find((x) => /\d\s*€$/.test(x)));
+      // « titre | 95cv ｜ 2023 | Automate à fonct. Continu | 65243 km | Essence | ville | prix » : la boîte suit « …cv ｜ année »
+      // (18/11 : « Automate à fonct. Continu », « Boîte hybride multimode » n'étaient pas lues).
+      const iPow = t.findIndex((x) => /\bcv\b.*\b(19|20)\d{2}\b/i.test(x));
+      const gearTok = iPow >= 0 && t[iPow + 1] && !/km$|€$/i.test(t[iPow + 1]) ? t[iPow + 1] : t.find(isGearFr);
       seen.add(href[2]); added++;
       out.push({
         external_id: href[2], url: href[1], title, brand, model, price, km: kmOf(t.find((x) => /km$/i.test(x))), year: num(t.map((x) => x.match(/\b((?:19|20)\d{2})\b/)?.[1]).find(Boolean)),
-        fuel: t.find((x) => /^(essence|diesel|hybride|électrique|electrique|gpl)/i.test(x)) ?? null, gearbox: gearboxOf(t.find((x) => /^(manuelle|automatique|séquentielle|sequentielle)$/i.test(x))),
+        fuel: t.find((x) => /^(essence|diesel|hybride|électrique|electrique|gpl)/i.test(x)) ?? null, gearbox: gearboxFr(gearTok),
         plate: null, vin: null, body: null, image: part.match(/<img[^>]+src="([^"]+)"/)?.[1] ?? null, listed_at: null, status: price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: powerFromText(title + ' ' + (t[1] ?? '')),
       });
     }
     return added;
   };
-  const { pages, warnings } = await paginate(firstHtml, parse, (p) => withParam(url, 'paged', String(p)));
+  // Ordre ALÉATOIRE à chaque requête (18/11) : lecture par tranches de prix / km tenant chacune sur une page.
+  const perPage = parse(firstHtml);
+  const { requests, warnings } = await yooflexSlices(url, firstHtml, Math.max(perPage, 1), parse);
+  const pages = 1 + requests;
   if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
   return { provider: 'yooflex', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
 }
