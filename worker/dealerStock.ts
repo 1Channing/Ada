@@ -2463,38 +2463,142 @@ async function scrapeShopware(url: string, firstHtml: string): Promise<DealerSto
 }
 
 // ── wpcarsync (Voets, 04/11) : cartes « voets_single_vehicle », make/model/model_description, paires Erstzulassung/Leistung/Getriebe/Kilometerstand, pages « /page/N/ ».
-async function scrapeWpcarsync(url: string, firstHtml: string): Promise<DealerStockResult> {
-  const out: DealerVehicle[] = [];
-  const seen = new Set<string>();
-  const parse = (html: string): number => {
-    let added = 0;
-    for (const part of html.split(/voets_single_vehicle"/).slice(1)) {
-      const href = part.match(/<a[^>]+href="([^"]+)"/)?.[1];
-      if (!href) continue;
-      const id = href.match(/-([0-9a-f]{16,})\/?$/)?.[1] ?? href;
-      if (seen.has(id)) continue;
-      const make = htmlText(part.match(/class="make">([\s\S]*?)<\/span>/)?.[1] ?? '');
-      const model = htmlText(part.match(/class="model">([\s\S]*?)<\/span>/)?.[1] ?? '');
-      const desc = htmlText(part.match(/class="model_description">([\s\S]*?)<\/span>/)?.[1] ?? '');
-      const t = htmlTokens(part.replace(/<svg[\s\S]*?<\/svg>/g, ''));
-      const pr = pairsOf(t, /^(Erstzulassung|Leistung|Getriebe|Kilometerstand|Kraftstoff|Antrieb|Farbe)$/i);
-      const price = euro(part.match(/price_brutto[^>]*>([\s\S]*?)<\/span>/)?.[1]);
-      const kw = num(pr.get('leistung')?.match(/(\d+)\s*kw/i)?.[1]);
-      seen.add(id); added++;
-      out.push({
-        external_id: id, url: href, title: [make, model, desc].filter(Boolean).join(' '), brand: make || null, model: model || null, price,
-        km: kmOf(pr.get('kilometerstand')), year: yearOf(pr.get('erstzulassung')), fuel: pr.get('kraftstoff') ?? null, gearbox: gearboxOf(pr.get('getriebe')),
-        plate: null, vin: null, body: null, image: part.match(/<img[^>]+src="([^"]+)"/)?.[1] ?? null, listed_at: null,
-        status: price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: kw != null ? Math.round(kw * 1.35962) : null,
-      });
-    }
-    return added;
-  };
-  // « /page/N/ » renvoie la vitrine des modèles, pas le stock : la vraie pagination est « ?wpcs_paged=N » (prouvé 04/11).
-  const { pages, warnings } = await paginate(firstHtml, parse, (p) => withParam(url, 'wpcs_paged', String(p)), { cap: 250 });
-  if (pages === 1 && /Mehr als [\d.]+ Fahrzeuge/i.test(firstHtml)) warnings.push('seule la première page est lisible : la pagination du site se fait en JavaScript (toutes les variantes d\'URL testées le 04/11 renvoient la même page)');
-  return { provider: 'wpcarsync', total: out.length, declared: null, vehicles: out, pages, warnings };
+// Constat 13/11 : la vitrine annonce 2 245 voitures (2 261 le 18/11) (« vehicle_list_properties … "max_pages":113,"count":"2245" »)
+// et le relevé n'en lisait que 20 : « ?wpcs_paged=N » renvoie toujours la page 1. Le paramètre de page du plugin est
+// « wpcsp » (champ caché #wpcs_hidden_wpcsp du formulaire ; « ?wpcsp=2 » rend bien les 20 suivantes).
+// Énergie : la carte n'a que Erstzulassung / Leistung / Getriebe / Kilometerstand. Le filtre « fuel » du site la
+// donne : ses valeurs viennent de l'appel public du formulaire (admin-ajax, action getData, sans clé ni jeton) et
+// « ?fuel=DIESEL » ne liste que les diesel, avec leur nombre (« count »). Chaque voiture prend l'énergie du filtre
+// sous lequel elle apparaît ; la plus grosse valeur est déduite par élimination, contrôlée par son « count ».
+
+/** Total et nombre de pages que la liste annonce (objet JS vehicle_list_properties de la page). */
+export function wpcarsyncDeclared(html: string): { count: number | null; maxPages: number | null } {
+  const m = html.match(/vehicle_list_properties\s*=\s*(\{[^;]*?\})\s*;/);
+  if (!m) return { count: null, maxPages: null };
+  try { const d = JSON.parse(m[1]) as { count?: string | number; max_pages?: string | number }; return { count: num(d.count), maxPages: num(d.max_pages) }; } catch { return { count: null, maxPages: null }; }
 }
+/** Cartes « voets_single_vehicle » d'une page (fonction pure, extraite de scrapeWpcarsync, + énergie si la carte l'a). */
+export function parseWpcarsyncCards(html: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  // Chaque carte s'arrête à son </article> : sans cette coupe, la dernière carte d'une page courait jusqu'au
+  // formulaire de filtres et lisait « Kraftstoff » → « Getriebe » (libellé du filtre suivant) — les 5 % d'énergie
+  // du relevé du 13/11 étaient ce faux « Getriebe ».
+  for (const part of html.split(/voets_single_vehicle"/).slice(1).map((p) => p.split('</article>')[0])) {
+    const href = part.match(/<a[^>]+href="([^"]+)"/)?.[1];
+    if (!href) continue;
+    const id = href.match(/-([0-9a-f]{16,})\/?$/)?.[1] ?? href;
+    const make = htmlText(part.match(/class="make">([\s\S]*?)<\/span>/)?.[1] ?? '');
+    const model = htmlText(part.match(/class="model">([\s\S]*?)<\/span>/)?.[1] ?? '');
+    const desc = htmlText(part.match(/class="model_description">([\s\S]*?)<\/span>/)?.[1] ?? '');
+    const t = htmlTokens(part.replace(/<svg[\s\S]*?<\/svg>/g, ''));
+    const pr = pairsOf(t, /^(Erstzulassung|Leistung|Getriebe|Kilometerstand|Antrieb|Farbe)$/i);
+    const price = euro(part.match(/price_brutto[^>]*>([\s\S]*?)<\/span>/)?.[1]);
+    const kw = num(pr.get('leistung')?.match(/(\d+)\s*kw/i)?.[1]);
+    out.push({
+      external_id: id, url: href, title: [make, model, desc].filter(Boolean).join(' '), brand: make || null, model: model || null, price,
+      km: kmOf(pr.get('kilometerstand')), year: yearOf(pr.get('erstzulassung')),
+      fuel: htmlText(part.match(/class="fact fuel">([\s\S]*?)<\/div>/)?.[1] ?? '') || null,
+      gearbox: gearboxOf(pr.get('getriebe')),
+      plate: null, vin: null, body: null, image: part.match(/<img[^>]+src="([^"]+)"/)?.[1] ?? null, listed_at: null,
+      status: price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: kw != null ? Math.round(kw * 1.35962) : null,
+    });
+  }
+  return out;
+}
+/** Valeurs du filtre « fuel » (réponse de admin-ajax action=getData : [{ id: 'DIESEL', text: 'Diesel' }, …]). */
+export function parseWpcarsyncFilterValues(json: string): Array<{ id: string; text: string }> {
+  try { return (JSON.parse(json) as Array<{ id?: unknown; text?: unknown }>).filter((x) => typeof x?.id === 'string' && typeof x?.text === 'string').map((x) => ({ id: x.id as string, text: (x.text as string).trim() })); } catch { return []; }
+}
+
+export async function scrapeWpcarsync(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const warnings: string[] = [];
+  const byId = new Map<string, DealerVehicle>();
+  const base = url.replace(/\/page\/\d+\/?$/, '/');
+  const decl = wpcarsyncDeclared(firstHtml);
+  const lastPage = Math.min(decl.maxPages ?? 250, 400);
+  // Lecture d'une liste (filtrée ou non) jusqu'à sa dernière page ; rend les identifiants vus et le total annoncé.
+  const readList = async (extra: Record<string, string>, onCard: (v: DealerVehicle) => void, firstPage?: string) => {
+    const ids = new Set<string>(); let count: number | null = null; let pages = 0; let max = lastPage; let idle = 0;
+    for (let p = 1; p <= max; p++) {
+      let html = p === 1 ? firstPage : undefined;
+      if (html == null) {
+        if (p > 1 || firstPage == null) await sleep(PAGE_DELAY_MS);
+        let u = base; for (const [k, v] of Object.entries(extra)) u = withParam(u, k, v);
+        let r: { status: number; text: string };
+        try { r = await getText(p > 1 ? withParam(u, 'wpcsp', String(p)) : u); } catch { r = { status: 0, text: '' }; }
+        if (r.status !== 200) { warnings.push(`page ${p}${extra.fuel ? ` (énergie ${extra.fuel})` : ''} : HTTP ${r.status || 'délai dépassé'}`); break; }
+        html = r.text;
+      }
+      pages = p;
+      if (p === 1) { const d = wpcarsyncDeclared(html); count = d.count; max = Math.min(d.maxPages ?? max, 400); }
+      const cards = parseWpcarsyncCards(html);
+      let added = 0;
+      for (const v of cards) if (!ids.has(v.external_id)) { ids.add(v.external_id); onCard(v); added++; }
+      // Une page sans voiture nouvelle (tri par prix, ex æquo) n'arrête pas la lecture ; deux de suite, si.
+      idle = added > 0 ? 0 : idle + 1;
+      if (cards.length === 0 || idle >= 2 || (count != null && ids.size >= count)) break;
+    }
+    return { ids, count, pages, complete: count != null && ids.size >= count };
+  };
+  const all = await readList({}, (v) => { if (!byId.has(v.external_id)) byId.set(v.external_id, v); }, firstHtml);
+  let pages = all.pages;
+  if (decl.count != null && byId.size < decl.count) warnings.push(`${byId.size} voiture(s) lue(s) pour ${decl.count} annoncée(s)`);
+  // Énergie par le filtre « fuel » du site.
+  const missing = [...byId.values()].filter((v) => v.fuel == null);
+  if (missing.length > 0) {
+    const origin = new URL(url).origin;
+    let values: Array<{ id: string; text: string }> = [];
+    try {
+      const vr = await getText(`${origin}/wp-admin/admin-ajax.php`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' }, body: 'action=getData&field=fuel&load=live&values=&init_ajax_data=1&filterFormData=' });
+      if (vr.status === 200) values = parseWpcarsyncFilterValues(vr.text);
+    } catch { /* fail-open : énergie laissée aux fiches détail */ }
+    if (values.length === 0) warnings.push('valeurs du filtre « Kraftstoff » illisibles : énergie non relevée');
+    else {
+      // Compte de chaque valeur (page 1 du filtre, qui sert aussi de première page de lecture).
+      const firsts: Array<{ id: string; text: string; count: number; html: string }> = [];
+      for (const v of values) {
+        await sleep(PAGE_DELAY_MS);
+        try { const r = await getText(withParam(base, 'fuel', v.id)); if (r.status === 200) firsts.push({ ...v, count: wpcarsyncDeclared(r.text).count ?? 0, html: r.text }); } catch { /* valeur sautée : pas d'élimination */ }
+      }
+      pages += firsts.length;
+      firsts.sort((a, b) => b.count - a.count);
+      const [big, ...rest] = firsts;
+      const seen = new Set<string>(); let complete = firsts.length === values.length;
+      for (const v of rest.filter((x) => x.count > 0)) {
+        const r = await readList({ fuel: v.id }, (c) => { seen.add(c.external_id); const known = byId.get(c.external_id); if (known && known.fuel == null) known.fuel = v.text; }, v.html);
+        pages += r.pages - 1; if (!r.complete) complete = false;
+      }
+      const left = [...byId.values()].filter((v) => !seen.has(v.external_id));
+      // Élimination contrôlée par le « count » du site (à 0,5 % près : ventes et arrivées pendant le relevé).
+      if (big && complete && Math.abs(left.length - big.count) <= Math.max(3, Math.ceil(byId.size * 0.005))) { for (const v of left) if (v.fuel == null) v.fuel = big.text; }
+      else if (big) {
+        const r = await readList({ fuel: big.id }, (c) => { const known = byId.get(c.external_id); if (known && known.fuel == null) known.fuel = big.text; }, big.html);
+        pages += r.pages - 1;
+        warnings.push(`énergie « ${big.text} » relue par filtre (élimination impossible : ${left.length} restantes pour ${big.count} annoncées)`);
+      }
+      const still = [...byId.values()].filter((v) => v.fuel == null).length;
+      if (still) warnings.push(`${still} voiture(s) sans énergie (sous aucun filtre « Kraftstoff » du site)`);
+    }
+  }
+  return { provider: 'wpcarsync', total: decl.count ?? byId.size, declared: decl.count, vehicles: [...byId.values()], pages, warnings };
+}
+
+/** Fiche détail wpcarsync (repli si le filtre « fuel » devenait illisible) : bloc « dxim_vehicle_specifics_list_single »
+ *  de la voiture (les « véhicules similaires » plus bas utilisent la variante _archive et ne sont pas lus). */
+export function readWpcarsyncDetail(html: string): { gearbox?: string | null; fuel?: string | null; km?: number | null; year?: number | null; price?: number | null } {
+  const i = html.indexOf('dxim_vehicle_specifics_list_single');
+  if (i < 0) return {};
+  const seg = html.slice(i, i + 12_000);
+  const fact = (k: string) => htmlText(seg.match(new RegExp(`class="fact ${k}">([\\s\\S]*?)<\\/div>`))?.[1] ?? '') || null;
+  return {
+    gearbox: gearboxOf(fact('gearbox')), fuel: fact('fuel'), km: kmOf(fact('mileage')), year: yearOf(fact('first_registration')),
+    price: euro(html.match(/price_brutto[^>]*>([\s\S]*?)<\/span>/)?.[1]),
+  };
+}
+/** Entrée DETAIL_READERS : l'énergie seulement, en secours du filtre « fuel » (si ses valeurs devenaient illisibles).
+ *  Ni 'year' (481 neuves sans Erstzulassung, fiche comprise) ni 'gearbox' (15 hybrides rechargeables sans boîte,
+ *  fiche comprise) : elles seraient relues à chaque relevé pour rien. */
+export const WPCARSYNC_DETAIL = { fields: ['fuel'] as Array<'fuel'>, read: readWpcarsyncDetail };
 
 // ── divivoertuig (Van Dijk Automotive, 04/11) : <article class="item">, prix « voertuig-prijs », liste Bouwjaar/Km.stand/Transm/Brandstof, pages « /page/N/ ».
 async function scrapeDiviVoertuig(url: string, firstHtml: string): Promise<DealerStockResult> {
@@ -4361,6 +4465,8 @@ export const DETAIL_READERS: Partial<Record<DealerProvider, DetailReader>> = {
   // autrado (Autexx, MFH) : km et année des rares voitures que le moteur de recherche n'a pas données ; jamais le prix
   // (Autexx le réserve aux comptes connectés : « Nach Login »).
   autrado: { fields: ['km', 'year'], read: (html) => readAutradoDetail(html) },
+  // wpcarsync (Voets) : secours du filtre « Kraftstoff » du site.
+  wpcarsync: { fields: ['fuel'], read: readWpcarsyncDetail },
 };
 
 /** Relève le stock d'une concession de la carte et le compare au relevé précédent. Avec `prefetched` (vitrine
