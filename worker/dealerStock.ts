@@ -411,6 +411,10 @@ async function scrapeDv(url: string, firstHtml: string): Promise<DealerStockResu
     if (total != null && out.length >= total) break;
     await sleep(PAGE_DELAY_MS);
   }
+  // PRIX NON PUBLIÉS (13/11, Auto Smeeing : 339 voitures sur 1 054 sans prix — la fiche affiche « Op aanvraag » et son
+  // JSON-LD « price »: "0.00") : absents sur le site, pas mal lus ; dit dans le bilan pour que l'écart ne passe pas pour une panne.
+  const onRequest = out.filter((v) => v.price == null && v.status === 'price_on_request').length;
+  if (onRequest) warnings.push(`${onRequest} voiture(s) sans prix publié par le site (« op aanvraag » : prix sur demande)`);
   return { provider: 'dvnl', total: total ?? out.length, declared: total, vehicles: out, pages: pagesTotal, warnings };
 }
 
