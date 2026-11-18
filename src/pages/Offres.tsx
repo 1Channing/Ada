@@ -639,7 +639,8 @@ export function Offres() {
     update((d) => ({
       ...d,
       vehicles: d.vehicles.map((v) => {
-        if (modelKeyOf(v) !== key) return v;
+        // Sous filtres (18/11, Channing : « modifier pour tous, mais uniquement ceux qui correspondent aux filtres »).
+        if (modelKeyOf(v) !== key || !matchesSelFilters(v)) return v;
         const nv = { ...v, ...patch, manual: { ...(v.manual ?? {}), ...patch } };
         nextKey = modelKeyOf(nv);
         return nv;
@@ -1372,7 +1373,7 @@ export function Offres() {
               {/* Fenêtre d'un modèle : ses véhicules au même endroit que le choix des modèles */}
               {modelPopup && (() => {
                 // Sous les mêmes filtres que les cartes (18/11, Channing : « j'ai filtré électrique mais la fenêtre du
-                // modèle montre encore des diesels ») — « Modifier pour tous » reste sur le modèle entier, c'est dit.
+                // modèle montre encore des diesels ») — « Modifier pour tous » aussi : les filtrés seulement.
                 const whole = draft.vehicles.filter((v) => modelKeyOf(v) === modelPopup);
                 const list = whole.filter(matchesSelFilters);
                 const units = list.reduce((a, v) => a + qtyOf(v), 0);
@@ -1386,8 +1387,8 @@ export function Offres() {
                         <span className="text-sm text-slate-500">{sel} / {units} véhicule{units > 1 ? 's' : ''} retenu{sel > 1 ? 's' : ''}{selFiltersActive && whole.length !== list.length ? <span className="ml-1 text-brand-ocean">· filtres actifs : {list.length} sur {whole.length}</span> : null}</span>
                         <button onClick={() => setModelSelected(modelPopup, true)} className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Tout retenir</button>
                         <button onClick={() => setModelSelected(modelPopup, false)} className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Aucun</button>
-                        <button onClick={() => setBulk((b) => (b ? null : { field: 'model', value: whole[0]?.model ?? '' }))} className={`text-xs px-2.5 py-1.5 rounded-lg border ${bulk ? 'border-brand-ocean text-brand-ocean bg-sky-50' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}`} title="Corriger un critère d'un coup pour tous les véhicules de cette liste (marque, modèle, version, énergie, boîte…)">
-                          <Pencil className="inline w-3 h-3 -mt-0.5 mr-1" />Modifier pour tous ({whole.length})
+                        <button onClick={() => setBulk((b) => (b ? null : { field: 'model', value: (list[0] ?? whole[0])?.model ?? '' }))} className={`text-xs px-2.5 py-1.5 rounded-lg border ${bulk ? 'border-brand-ocean text-brand-ocean bg-sky-50' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}`} title="Corriger un critère d'un coup pour tous les véhicules de cette liste (marque, modèle, version, énergie, boîte…)">
+                          <Pencil className="inline w-3 h-3 -mt-0.5 mr-1" />{selFiltersActive && list.length !== whole.length ? `Modifier les ${list.length} filtrés` : `Modifier pour tous (${whole.length})`}
                         </button>
                         <button onClick={() => { setBulk(null); setModelPopup(null); }} className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-ocean text-white text-sm"><Check className="w-4 h-4" /> Terminé</button>
                       </div>
