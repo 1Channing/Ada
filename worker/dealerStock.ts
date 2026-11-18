@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -277,6 +277,8 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   // autosphere (Emil Frey France, 18/11) : Next.js ; la page /recherche porte dans son flux RSC « initialValues":{"total":N »
   // (échappé \") et des photos media.autosphere.fr ; la liste vient de l'API du site /api/stock/vehicles.
   if (/initialValues\\?":\{\\?"total\\?":\d+/.test(html) && /media\.autosphere\.fr/.test(html)) return 'autosphere';
+  // carsearchwp (Auto Brass, 18/11) : WordPress + extension « car-search-plugin » (API REST car-search/v1, aussi sur l'accueil).
+  if (/\/wp-content\/plugins\/car-search-plugin\//.test(html)) return 'carsearchwp';
   // webspark / dealerk (Cobredia, 04/11) : WordPress + plugin webspark, cartes « vcard » data-id, paires label/info, « page=N ».
   // 04/11 : variante compacte (Bony, Sofibrie, Edenauto, SIPA) — pas d'étiquettes, la ligne « 12/2025 - 10 Km - Hybride »
   // est dans vcard-consumption__title.
@@ -2863,6 +2865,81 @@ export async function scrapeAutosphere(url: string): Promise<DealerStockResult> 
   return { provider: 'autosphere', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
 }
 
+// ── carsearchwp (Auto Brass, 18/11) : WordPress + extension « car-search-plugin » ; la liste vient de l'API REST du
+//    site, POST « /wp-json/car-search/v1/list-vehicles » (appelée par la page sans clé ni nonce), qui rend les cartes
+//    HTML, 100 au plus par appel (« limit » / « offset ») ; total dans « meta.total ». Marques : « countvalues ».
+export function parseCarSearchCards(html: string, makes: string[] = []): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  const byLength = [...makes].sort((a, b) => b.length - a.length);
+  for (const part of html.split(/<div class="car-search-list-card">/).slice(1)) {
+    const link = part.match(/<a class="car-search-list-card-link" href="([^"]+)" data-carid="([^"]+)"/); // « 21310 », « B2LDTD83LR »
+    if (!link) continue;
+    const title = htmlText(part.match(/<h2 class="car-search-list-card-title">([\s\S]*?)<\/h2>/)?.[1] ?? '');
+    const details = [...part.matchAll(/car-search-list-card-detail-text">([\s\S]*?)<\/p>/g)].map((m) => htmlText(m[1]));
+    const date = details.find((x) => /^(\d{2}\.)?\d{4}$/.test(x)) ?? null;
+    const kmText = details.find((x) => /\d\s*km$/i.test(x)) ?? null;
+    const powerText = details.find((x) => /\bkW\b|\bch\b/.test(x)) ?? null;
+    const gearText = details.find((x) => /bo[iî]te|automati|manuel/i.test(x)) ?? null;
+    const fuel = details.find((x) => /essence|diesel|hybride|électrique|electrique|gpl|gnv|éthanol|ethanol|hydrog/i.test(x)) ?? details.find((x) => x !== date && x !== kmText && x !== powerText && x !== gearText && !/l\/100|g\/km/.test(x)) ?? null;
+    const price = euro(htmlText(part.match(/car-search-list-card-price">([\s\S]*?)<\/div>/)?.[1] ?? ''));
+    const statusText = htmlText((part.match(/car-search-list-card-status-subcontainer">([\s\S]*?)<\/span>\s*<\/div>/)?.[1] ?? '').replace(/<svg[\s\S]*?<\/svg>/g, ''));
+    // Marque : libellé du site (« DS Automobiles », « Land Rover »…) en tête du titre, sinon règle générale.
+    const make = byLength.find((m) => title.toLowerCase().startsWith(m.toLowerCase() + ' '));
+    const sp = make ? { brand: make, model: splitTitle(`X ${title.slice(make.length).trim()}`).model } : splitTitle(title);
+    out.push({
+      external_id: link[2], url: link[1], title, brand: sp.brand, model: sp.model, price, km: kmOf(kmText), year: yearOf(date),
+      fuel, gearbox: gearboxOf(gearText), plate: null, vin: null, body: null,
+      image: part.match(/<img class="car-search-list-card-image"\s+src="([^"]+)"/)?.[1] ?? null, listed_at: null,
+      status: statusFromText(statusText) ?? (price == null ? 'price_on_request' : null), currency: 'EUR',
+      power_ch: num(powerText?.match(/\((\d+)\s*ch\)/)?.[1]) ?? powerFromText(title),
+      location: htmlText(part.match(/car-search-list-card-subtitle">([\s\S]*?)<\/span>/)?.[1] ?? '') || null,
+    });
+  }
+  return out;
+}
+export async function scrapeCarSearchWp(url: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const api = `${origin}/wp-json/car-search/v1`;
+  const warnings: string[] = [];
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  let makes: string[] = [];
+  let declared: number | null = null;
+  try {
+    const c = await getTextPatient(`${api}/countvalues`, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ fields: [], where: [], good_deal_mode: false }) });
+    const d = JSON.parse(c.text) as { meta?: { total?: number }; data?: { make?: Array<{ label?: string }> } };
+    makes = (d.data?.make ?? []).map((m) => String(m.label ?? '').trim()).filter(Boolean);
+    declared = typeof d.meta?.total === 'number' ? d.meta.total : null;
+  } catch { warnings.push('liste des marques illisible (countvalues)'); }
+  const LIMIT = 100;
+  let pages = 0;
+  for (const ranking of ['asc', 'desc']) {
+    for (let offset = 0; pages < 300; offset += LIMIT) {
+      await sleep(PAGE_DELAY_MS);
+      const r = await getTextPatient(`${api}/list-vehicles`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        // Tri prix + « localcode » (n° interne) : sans second critère, les ex æquo de prix changent de page (13/11 : 2 doublons
+        // entre les pages 1 et 2 triées par prix seul, 0 avec le second critère).
+        body: JSON.stringify({ fields: [], restrict: [], where: [], order: [{ field: 'customerprice', ranking }, { field: 'localcode', ranking: 'asc' }], limit: LIMIT, offset, good_deal_mode: false }),
+      });
+      // SiteGround (hébergeur d'Auto Brass) répond par intermittence HTTP 202 + « sg-captcha: challenge » (défi anti-robot,
+      // 13/11 et 18/11) : on s'arrête en le disant, sans contournement ; la lecture partielle est signalée plus bas.
+      if (r.status === 202 && r.headers.get('sg-captcha')) { warnings.push(`défi anti-robot SiteGround (HTTP 202, sg-captcha) à l'offset ${offset} : lecture interrompue`); break; }
+      if (r.status !== 200) { warnings.push(`API du site (offset ${offset}) : HTTP ${r.status}`); break; }
+      let d: { html?: string; meta?: { total?: number } };
+      try { d = JSON.parse(r.text); } catch { warnings.push(`API du site (offset ${offset}) : réponse illisible`); break; }
+      declared = declared ?? (typeof d.meta?.total === 'number' ? d.meta.total : null);
+      pages++;
+      const cards = parseCarSearchCards(String(d.html ?? ''), makes);
+      for (const v of cards) if (!seen.has(v.external_id)) { seen.add(v.external_id); out.push(v); }
+      if (cards.length < LIMIT || (declared != null && offset + LIMIT >= declared)) break;
+    }
+    if (declared == null || out.length >= declared) break;
+  }
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  return { provider: 'carsearchwp', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getTextPatient(url); // 04/11 : MotorK (Sofibrie, SIPA) répond 429 dès la première page après une rafale
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -2895,6 +2972,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'eveho') return scrapeEveho(url, first.text);
   if (provider === 'autopalace') return scrapeAutopalace(url, first.text);
   if (provider === 'autosphere') return scrapeAutosphere(url);
+  if (provider === 'carsearchwp') return scrapeCarSearchWp(url);
   if (provider === 'jetlisting') return scrapeJetListing(url, first.text);
   if (provider === 'gatsbyvehicles') return scrapeGatsbyVehicles(url);
   if (provider === 'dvnl') return scrapeDv(url, first.text);
