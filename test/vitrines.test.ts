@@ -78,6 +78,26 @@ ok(order.indexOf('https://dmd.test/b') < order.indexOf('https://dmd.test/c') && 
 ok(row('G').gearbox === null && row('G').price === 7000, 'G : fiche illisible (404), boîte inconnue, le relevé continue', row('G'));
 ok(row('C').price === 19500 && row('C').price_prev === 20000, 'C : un vrai changement de prix est enregistré', [row('C').price, row('C').price_prev]);
 
+console.log('\n=== PRIX MAL LU CORRIGÉ, RELEVÉ PARTIEL SANS FAUX DISPARUS (18/11) ===\n');
+db.network_contacts.push({ id: 'c2', name: 'Van Mossel test', website: 'https://vm.test/voorraad', website2: null });
+const t14 = '2026-11-14T01:02:35.648Z';
+db.network_stock_vehicles.push(
+  { contact_id: 'c2', external_id: 'R', price: 6565, price_prev: null, price_first: 6565, price_history: [{ at: t14, price: 6565 }], first_seen_at: t14, last_seen_at: t14, gone_at: null },
+  { contact_id: 'c2', external_id: 'S', price: 20000, price_prev: null, price_first: 20000, price_history: [{ at: t14, price: 20000 }], first_seen_at: t14, last_seen_at: t14, gone_at: null },
+  { contact_id: 'c2', external_id: 'Z', price: 9000, price_prev: null, first_seen_at: t14, last_seen_at: t14, gone_at: null },
+);
+const vm = (declared: number) => ({ provider: 'carcards' as const, total: declared, declared, pages: 1, warnings: [] as string[],
+  vehicles: [car({ external_id: 'R', price: 30990 }), car({ external_id: 'S', price: 19500 })] });
+const partialRun = await runDealerStock('c2', 'https://vm.test/voorraad', 'test', vm(100));
+const r2 = (id: string) => db.network_stock_vehicles.find((x) => x.contact_id === 'c2' && x.external_id === id) as Record<string, unknown>;
+ok(r2('R').price === 30990 && r2('R').price_prev === null && r2('R').price_first === 30990 && JSON.stringify((r2('R').price_history as Array<{ price: number }>).map((x) => x.price)) === '[30990]',
+  'R : la remise lue comme prix (6 565 €) sort de l\'historique quand le vrai prix (30 990 €) est lu ; ce n\'est pas une hausse', r2('R'));
+ok(r2('S').price === 19500 && r2('S').price_prev === 20000 && partialRun.priceChanges === 1, 'S : une vraie baisse (20 000 → 19 500) reste une baisse', [r2('S').price_prev, partialRun.priceChanges]);
+ok(r2('Z').gone_at === null && partialRun.goneCount === 0 && partialRun.warnings.some((w) => /Relevé partiel : 2 voitures lues pour 100 annoncées/.test(w)),
+  'relevé partiel (2 lues / 100 annoncées) : Z n\'est PAS marquée disparue, et le bilan le dit', [r2('Z').gone_at, partialRun.warnings]);
+const fullRun = await runDealerStock('c2', 'https://vm.test/voorraad', 'test', vm(2));
+ok(r2('Z').gone_at != null && fullRun.goneCount === 1, 'relevé complet (2 / 2) : Z est marquée disparue', [r2('Z').gone_at, fullRun.goneCount]);
+
 console.log('\n=== LECTEURS DE FICHE ===\n');
 ok(readDmdDetail(box('Rob Double Embray')).gearbox === 'Automatique' && readDmdDetail(box('Manuelle')).gearbox === 'Manuelle'
   && readDmdDetail('<p>rien</p>').gearbox === null, 'DMD : robotisée double embrayage = Automatique, Manuelle, rien = inconnu');

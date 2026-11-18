@@ -2758,6 +2758,10 @@ export interface DetailFields { gearbox?: string | null; fuel?: string | null; k
 export type DetailField = keyof DetailFields;
 /** Un lecteur de fiche : les champs qu'il sait rendre (un véhicule n'est relu que si l'un d'eux manque), et la lecture. */
 export interface DetailReader { fields: DetailField[]; read: (html: string) => DetailFields }
+/** Un prix inférieur à ce ratio du nouveau prix lu était une lecture fausse (remise, mensualité), pas un prix (18/11). */
+export const MISREAD_PRICE_RATIO = 0.35;
+/** Relevé partiel (18/11) : moins de 95 % du total que le site annonce — aucune voiture n'est alors marquée disparue. */
+export const isPartialRead = (read: number, declared: number | null): boolean => declared != null && declared > 0 && read < declared * 0.95;
 /** Fiches lues au plus par relevé (le reste au relevé suivant, nouveaux d'abord) et pause entre deux fiches d'un site. */
 export const DETAIL_MAX_PER_RUN = 200;
 const DETAIL_DELAY_MS = 350;
@@ -2948,7 +2952,12 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
       const p = prev.get(v.external_id);
       if (!p) newCount++;
       const before = p?.price ?? null;
-      const changed = !!p && before != null && v.price != null && before !== v.price;
+      // PRIX MAL LU CORRIGÉ (18/11, Van Mossel : la règle de carte du 13/11 prenait la REMISE « Jouw korting: € 6.565 »
+      // pour le prix — 171 voitures de 2022 et plus à moins de 10 000 €). Un prix qui fait plus que tripler d'un relevé à
+      // l'autre n'est pas une hausse : c'était l'ancien qui était faux (remise, mensualité de leasing…). Il sort de
+      // l'historique (premier prix compris) et ne compte pas comme un changement de prix.
+      const misread = !!p && before != null && before > 0 && v.price != null && before < v.price * MISREAD_PRICE_RATIO;
+      const changed = !!p && before != null && v.price != null && before !== v.price && !misread;
       if (changed) priceChanges++;
       // MOUVEMENTS DE PRIX (01/10, demande Channing : « enregistrer pour
       // chaque véhicule les baisses, pour voir à la vente s'ils ont dû
@@ -2960,15 +2969,15 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
           ...(p.price_prev != null && p.price_prev > 0 ? [{ at: p.first_seen_at, price: p.price_prev }] : []),
           ...(p.price != null && p.price > 0 ? [{ at: p.first_seen_at, price: p.price }] : []),
         ] : [];
-      const history = [...seeded];
+      const history = misread ? seeded.filter((x) => x.price >= v.price! * MISREAD_PRICE_RATIO) : [...seeded];
       if (v.price != null && v.price > 0 && (history.length === 0 || history[history.length - 1].price !== v.price)) history.push({ at: startedAt, price: v.price });
-      const priceFirst = p?.price_first ?? history[0]?.price ?? null;
+      const priceFirst = misread ? history[0]?.price ?? null : p?.price_first ?? history[0]?.price ?? null;
       return {
         contact_id: contactId, external_id: v.external_id, url: v.url, title: v.title, brand: v.brand, model: v.model,
         // Une liste qui ne donne pas un champ n'efface jamais la valeur connue (14/11) ; un prix absent parce que le
         // site le dit (« sur demande », « bientôt ») reste absent.
         price: v.price ?? (v.status === 'price_on_request' || v.status === 'expected' ? null : p?.price ?? null),
-        price_prev: changed ? before : (p?.price_prev ?? null),
+        price_prev: changed ? before : misread ? null : (p?.price_prev ?? null),
         km: v.km ?? p?.km ?? null, year: v.year ?? p?.year ?? null, fuel: v.fuel ?? p?.fuel ?? null, gearbox: v.gearbox ?? p?.gearbox ?? null,
         // Date de mise en ligne : la plus ANCIENNE connue (18/11, Auto Palace : le plan du site date une fiche jusqu'à sa
         // prochaine modification, puis plus rien — une date lue un jour ne s'efface pas, et une date plus ancienne gagne).
@@ -3000,11 +3009,21 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
       if (error) throw new Error(`écriture des véhicules : ${error.message}`);
     }
     // Disparus : vus avant, absents de ce relevé, pas encore marqués.
-    let goneQuery = sb.from('network_stock_vehicles').update({ gone_at: startedAt, gone_run_id: runId })
-      .eq('contact_id', contactId).is('gone_at', null).lt('last_seen_at', startedAt);
-    for (const h of keepHosts) goneQuery = goneQuery.not('url', 'ilike', `%${h}%`);
-    const { data: gone } = await goneQuery.select('id');
-    const goneCount = ((gone ?? []) as unknown[]).length;
+    // RELEVÉ PARTIEL (18/11, Emil Frey lu à 153, 541 puis 1 562 voitures sur ≈ 4 500 annoncées : des milliers de faux
+    // « disparus », que les palmarès de vente prenaient pour des ventes ; Hecquet 194 / 286 : 72) : quand le relevé a lu
+    // moins de 95 % du stock que le site annonce lui-même, rien n'est marqué disparu — les voitures non revues gardent
+    // leur état jusqu'au prochain relevé complet.
+    const partial = isPartialRead(stock.vehicles.length, stock.declared);
+    let goneCount = 0;
+    if (partial) {
+      stock.warnings.push(`Relevé partiel : ${stock.vehicles.length} voitures lues pour ${stock.declared} annoncées par le site — aucune voiture marquée disparue.`);
+    } else {
+      let goneQuery = sb.from('network_stock_vehicles').update({ gone_at: startedAt, gone_run_id: runId })
+        .eq('contact_id', contactId).is('gone_at', null).lt('last_seen_at', startedAt);
+      for (const h of keepHosts) goneQuery = goneQuery.not('url', 'ilike', `%${h}%`);
+      const { data: gone } = await goneQuery.select('id');
+      goneCount = ((gone ?? []) as unknown[]).length;
+    }
     await sb.from('network_stock_runs').update({ status: 'done', provider: stock.provider, total: stock.vehicles.length, new_count: newCount, gone_count: goneCount, price_changes: priceChanges, pages: stock.pages, warnings: stock.warnings, finished_at: new Date().toISOString() }).eq('id', runId);
     await sb.from('network_contacts').update({ stock_total: stock.vehicles.length }).eq('id', contactId);
     // Un relevé réussi ferme seul les cas « vitrine inconnue » / « relevé vide » de cet hôte.
