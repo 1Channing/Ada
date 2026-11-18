@@ -2572,8 +2572,25 @@ export function readAutopalaceDetail(html: string): DetailFields {
   const v = htmlText(html.match(/Prevodovka:<\/div>\s*<div class="cell">([^<]+)</i)?.[1] ?? '');
   return { gearbox: /manu/i.test(v) ? 'Manuelle' : /auto/i.test(v) ? 'Automatique' : v || null };
 }
+/** Fiche autodata « /occasions-kopen/<id>-<titre> » (13/11, Krimpenerwaard : la carte de la liste n'a que titre, prix,
+ *  « 69.968 km - 2019 ») : « <li>Brandstof<strong>Benzine</strong></li> », Transmissie, Tellerstand, Bouwjaar ; repli sur
+ *  le bandeau « <h6>Brandstof</h6><h5>Benzine</h5> » (kmstand, « Transmissie: ») ; prix « <em>€ </em>16.945,- ». */
+export function readAutodataDetail(html: string): DetailFields {
+  const li = (label: string) => htmlText(html.match(new RegExp(`<li>\\s*${label}\\s*<strong>([\\s\\S]*?)<\\/strong>`, 'i'))?.[1] ?? '');
+  const head = (label: string) => htmlText(html.match(new RegExp(`<h6>\\s*${label}:?\\s*<\\/h6>\\s*<h5>([\\s\\S]*?)<\\/h5>`, 'i'))?.[1] ?? '');
+  const kmTxt = li('Tellerstand') || head('kmstand');
+  return {
+    fuel: li('Brandstof') || head('Brandstof') || null,
+    gearbox: gearboxOf(li('Transmissie') || head('Transmissie') || null),
+    km: /\d/.test(kmTxt) ? num(kmTxt.replace(/[^\d]/g, '')) : null,
+    year: yearOf(li('Bouwjaar') || head('Bouwjaar')),
+    price: euro(htmlText(html.match(/class="aanbod-product-price">\s*<h3>([\s\S]*?)<\/h3>/)?.[1] ?? '')),
+  };
+}
 export const DETAIL_READERS: Partial<Record<DealerProvider, DetailReader>> = {
   catalogpager: { fields: ['gearbox'], read: readDmdDetail },
+  // autodata : la liste donne prix, km, année ; la fiche donne l'énergie et la boîte (km / année en secours).
+  autodata: { fields: ['fuel', 'gearbox', 'km', 'year'], read: readAutodataDetail },
   autopalace: { fields: ['gearbox'], read: readAutopalaceDetail },
 };
 
