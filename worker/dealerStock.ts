@@ -508,6 +508,15 @@ async function scrapeDatamotive(url: string, firstHtml: string, onProgress?: Sto
   const warnings: string[] = [];
   const out: DealerVehicle[] = [];
   const seen = new Set<string>();
+  // API DATAMOTIVE (14/11, Century / Emil Frey : km, année, énergie, boîte à 0 %, Emil Frey lu à 153 / 4 582) : une
+  // page Next.js Datamotive dit dans son flux RSC quelle liste elle affiche ; l'API la rend entière, attributs compris.
+  // Les pages JSON-LD ci-dessous ne servent plus que de secours si l'API ne répond pas.
+  const dm = datamotiveListConfig(firstHtml, url);
+  if (dm) {
+    const { complete, ...viaApi } = await scrapeDatamotiveApi(url, dm, 'datamotive', dmIdLikeJsonLd, onProgress);
+    if (complete && viaApi.vehicles.length > 0) return viaApi;
+    warnings.push(...viaApi.warnings, `API Datamotive incomplète (${viaApi.vehicles.length} / ${viaApi.declared ?? '?'}) : relevé par les pages JSON-LD`);
+  }
   let first: ReturnType<typeof parseItemList> = parseItemList(firstHtml);
   const perPage = first?.items.length ?? 0;
   // numberOfItems égal au nombre d'items de la page = taille de page, pas total.
@@ -591,6 +600,180 @@ async function scrapeDatamotive(url: string, firstHtml: string, onProgress?: Sto
   }
   if (out.length > 0 && out.every((v) => v.km == null)) warnings.push('Ce fournisseur ne publie ni km ni année dans la liste (fiche détaillée seulement).');
   return { provider: 'datamotive', total: total ?? out.length, declared: total, vehicles: out, pages, warnings };
+}
+
+// ── Plateforme Datamotive : API publique de contenu (preuve 14/11) ──────────
+// Les sites Datamotive (Century, Emil Frey : Next.js ; Pon Center : data-vehicle-overview) chargent leur liste par
+// GET https://api.datamotive.nl/api/v1/content/vehicle-list/<liste>?filterId=…&page=N&pageSize=48 — sans clé
+// (l'en-tête Authorization n'existe que pour un client connecté). Leur JS ajoute attributes[]=fuel&
+// attributes[]=odometerReading&attributes[]=yearOfConstruction&attributes[]=transmission… : SANS ce paramètre l'API ne
+// rend AUCUN attribut (d'où km, année, énergie, boîte à 0 % chez Century, Emil Frey et Pon). 48 par page au plus
+// (pageSize=100 → HTTP 400) : Century 1 194 voitures = 25 pages au lieu de 100 pages JSON-LD de 12.
+const DM_ATTRIBUTES = ['fuel', 'odometerReading', 'yearOfConstruction', 'transmission', 'licensePlate', 'vehicleNumber', 'vehicleState', 'stockStatus', 'bodyType'];
+/** Libellés affichés par les sites (table « fuel.value » de la page Century : gasoline → Benzine…). */
+const DM_FUEL: Record<string, string> = {
+  gasoline: 'Benzine', petrol: 'Benzine', diesel: 'Diesel', electric: 'Elektrisch', hybrid: 'Hybride', hybrid_gasoline: 'Hybride benzine',
+  hybrid_diesel: 'Hybride diesel', lpg: 'LPG', lpg_g3: 'LPG G3', lpg_g_3: 'LPG G3', cng: 'CNG', hydrogen: 'Waterstof', cryogenic: 'Cryogeen',
+};
+/** Boîte : manual = Handgeschakeld ; automatic, semi_automatic (robotisée), cvt = automatique ; unknown = inconnue. */
+const DM_GEARBOX: Record<string, string | null> = { automatic: 'Automatique', semi_automatic: 'Automatique', cvt: 'Automatique', manual: 'Manuelle', unknown: null };
+export interface DmApiItem {
+  id?: number | string; brand?: string; model?: string; edition?: string; slug?: string; establishment?: string;
+  attributes?: Record<string, unknown> | null; prices?: { purchase?: { value?: unknown; previousValue?: unknown } } | null;
+  media?: Array<{ type?: string; url?: string }> | null;
+}
+/** Une voiture de l'API (ou d'« initialItems » de la page) → DealerVehicle ; `idOf` garde l'identifiant historique du lecteur. */
+export function dmItemToVehicle(it: DmApiItem, origin: string, idOf: (it: DmApiItem) => string): DealerVehicle | null {
+  const id = idOf(it).trim();
+  if (!id) return null;
+  const a = (it.attributes ?? {}) as Record<string, unknown>;
+  const str = (k: string) => (typeof a[k] === 'string' && (a[k] as string).trim() ? (a[k] as string).trim() : null);
+  const price = priceOrNull(it.prices?.purchase?.value);
+  const title = [it.brand, it.model, it.edition].filter(Boolean).join(' ').trim();
+  const guess = splitTitle(title);
+  const fuel = str('fuel'), gear = str('transmission'), stock = str('stockStatus'), year = num(a.yearOfConstruction);
+  return {
+    external_id: id, url: it.slug ? `${origin}/p/${it.slug}` : null, title,
+    brand: it.brand || guess.brand, model: it.model || guess.model, price,
+    km: num(a.odometerReading), year: year != null && year > 1950 ? year : null,
+    fuel: fuel && fuel !== 'other' ? DM_FUEL[fuel] ?? fuel : null,
+    gearbox: gear ? (gear in DM_GEARBOX ? DM_GEARBOX[gear] : gear) : null,
+    plate: str('licensePlate'), vin: null, body: str('bodyType'), image: it.media?.find((m) => m.type === 'image')?.url ?? null, listed_at: null,
+    status: stock === 'expected' ? 'expected' : stock === 'reserved' ? 'reserved' : stock === 'sold' ? 'sold' : price == null ? 'price_on_request' : null,
+  };
+}
+/** Identifiant historique du lecteur JSON-LD (sku = attributes.vehicleNumber, sinon l'id de l'adresse « …-58143613-161 »). */
+export const dmIdLikeJsonLd = (it: DmApiItem) => String((it.attributes as { vehicleNumber?: unknown } | null)?.vehicleNumber ?? it.id ?? '');
+/** Identifiant historique du lecteur dmapi (Pon) : l'id Datamotive. */
+export const dmIdLikeDmApi = (it: DmApiItem) => String(it.id ?? '');
+/** Texte du flux RSC d'une page Next.js (App Router) : chaînes des self.__next_f.push([1,"…"]) mises bout à bout. */
+export function rscText(html: string): string {
+  let out = '';
+  for (const m of html.matchAll(/self\.__next_f\.push\((\[[\s\S]*?\])\)<\/script>/g)) {
+    try { const a = JSON.parse(m[1]) as unknown[]; if (typeof a[1] === 'string') out += a[1]; } catch { /* morceau suivant */ }
+  }
+  return out;
+}
+/** Valeur JSON (objet ou tableau) qui commence à `at` dans un texte plus long, bornée en suivant crochets et chaînes. */
+export function jsonAt(s: string, at: number): unknown {
+  if (s[at] !== '{' && s[at] !== '[') return null;
+  let depth = 0, inStr = false;
+  for (let i = at; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) { if (c === '\\') i++; else if (c === '"') inStr = false; continue; }
+    if (c === '"') inStr = true;
+    else if (c === '{' || c === '[') depth++;
+    else if (c === '}' || c === ']') { depth--; if (depth === 0) { try { return JSON.parse(s.slice(at, i + 1)); } catch { return null; } } }
+  }
+  return null;
+}
+export interface DmListConfig { api: string; filterId: string | null; params: Array<[string, string]>; sort: string }
+/** Filtres imbriqués → paires « clé[sous-clé]=valeur » (vehicleState: { used: '' } → vehicleState[used]=). */
+const qsPairs = (v: unknown, prefix: string, out: Array<[string, string]>): Array<[string, string]> => {
+  if (Array.isArray(v)) v.forEach((x) => qsPairs(x, `${prefix}[]`, out));
+  else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) qsPairs(x, prefix ? `${prefix}[${k}]` : k, out);
+  else if (prefix) out.push([prefix, v == null ? '' : String(v)]);
+  return out;
+};
+/** Liste Datamotive d'une page Next.js, lue dans le flux RSC : « "vehicleListId":275,"vehicleFilterId":40 », les filtres
+ *  appliqués par la page (« "initialValues":{"vehicleState":{"used":""}} », Emil Frey), le tri et l'adresse de l'API
+ *  (« "DATAMOTIVE_API_ENDPOINT":"https://api.datamotive.nl" »). null = pas une page Datamotive Next.js. */
+export function datamotiveListConfig(html: string, pageUrl: string): DmListConfig | null {
+  const rsc = rscText(html);
+  const ids = rsc.match(/"vehicleListId":(\d+),"vehicleFilterId":(\d+|null)/);
+  const base = rsc.match(/"DATAMOTIVE_API_ENDPOINT":"(https:\/\/[^"]+)"/)?.[1];
+  if (!ids || ids.index == null || !base) return null;
+  const tail = rsc.slice(ids.index);
+  const iv = tail.indexOf('"initialValues":');
+  const values = iv >= 0 ? jsonAt(tail, iv + '"initialValues":'.length) : null;
+  const sort = new URL(pageUrl).searchParams.get('sorting') || tail.match(/"initialSorting":"([a-z_]+)"/)?.[1] || 'created_at_desc';
+  return { api: `${base.replace(/\/+$/, '')}/api/v1/content/vehicle-list/${ids[1]}`, filterId: ids[2] === 'null' ? null : ids[2], params: qsPairs(values ?? {}, '', []), sort };
+}
+/** Voitures embarquées dans la page (« "initialItems":[…] » du flux RSC, 12 par page, attributs compris). */
+export function datamotiveRscItems(html: string): DmApiItem[] {
+  const rsc = rscText(html);
+  const at = rsc.indexOf('"initialItems":');
+  const v = at >= 0 ? jsonAt(rsc, at + '"initialItems":'.length) : null;
+  return Array.isArray(v) ? (v as DmApiItem[]) : [];
+}
+/**
+ * Tout le stock d'une liste Datamotive par l'API, 48 par page, une page à la fois ; total annoncé = « count ».
+ * TRI INSTABLE (14/11) : les voitures importées ensemble partagent created_at (et bien des prix sont égaux) ; l'API
+ * pagine sans départage, si bien qu'une lecture rend quelques voitures deux fois et en saute autant (Pon : 670
+ * éléments, 666 voitures en created_at_desc ; Century 1 189 / 1 194 ; Emil Frey 4 577 / 4 582 — et en pages HTML de 12,
+ * des pages entières de doublons : relevés Emil Frey coupés à 68, 153, 216, 341, 721 / ≈ 4 500). Une page sans voiture
+ * nouvelle n'arrête donc PAS la lecture ; et s'il manque des voitures, une lecture dans un autre tri complète (union
+ * des deux tris : Century 1 194 / 1 194, Pon 670 / 670).
+ */
+export async function scrapeDatamotiveApi(url: string, cfg: DmListConfig, provider: 'datamotive' | 'dmapi', idOf: (it: DmApiItem) => string, onProgress?: StockProgress): Promise<DealerStockResult & { complete: boolean }> {
+  const origin = new URL(url).origin;
+  const warnings: string[] = [];
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  let declared: number | null = null, pages = 0, complete = true;
+  for (const sort of [...new Set([cfg.sort, 'price_asc', 'created_at_desc'])]) {
+    let pagesTotal: number | null = null, done = false;
+    for (let page = 1; page <= 400; page++) {
+      const api = new URL(cfg.api);
+      if (cfg.filterId) api.searchParams.set('filterId', cfg.filterId);
+      api.searchParams.set('page', String(page));
+      api.searchParams.set('pageSize', '48');
+      api.searchParams.set('sort', sort);
+      for (const [k, v] of cfg.params) api.searchParams.append(k, v);
+      for (const a of DM_ATTRIBUTES) api.searchParams.append('attributes[]', a);
+      const init = { headers: { accept: 'application/json', 'accept-language': 'nl-NL', referer: url, origin } };
+      let res = await getText(api.toString(), init);
+      if (res.status !== 200) { await sleep(1500); res = await getText(api.toString(), init); }
+      if (res.status !== 200) { warnings.push(`API Datamotive (${sort}), page ${page} : HTTP ${res.status}`); break; }
+      let d: { count?: number; pages?: { total?: number }; items?: DmApiItem[] };
+      try { d = JSON.parse(res.text); } catch { warnings.push(`API Datamotive (${sort}), page ${page} : réponse illisible`); break; }
+      pages++;
+      declared = num(d.count) ?? declared;
+      pagesTotal = num(d.pages?.total) ?? pagesTotal;
+      const items = d.items ?? [];
+      for (const it of items) {
+        const v = dmItemToVehicle(it, origin, idOf);
+        if (!v || seen.has(v.external_id)) continue;
+        seen.add(v.external_id); out.push(v);
+      }
+      onProgress?.(pages, out.length, pagesTotal);
+      if (items.length === 0 || (pagesTotal != null && page >= pagesTotal)) { done = true; break; }
+      await sleep(Math.max(PAGE_DELAY_MS, 350)); // politesse : 350 ms au moins entre deux pages d'un site
+    }
+    if (!done) { complete = false; break; } // lecture coupée (HTTP, réponse illisible) : pas de seconde lecture
+    if (declared == null || out.length >= declared) break;
+  }
+  if (!complete) warnings.push(`API Datamotive : lecture coupée à ${out.length} / ${declared ?? '?'} — relevé partiel`);
+  else if (declared != null && out.length < declared) warnings.push(`${out.length} voiture(s) lue(s) pour ${declared} annoncée(s) par l'API (tri instable du site, deux lectures)`);
+  return { provider, total: declared ?? out.length, declared, vehicles: out, pages, warnings, complete };
+}
+
+// ── dmapi (Pon Center — API Datamotive, preuve 02/10 ; attributs 14/11) ─────
+// La page porte data-vehicle-overview='{"dmUpdateUrl":"https://api.datamotive.nl/api/v1/content/vehicle-list/3188",
+// "dmFilterSetId":302,…}' ; occasions seulement quand la page le demande (sources[]=Occasions ou chemin « occasion ») :
+// vehicleState[used]=1. Même lecture que les pages Next.js Datamotive (scrapeDatamotiveApi), identifiant historique gardé.
+export async function scrapeDmApi(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const raw = firstHtml.match(/data-vehicle-overview='([^']*)'/)?.[1] ?? firstHtml.match(/data-vehicle-overview="([^"]*)"/)?.[1];
+  let cfg: { dmUpdateUrl?: string; dmFilterSetId?: number; sort?: string } = {};
+  try { cfg = JSON.parse(decode(raw ?? '{}')); } catch { /* lu plus bas */ }
+  if (!cfg.dmUpdateUrl) return { provider: 'dmapi', total: null, declared: null, vehicles: [], pages: 0, warnings: ['dmUpdateUrl introuvable dans data-vehicle-overview'] };
+  const u = new URL(url);
+  const usedOnly = /occasion/i.test(u.pathname) || [...u.searchParams.values()].some((v) => /occasion/i.test(v));
+  const { complete: _complete, ...r } = await scrapeDatamotiveApi(url, {
+    api: cfg.dmUpdateUrl, filterId: cfg.dmFilterSetId != null ? String(cfg.dmFilterSetId) : null,
+    params: usedOnly ? [['vehicleState[used]', '1']] : [], sort: cfg.sort || 'created_at_desc',
+  }, 'dmapi', dmIdLikeDmApi);
+  return r;
+}
+/** Fiche détail Datamotive (secours pour DETAIL_READERS, si l'API ne répond plus) : paires « Transmissie | Handgeschakeld »
+ *  — Century / Emil Frey : <span>Label</span><span class="…spec__value">…</span> ; Pon : <dt>Label</dt><dd>…</dd>. */
+export function readDatamotiveDetail(html: string): { gearbox?: string | null; fuel?: string | null; km?: number | null; year?: number | null } {
+  const spec = (label: string) => unesc(html.match(new RegExp(`>\\s*${label}\\s*</(?:span|dt)>\\s*<(?:span|dd)[^>]*>\\s*([^<]+?)\\s*<`, 'i'))?.[1] ?? '') || null;
+  const g = spec('Transmissie');
+  return {
+    gearbox: !g ? null : /handgeschakeld|manu/i.test(g) ? 'Manuelle' : /automa|cvt/i.test(g) ? 'Automatique' : g,
+    fuel: spec('Brandstof'), km: num(spec('Kilometerstand')?.replace(/\D/g, '')), year: num(spec('Bouwjaar')?.match(/\b(?:19|20)\d{2}\b/)?.[0]),
+  };
 }
 
 // ── dtcvm (Wassink Autogroep) ───────────────────────────────────────────────
@@ -1311,69 +1494,6 @@ export async function scrapeCmsms(url: string, firstHtml: string): Promise<Deale
   return { provider: 'cmsms', total: head.total ?? vehicles.length, declared: head.total, vehicles, pages, warnings };
 }
 
-
-// ── dmapi (Pon Center — API Datamotive, preuve 02/10) ───────────────────────
-// La page porte data-vehicle-overview='{"dmUpdateUrl":"https://api.datamotive
-// .nl/api/v1/content/vehicle-list/3188","dmFilterSetId":302,…}' ; la liste
-// vient de GET dmUpdateUrl?filterId=…&page=N&pageSize=48 (plafond du
-// service : 48) + filtre vehicleState[used]=1 quand la page demande les
-// occasions (647 occasions / 614 neuves le 02/10). Items : id, brand, model,
-// edition, slug (fiche = /p/<slug>), establishment, prices.purchase.value
-// (previousValue = ancien prix), media. Ni km, ni année, ni plaque en liste —
-// même limite que les sites datamotive à JSON-LD (Century).
-interface DmItem { id?: number | string; brand?: string; model?: string; edition?: string; slug?: string; establishment?: string; prices?: { purchase?: { value?: unknown; previousValue?: unknown } }; media?: Array<{ type?: string; url?: string }> }
-async function scrapeDmApi(url: string, firstHtml: string): Promise<DealerStockResult> {
-  const origin = new URL(url).origin;
-  const warnings: string[] = [];
-  const raw = firstHtml.match(/data-vehicle-overview='([^']*)'/)?.[1] ?? firstHtml.match(/data-vehicle-overview="([^"]*)"/)?.[1];
-  let cfg: { dmUpdateUrl?: string; dmFilterSetId?: number; sort?: string } = {};
-  try { cfg = JSON.parse(decode(raw ?? '{}')); } catch { /* lu plus bas */ }
-  if (!cfg.dmUpdateUrl) return { provider: 'dmapi', total: null, vehicles: [], pages: 0, warnings: ['dmUpdateUrl introuvable dans data-vehicle-overview'] };
-  // Occasions seulement quand la page le demande (sources[]=Occasions ou
-  // chemin « occasion ») ; sinon tout l'aanbod, neuf compris.
-  const u = new URL(url);
-  const usedOnly = /occasion/i.test(u.pathname) || [...u.searchParams.values()].some((v) => /occasion/i.test(v));
-  const out: DealerVehicle[] = [];
-  const seen = new Set<string>();
-  let total: number | null = null;
-  let page = 1;
-  for (; page <= MAX_PAGES; page++) {
-    const api = new URL(cfg.dmUpdateUrl);
-    if (cfg.dmFilterSetId != null) api.searchParams.set('filterId', String(cfg.dmFilterSetId));
-    api.searchParams.set('page', String(page));
-    api.searchParams.set('pageSize', '48');
-    api.searchParams.set('sort', cfg.sort || 'created_at_desc');
-    if (usedOnly) api.searchParams.set('vehicleState[used]', '1');
-    const res = await getText(api.toString(), { headers: { accept: 'application/json', 'accept-language': 'nl-NL', referer: url, origin } });
-    if (res.status !== 200) { warnings.push(`page ${page} : HTTP ${res.status}`); break; }
-    let d: { count?: number; pages?: { total?: number }; items?: DmItem[] };
-    try { d = JSON.parse(res.text); } catch { warnings.push(`page ${page} : réponse illisible`); break; }
-    total = num(d.count) ?? total;
-    const items = d.items ?? [];
-    if (items.length === 0) break;
-    let added = 0;
-    for (const it of items) {
-      const id = String(it.id ?? '').trim();
-      if (!id || seen.has(id)) continue;
-      seen.add(id); added++;
-      const price = priceOrNull(it.prices?.purchase?.value);
-      const title = [it.brand, it.model, it.edition].filter(Boolean).join(' ').trim();
-      const guess = splitTitle(title);
-      out.push({
-        external_id: id, url: it.slug ? `${origin}/p/${it.slug}` : null, title,
-        brand: it.brand || guess.brand, model: it.model || guess.model, price, km: null, year: null, fuel: null, gearbox: null,
-        plate: null, vin: null, body: null, image: it.media?.find((m) => m.type === 'image')?.url ?? null, listed_at: null,
-        status: price == null ? 'price_on_request' : null,
-      });
-    }
-    if (added === 0) break;
-    const pagesTotal = num(d.pages?.total);
-    if (pagesTotal != null && page >= pagesTotal) break;
-    if (total != null && out.length >= total) break;
-    await sleep(PAGE_DELAY_MS);
-  }
-  return { provider: 'dmapi', total: total ?? out.length, declared: total, vehicles: out, pages: page, warnings };
-}
 
 // ── cartelcaw (Mengelers — « Cartel CAW client » de uname-it, preuve 02/10) ──
 // Pages servies rendues : <li class="overview__item productList__item"> avec
@@ -2679,6 +2799,8 @@ export const DETAIL_READERS: Partial<Record<DealerProvider, DetailReader>> = {
   autodata: { fields: ['fuel', 'gearbox', 'km', 'year'], read: readAutodataDetail },
   // cmsms (Louwman) : secours seulement — la boîte vient des passes filtrées « Transmissie » de la liste.
   cmsms: { fields: ['gearbox'], read: readCmsmsDetail },
+  // dmapi (Pon) : secours seulement — l'API Datamotive rend énergie, km, année, boîte.
+  dmapi: { fields: ['gearbox', 'fuel', 'km', 'year'], read: readDatamotiveDetail },
   autopalace: { fields: ['gearbox'], read: readAutopalaceDetail },
 };
 
