@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused' | 'kiaosp';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused', 'kiaosp'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -361,6 +361,8 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   // bmwused (occasions BMW / MINI Hongrie, 19/11) : application « használtautó-kereső » (mcon-group) — formulaire Vue
   // « dealer[$or] » / « series[$or] » (la page d'accueil ne contient pas l'adresse de l'API).
   if (/name="dealer\[\$or\]"/.test(html) && /name="series\[\$or\]"/.test(html)) return 'bmwused';
+  // kiaosp (neuves Kia Hongrie, 19/11) : liste « piacter » de kia.com (fragment « aggregationlist.allOffersResults »).
+  if (/aggregationlist\.allOffersResults/.test(html) && /buy-my-kia\/piacter/.test(html)) return 'kiaosp';
   // catalogpager (Groupe DMD, 04/11) : site Symfony maison, cartes <a class="fiche_vehicule">, pages chargées en POST
   // sur « /ajax/search?flag=html » avec filters[page]=N (liens « catalog-pager-link » data-page).
   if (/class="fiche_vehicule/.test(html) && /catalog-pager-link/.test(html) && /data-ajax-request-search="/.test(html)) return 'catalogpager';
@@ -4840,6 +4842,72 @@ async function scrapeBmwUsed(url: string, firstHtml: string): Promise<DealerStoc
   return { provider: 'bmwused', total: declared ?? vehicles.length, declared, vehicles, pages, warnings };
 }
 
+// ── kiaosp (Kia Online Sales Platform, Hongrie, 19/11 nuit) : « Vidd haza készletről » (kia.com/hu/buy-my-kia/piacter) —
+//    les neuves en stock de toutes les concessions Kia du pays (≈ 370), une carte par voiture avec son VIN et le code de sa
+//    concession dans le lien (« piacter-ajanlat/?vhvin=<VIN>&dealerId=C26VAHG… »). Le site ne filtre pas par concession (un
+//    « dealerId » d'adresse est ignoré, vérifié le 18/11 ; le rayon autour d'un code postal mêlerait les concessions de
+//    Budapest) : la liste nationale (fragment « aggregationlist.allOffersResults », 24 par page, pages « page=N », total
+//    « N Ajánlatot talált ») est lue UNE fois et gardée 30 min en mémoire, chaque fiche n'en garde que sa concession.
+//    Adresse de la fiche ADA : « …/piacter-lista/?dealerId=<code> ». Liste nationale incomplète = échec du relevé (rien de
+//    marqué disparu). Prix TTC (« áfával együtt ») en forints, modèle et finition, moteur et énergie, boîte (« MT » =
+//    manuelle), VIN ; neuves : km 0, année non publiée.
+const KIA_OSP_FRAGMENT = '/hu/buy-my-kia/piacter/piacter-lista/_jcr_content/contents_1/aggregationlist.allOffersResults/';
+const kiaOspCache = new Map<string, { at: number; cars: Array<{ dealerId: string; v: DealerVehicle }>; total: number | null }>();
+export function parseKiaOspCards(html: string, origin: string): Array<{ dealerId: string; v: DealerVehicle }> {
+  const out: Array<{ dealerId: string; v: DealerVehicle }> = [];
+  for (const card of html.split('class="carColItemArea"').slice(1)) {
+    const link = card.match(/href="(\/hu\/buy-my-kia\/piacter\/piacter-ajanlat\/\?vhvin=([A-Z0-9]+)&(?:amp;)?dealerId=([A-Z0-9]+)[^"]*)"/);
+    if (!link) continue;
+    const [, href, vin, dealerId] = link;
+    const model = htmlText(card.match(/<strong class="veName">([^<]*)/)?.[1] ?? '');
+    const trim = htmlText(card.match(/<span class="veTrim">([^<]*)<\/span>/)?.[1] ?? '');
+    const engine = htmlText(card.match(/<li class="engine">([\s\S]*?)<\/li>/)?.[1] ?? '');
+    const gear = htmlText(card.match(/<li class="transmission">([\s\S]*?)<\/li>/)?.[1] ?? '');
+    const price = priceOrNull((card.match(/<span class="price">([\d\s ]+)Ft<\/span>/)?.[1] ?? '').replace(/[\s ]/g, ''));
+    const fuel = engine.match(/\(([^,()]+),/)?.[1]?.trim() || null;
+    const title = ['Kia', model, trim, engine.split('(')[0].trim()].filter(Boolean).join(' ');
+    out.push({ dealerId, v: {
+      external_id: vin, url: `${origin}${unesc(href)}`, title, brand: 'Kia', model: model || null, price, currency: 'HUF', km: 0, year: null, fuel,
+      gearbox: !gear ? null : /\bMT\b|manu/i.test(gear) ? 'Manuelle' : /\b(AT|DCT|e-?DCT|IVT|CVT)\b|automat/i.test(gear) ? 'Automatique' : gear,
+      plate: null, vin, body: ['neuve en stock', htmlText(card.match(/<li class="color">[\s\S]*?alt="([^"]*)"/)?.[1] ?? '')].filter(Boolean).join(' · '),
+      image: null, listed_at: null, status: price == null ? 'price_on_request' : null, power_ch: num(engine.match(/(\d+)\s*LE\b/)?.[1]),
+      location: htmlText(card.match(/([^<>|]*(?:Kft\.?|Zrt\.?)[^<>|]*)/)?.[1] ?? '') || null,
+    } });
+  }
+  return out;
+}
+async function kiaOspNational(origin: string): Promise<{ cars: Array<{ dealerId: string; v: DealerVehicle }>; total: number | null; pages: number }> {
+  const hit = kiaOspCache.get(origin);
+  if (hit && Date.now() - hit.at < 30 * 60_000) return { cars: hit.cars, total: hit.total, pages: 0 };
+  const cars: Array<{ dealerId: string; v: DealerVehicle }> = [];
+  let total: number | null = null; let last = 1; let pages = 0;
+  for (let p = 1; p <= Math.min(last, 60); p++) {
+    await sleep(SITE_DELAY_MS);
+    const r = await getTextPatient(`${origin}${KIA_OSP_FRAGMENT}?dealerDistanceFrom=0&dealerDistanceTo=500&postalCode=1037&size=24&page=${p}`);
+    if (r.status !== 200) throw new Error(`liste nationale Kia, page ${p} : HTTP ${r.status} — relevé abandonné (rien marqué disparu)`);
+    pages++;
+    if (p === 1) {
+      total = num(r.text.match(/<em>(\d+)\s*<\/em>\s*Ajánlatot talált/)?.[1]);
+      last = num(r.text.match(/id="pagerBottom"[^>]*max="(\d+)"/)?.[1]) ?? (total != null ? Math.ceil(total / 24) : 1);
+    }
+    const got = parseKiaOspCards(r.text, origin);
+    for (const c of got) if (!cars.some((x) => x.v.external_id === c.v.external_id)) cars.push(c);
+    if (got.length === 0) break;
+  }
+  if (total != null && cars.length < total * 0.95) throw new Error(`liste nationale Kia incomplète (${cars.length} lues pour ${total}) — relevé abandonné (rien marqué disparu)`);
+  kiaOspCache.set(origin, { at: Date.now(), cars, total });
+  return { cars, total, pages };
+}
+async function scrapeKiaOsp(url: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  const dealerId = u.searchParams.get('dealerId') ?? u.searchParams.get('dealer');
+  if (!dealerId || !/^[A-Z0-9]{6,}$/.test(dealerId)) throw new Error('adresse Kia sans code de concession (attendu : …/piacter-lista/?dealerId=C26VAHG…) : le stock national n\'est pas la vitrine d\'une concession');
+  const nat = await kiaOspNational(u.origin);
+  const vehicles = nat.cars.filter((c) => c.dealerId === dealerId).map((c) => c.v);
+  const warnings = [`liste nationale Kia : ${nat.cars.length} voitures${nat.total != null ? ` pour ${nat.total} annoncées` : ''}${nat.pages ? '' : ' (lue il y a moins de 30 min)'} ; ${vehicles.length} de la concession ${dealerId}`];
+  return { provider: 'kiaosp', total: vehicles.length, declared: vehicles.length, vehicles, pages: Math.max(1, nat.pages), warnings };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getTextPatient(url); // 04/11 : MotorK (Sofibrie, SIPA) répond 429 dès la première page après une rafale
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -4877,6 +4945,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'pewneauto') return scrapePewne(url, first.text);
   if (provider === 'vwgmarket') return scrapeVwgMarket(url);
   if (provider === 'bmwused') return scrapeBmwUsed(url, first.text);
+  if (provider === 'kiaosp') return scrapeKiaOsp(url);
   if (provider === 'audaris') return scrapeAudaris(url, first.text);
   if (provider === 'kleynvans') return scrapeKleynVans(url, first.text);
   if (provider === 'ocasionplus') return scrapeOcasionPlus(url, first.text);

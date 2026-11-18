@@ -243,6 +243,20 @@ console.log('\n=== OCCASIONS BMW HONGRIE (ajanlatok.bmw.hu, 19/11) ===\n');
   ok(ds5.detectDealerProvider('<form><select name="dealer[$or]"></select><select name="series[$or]"></select></form>') === 'bmwused', 'plateforme reconnue par son formulaire (dealer[$or], series[$or])');
 }
 
+console.log('\n=== NEUVES KIA HONGRIE (kia.com « piacter », 19/11) ===\n');
+{
+  const ds6 = await import('../worker/dealerStock');
+  const card = `<div class="carColItemArea"><div class="imgBox"><div class="carAmount"><p class="priDis"><span class="price">6 447 000 Ft</span><span class="txtPrice">(áfával együtt)</span></p></div>
+    <a href="/hu/buy-my-kia/piacter/piacter-ajanlat/?vhvin=KNAB351B5TT464429&amp;dealerId=C26VAHG120&amp;postalCode=1037" class="btn_linkPage">Részletek</a></div>
+    <div class="contentBox"><strong class="veName">Picanto<span class="veTrim">GOLD</span></strong><ul><li class="engine">1.0 benzin  (Benzin,  kW /  LE) <br/></li>
+    <li class="transmission">5 MT 2WD</li><li class="color"><span><img src="x.jpg" alt="Clear White"/></span></li></ul><p>KIA Wallis Kerepesi úti Autó Kft.</p></div></div>`;
+  const cs = ds6.parseKiaOspCards(card + card.replace('KNAB351B5TT464429', 'KNAB351BXTT447951').replace('C26VAHG120', 'C26VAHG950'), 'https://www.kia.com');
+  const a = cs[0];
+  ok(cs.length === 2 && a.dealerId === 'C26VAHG120' && a.v.vin === 'KNAB351B5TT464429' && a.v.price === 6447000 && a.v.fuel === 'Benzin' && a.v.gearbox === 'Manuelle'
+    && a.v.model === 'Picanto' && a.v.km === 0 && cs[1].dealerId === 'C26VAHG950', 'carte réelle : VIN et code concession du lien, prix TTC, énergie, « 5 MT » = manuelle, neuve', cs);
+  ok(ds6.detectDealerProvider('<div data-url="/hu/buy-my-kia/piacter/piacter-lista/_jcr_content/contents_1/aggregationlist.allOffersResults/"></div>') === 'kiaosp', 'liste « piacter » reconnue');
+}
+
 console.log('\n=== POLITESSE : PAS PLUS D\'UNE REQUÊTE TOUTES LES 350 MS PAR SITE ===\n');
 {
   const { reserveSiteSlot, SITE_MIN_GAP_MS } = await import('../worker/dealerStock');
