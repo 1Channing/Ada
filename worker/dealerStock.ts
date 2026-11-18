@@ -2432,34 +2432,84 @@ async function scrapeInterstrip(url: string, firstHtml: string): Promise<DealerS
 }
 
 // ── shopware (Bleker, 04/11) : cartes « product-box box-vehicle », paires Fahrzeugnr./Kraftstoff/Kilometerstand/Getriebe/Leistung/Erstzulassung, pages « ?p=N ».
-async function scrapeShopware(url: string, firstHtml: string): Promise<DealerStockResult> {
+// Constat 13/11 : 13 % des voitures sans année = les « Lagerwagen » (neuves en stock, non immatriculées) : leur carte
+// porte « Erstzulassung - » et leur fiche aussi (aucune année modèle ailleurs). Le filtre « Zustand = Lagerfahrzeug »
+// du site en compte 397 sur ~3 410. On garde l'année vide et on écrit l'état du site (« Lagerwagen »,
+// « Gebrauchtfahrzeug », « Vorführfahrzeug ») dans `body`, pour que la Carte sache que ce sont des neuves.
+// Lecture ligne à ligne (« col-5 » libellé / « col-7 » valeur) : « - » = absent ; la carte est coupée avant la
+// pagination (la dernière carte de la page courait jusqu'au bas de page).
+export function parseShopwareCards(html: string): DealerVehicle[] {
   const out: DealerVehicle[] = [];
-  const seen = new Set<string>();
-  const parse = (html: string): number => {
-    let added = 0;
-    for (const part of html.split(/product-box box-vehicle"/).slice(1)) {
-      const link = part.match(/href="(https?:\/\/[^"]+\/(\d{4,}))"[^>]*\stitle="([^"]*)"/);
-      if (!link) continue;
-      const [, href, id, title] = link;
-      if (seen.has(id)) continue;
-      const brand = part.match(/itemprop="brand"\s+content="([^"]*)"/)?.[1] ?? null;
-      const t = htmlTokens(part.replace(/<style>[\s\S]*?<\/style>/g, '').replace(/<svg[\s\S]*?<\/svg>/g, ''));
-      const pr = pairsOf(t, /^(Fahrzeugnr\.|Zustand|Kraftstoff|Kilometerstand|Getriebe|Leistung|Erstzulassung|Barpreis)$/i);
-      const price = euro(pr.get('barpreis') ?? t.find((x) => /€/.test(x)));
-      const kw = num(pr.get('leistung')?.match(/(\d+)\s*kw/i)?.[1]);
-      const model = brand && title.toLowerCase().startsWith(brand.toLowerCase()) ? title.slice(brand.length).trim().split(/\s+/)[0] ?? null : splitTitle(title).model;
-      seen.add(id); added++;
-      out.push({
-        external_id: id, url: href, title: htmlText(title), brand, model, price, km: kmOf(pr.get('kilometerstand')), year: yearOf(pr.get('erstzulassung')),
-        fuel: pr.get('kraftstoff') ?? null, gearbox: gearboxOf(pr.get('getriebe')), plate: null, vin: null, body: null,
-        image: part.match(/<img[^>]+(?:data-src|src)="([^"]+)"/)?.[1] ?? null, listed_at: null, status: price == null ? 'price_on_request' : null, currency: 'EUR',
-        power_ch: kw != null ? Math.round(kw * 1.35962) : powerFromText(pr.get('leistung')),
-      });
+  for (const raw of html.split(/product-box box-vehicle"/).slice(1)) {
+    const part = raw.split(/<nav aria-label="pagination"/)[0];
+    const link = part.match(/href="(https?:\/\/[^"]+\/(\d{4,}))"[^>]*\stitle="([^"]*)"/);
+    if (!link) continue;
+    const [, href, id, title] = link;
+    const brand = part.match(/itemprop="brand"\s+content="([^"]*)"/)?.[1] ?? null;
+    const row = new Map<string, string>();
+    for (const m of part.matchAll(/<div class="col-5[^"]*">\s*([^<]+?)\s*<\/div>\s*<div class="col-7[^"]*">([\s\S]*?)<\/div>/g)) {
+      const k = htmlText(m[1]).toLowerCase(); const v = htmlText(m[2]);
+      if (!row.has(k)) row.set(k, v === '-' || v === '' ? '' : v);
     }
-    return added;
+    const price = euro(part.match(/Barpreis[\s\S]{0,400}?(\d{1,3}(?:\.\d{3})+(?:,\d{2})?\s*€)/)?.[1] ?? null);
+    const kw = num(row.get('leistung')?.match(/(\d+)\s*kw/i)?.[1]);
+    const model = brand && title.toLowerCase().startsWith(brand.toLowerCase()) ? title.slice(brand.length).trim().split(/\s+/)[0] ?? null : splitTitle(title).model;
+    out.push({
+      external_id: id, url: href, title: htmlText(title), brand, model, price,
+      km: kmOf(row.get('kilometerstand')), year: yearOf(row.get('erstzulassung')),
+      fuel: row.get('kraftstoff') || null, gearbox: gearboxOf(row.get('getriebe') || null), plate: null, vin: null,
+      body: row.get('zustand') || null,
+      image: part.match(/<img[^>]+(?:data-src|src)="([^"]+)"/)?.[1] ?? null, listed_at: null, status: price == null ? 'price_on_request' : null, currency: 'EUR',
+      power_ch: kw != null ? Math.round(kw * 1.35962) : powerFromText(row.get('leistung') ?? null),
+    });
+  }
+  return out;
+}
+/** Dernière page annoncée par la pagination Shopware (« page-last » … value="285"). */
+export function shopwareLastPage(html: string): number | null {
+  const i = html.indexOf('page-last');
+  const m = i >= 0 ? html.slice(i, i + 800).match(/value="(\d+)"/) : null;
+  return m ? Number(m[1]) : null;
+}
+
+// Lecture complète (18/11, Bleker : relevé tombé à 305 voitures pour 3 438 en ligne). Le tri par défaut « name-asc »
+// n'est pas stable : des dizaines de voitures portent le même nom, leur ordre change d'une page à l'autre (mesuré :
+// 3 438 cases lues, 3 279 voitures distinctes) ; l'ancienne pagination (12 par page) s'arrêtait à la première page
+// sans voiture nouvelle. Désormais : 100 par page (« limit=100 », 35 pages au lieu de 287), tri « price-asc »
+// (3 420 distinctes sur 3 438), TOUTES les pages jusqu'à la dernière annoncée (« page-last ») ; s'il manque des
+// voitures (cases > distinctes), second passage en « name-asc » et réunion des deux (3 436 / 3 438 le 18/11).
+export async function scrapeShopware(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const warnings: string[] = [];
+  const byId = new Map<string, DealerVehicle>();
+  let pages = 0; let slots: number | null = null; let floor = 0; // floor : total minimal déduit de la dernière page annoncée
+  const pass = async (order: string): Promise<number> => {
+    let last = 400; let read = 0;
+    for (let p = 1; p <= last; p++) {
+      if (p > 1 || pages > 0) await sleep(PAGE_DELAY_MS);
+      let r: { status: number; text: string } = { status: 0, text: '' };
+      try { r = await getTextPatient(withParam(withParam(withParam(url, 'order', order), 'limit', '100'), 'p', String(p))); } catch { /* délai dépassé */ }
+      if (r.status !== 200) { warnings.push(`${order} page ${p} : HTTP ${r.status || 'délai dépassé'} — passage incomplet`); return -1; }
+      pages++;
+      if (p === 1) { last = Math.min(shopwareLastPage(r.text) ?? 1, 400); floor = Math.max(floor, (last - 1) * 100 + 1); }
+      const cards = parseShopwareCards(r.text);
+      read += cards.length;
+      for (const v of cards) if (!byId.has(v.external_id)) byId.set(v.external_id, v);
+      if (cards.length === 0) break;
+    }
+    return read; // nombre de cases de la liste = taille du stock en ligne
   };
-  const { pages, warnings } = await paginate(firstHtml, parse, (p) => withParam(url, 'p', String(p)), { cap: 400 }); // Bleker : ~2 600 voitures, 12 par page
-  return { provider: 'shopware', total: out.length, declared: null, vehicles: out, pages, warnings };
+  const read1 = await pass('price-asc');
+  if (read1 > 0) slots = read1;
+  // Second passage si des voitures manquent (ordre instable) ou si le premier a été coupé.
+  if (slots == null || byId.size < slots) {
+    const read2 = await pass('name-asc');
+    if (read2 > 0) slots = Math.max(slots ?? 0, read2);
+  }
+  void firstHtml;
+  // Les deux passages coupés : le total minimal annoncé tient lieu de « declared » (relevé partiel → aucun faux disparu).
+  if (slots == null && floor > 0) slots = floor;
+  if (slots != null && byId.size < slots) warnings.push(`${byId.size} voiture(s) distincte(s) pour ${slots} annoncée(s) : ordre instable du site (deux tris réunis)`);
+  return { provider: 'shopware', total: slots ?? byId.size, declared: slots, vehicles: [...byId.values()], pages, warnings };
 }
 
 // ── wpcarsync (Voets, 04/11) : cartes « voets_single_vehicle », make/model/model_description, paires Erstzulassung/Leistung/Getriebe/Kilometerstand, pages « /page/N/ ».
