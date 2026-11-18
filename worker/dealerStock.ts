@@ -1637,6 +1637,119 @@ async function getTextPatient(url: string, init?: RequestInit): Promise<{ status
 /** Même URL avec un paramètre de requête changé. */
 const withParam = (url: string, key: string, value: string) => { const u = new URL(url); u.searchParams.set(key, value); return u.toString(); };
 
+/** Boîte des flux concession FRANÇAIS (18/11 : VGRF, Yooflex, DMD) : « Manuelle », « Automatique », « Séquentielle »,
+ *  « Auto Séquent. », « Automate sequentiel », « A Var Continu » / « Automate à fonct. Continu » (variateur),
+ *  « Rob double embray » / « Rob Simple Embray » (robotisée), « Boîte hybride multimode » (E-Tech) : sans pédale
+ *  d'embrayage = Automatique. Libellé inconnu : rendu tel quel. */
+export const gearboxFr = (t: string | null | undefined): string | null => {
+  const s = (t ?? '').replace(/\s+/g, ' ').trim();
+  if (!s) return null;
+  if (/robot|\brob\b|embray|pilot|multimode|var(iateur|\.)?\s*continu|fonct\.?\s*continu|\bcvt\b/i.test(s)) return 'Automatique';
+  if (/manu|\bbvm\d?\b/i.test(s)) return 'Manuelle';
+  if (/auto|s[ée]quent|\bdsg\b|\bdct\b|\bedc\b|\beat\d?\b|\bbva\d?\b|s-?tronic|tiptronic|steptronic|powershift/i.test(s)) return 'Automatique';
+  return s;
+};
+/** Jeton de carte qui est un libellé de boîte (vocabulaire de gearboxFr). */
+const isGearFr = (x: string) => x.length <= 30 && /^(manuelle|automatique|s[ée]quentielle|auto s[ée]quent|a var continu|automate|rob |robotis|variat|bo[iî]te)/i.test(x);
+/** Boîte lue dans une VERSION, en MOTS ENTIERS (18/11 : « Beats », « Creative » contiennent « eat » → manuelles lues
+ *  automatiques ; « EDC », « CVT », « Powershift » n'étaient pas lus). */
+export const gearboxOfVersion = (v: string | null | undefined): string | null =>
+  /\b(BVA\d?|DSG\d?|EAT\d|DCT\d?|EDC\d?|e-?CVT|CVT|automatique|automatic|powershift|S-?tronic|steptronic|tiptronic)\b/i.test(v ?? '') ? 'Automatique' : /\bBVM\d?\b/i.test(v ?? '') ? 'Manuelle' : null;
+
+/** JSON-LD des pages webspark (18/11) : chaque page de liste porte un ItemList Yoast de « Vehicle », un par carte
+ *  (sku = data-id) avec boîte (vehicleTransmission), énergie, km, année, prix et VIN — y compris sur les cartes
+ *  compactes (SIPA, Sofibrie, Edenauto, Bony) qui n'affichent pas la boîte. */
+export interface WebsparkLd { gearbox: string | null; fuel: string | null; km: number | null; year: number | null; price: number | null; vin: string | null }
+export function websparkLdById(html: string): Map<string, WebsparkLd> {
+  const out = new Map<string, WebsparkLd>();
+  for (const m of html.matchAll(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g)) {
+    let d: unknown;
+    try { d = JSON.parse(m[1]); } catch { continue; }
+    const nodes = ((d as { '@graph'?: unknown[] })['@graph'] ?? [d]) as Array<Record<string, unknown>>;
+    for (const n of nodes) {
+      if (n?.['@type'] !== 'ItemList' || !Array.isArray(n.itemListElement)) continue;
+      for (const el of n.itemListElement as Array<{ item?: Record<string, unknown> }>) {
+        const it = el?.item;
+        const id = String(it?.sku ?? it?.productId ?? '');
+        if (!it || !/^\d+$/.test(id)) continue;
+        const offers = (Array.isArray(it.offers) ? it.offers[0] : it.offers) as { price?: unknown } | undefined;
+        const vin = String(it.vehicleIdentificationNumber ?? '').trim().toUpperCase();
+        const word = (x: unknown) => { const w = String(x ?? '').trim(); return w && !/^autres?$/i.test(w) ? w : null; }; // « autre » = inconnu
+        out.set(id, {
+          gearbox: gearboxOf(word(it.vehicleTransmission)),
+          fuel: word(it.fuelType),
+          km: num((it.mileageFromOdometer as { value?: unknown } | undefined)?.value),
+          year: num(String(it.vehicleModelDate ?? '').match(/\b(?:19|20)\d{2}\b/)?.[0]),
+          price: priceOrNull(offers?.price),
+          vin: /^[A-HJ-NPR-Z0-9]{17}$/.test(vin) ? vin : null,
+        });
+      }
+    }
+  }
+  return out;
+}
+/** Total annoncé par une liste webspark : « <strong>3193</strong> résultats trouvés ». */
+export const websparkDeclared = (html: string): number | null => num(html.match(/results-counter[^>]*>\s*<strong>\s*([\d\s  .]+)<\/strong>\s*résultats? trouvés?/)?.[1]?.replace(/[\s  .]/g, ''));
+
+/** « vehiculeinfos » d'une carte openflex lu par FORME (18/11, Vikings) : « 2016 / 123844km / Essence »,
+ *  « 2026 / Essence » (neuve : pas de km), « / Diesel » (sans année), « 2020 / 102666km / Essence / Electrique »
+ *  (hybride : les 145 voitures du filtre « Hybride » du site). Lu par position, la forme neuve donnait km = 0 lu dans
+ *  « Essence » et aucune énergie, l'hybride « Essence » ou « Electrique ». */
+export function openflexInfos(infos: string): { year: number | null; km: number | null; fuel: string | null } {
+  const toks = infos.split('/').map((x) => x.trim()).filter(Boolean);
+  const kmTok = toks.find((x) => /^\d[\d\s  .]*\s*km$/i.test(x));
+  const rest = toks.filter((x) => !/^(19|20)\d{2}$/.test(x) && x !== kmTok);
+  return {
+    year: num(toks.find((x) => /^(19|20)\d{2}$/.test(x))),
+    km: kmTok ? num(kmTok.replace(/km/i, '').replace(/[\s  .]/g, '')) : null,
+    fuel: rest.length > 1 && rest.some((x) => /lectri/i.test(x)) ? `Hybride ${rest.join(' / ')}` : rest.join(' / ') || null,
+  };
+}
+
+/** Total annoncé par une liste yooflex : « 278 résultats correspondants à la recherche ». */
+export const yooflexDeclared = (html: string): number | null => num(html.replace(/<[^>]+>/g, ' ').match(/(\d[\d\s ]*)\s*résultats?\s+correspondant/)?.[1]?.replace(/[\s ]/g, ''));
+/** LISTE EN ORDRE ALÉATOIRE (18/11, Hecquet : la page 1 change à chaque appel ; « ?paged=N » ne lit qu'un tirage —
+ *  194 voitures sur 286 le 18/11, 72 « disparues » qui n'en sont pas). Une page qui contient TOUTE sa sélection est
+ *  exacte quel que soit l'ordre : découpage par les filtres du site « price_min / price_max », puis « kilometer_min /
+ *  kilometer_max » quand plus d'une page de voitures ont le même prix, jusqu'à ce que chaque tranche tienne sur une page.
+ *  Bornes incluses et jointives (un doublon est dédoublonné par l'identifiant) ; une borne 0 est ignorée par le site. */
+async function yooflexSlices(url: string, firstHtml: string, perPage: number, parse: (html: string) => number): Promise<{ requests: number; warnings: string[] }> {
+  const warnings: string[] = [];
+  const bound = (name: string, attr: 'min' | 'max', dflt: number) => {
+    const v = num(firstHtml.match(new RegExp(`name="${name}"[^>]*\\b${attr}="([\\d.]+)"`))?.[1]);
+    return v != null && v > 0 ? (attr === 'min' ? Math.floor(v) : Math.ceil(v)) : dflt;
+  };
+  const K: [number, number] = [bound('kilometer_min', 'min', 1), bound('kilometer_max', 'max', 2_000_000)];
+  type Slice = { p: [number, number]; k: [number, number] | null };
+  const stack: Slice[] = [{ p: [bound('price_min', 'min', 1), bound('price_max', 'max', 1_000_000)], k: null }];
+  const split = ([lo, hi]: [number, number], n: number): Array<[number, number]> => {
+    const step = Math.max(1, Math.ceil((hi - lo) / Math.min(8, Math.max(2, Math.ceil(n / perPage) + 1))));
+    const parts: Array<[number, number]> = [];
+    for (let a = lo; a < hi; a += step) parts.push([a, Math.min(hi, a + step)]);
+    return parts.reverse();
+  };
+  let requests = 0;
+  while (stack.length && requests < 600) {
+    const s = stack.pop()!;
+    await sleep(PAGE_DELAY_MS);
+    let u = withParam(withParam(url, 'price_min', String(Math.max(1, s.p[0]))), 'price_max', String(s.p[1]));
+    if (s.k) u = withParam(withParam(u, 'kilometer_min', String(Math.max(1, s.k[0]))), 'kilometer_max', String(s.k[1]));
+    const r = await getTextPatient(u);
+    requests++;
+    if (r.status !== 200) { warnings.push(`tranche ${s.p.join('-')} € : HTTP ${r.status}`); continue; }
+    const n = yooflexDeclared(r.text);
+    if (n === 0) continue;
+    if (n == null || n <= perPage) { parse(r.text); continue; }
+    if (s.p[1] - s.p[0] > 1) { for (const p of split(s.p, n)) stack.push({ p, k: s.k }); continue; }
+    const k = s.k ?? K;
+    if (k[1] - k[0] > 1) { for (const kk of split(k, n)) stack.push({ p: s.p, k: kk }); continue; }
+    parse(r.text);
+    warnings.push(`tranche ${s.p.join('-')} € / ${k.join('-')} km : ${n} voitures, ${perPage} lues`);
+  }
+  if (stack.length) warnings.push(`plafond de 600 requêtes atteint, ${stack.length} tranche(s) non lue(s)`);
+  return { requests, warnings };
+}
+
 // ── openflex (Vikings Auto, 04/11) : 1 823 voitures, 37 par page, « entrant=N », total « N résultat(s) ».
 async function scrapeOpenflex(url: string, firstHtml: string): Promise<DealerStockResult> {
   const origin = new URL(url).origin;
@@ -1740,6 +1853,7 @@ async function scrapeWebspark(url: string, firstHtml: string): Promise<DealerSto
   const seen = new Set<string>();
   const parse = (html: string): number => {
     let added = 0;
+    const ld = websparkLdById(html); // boîte, énergie, km, année, prix, VIN de chaque carte (sku = data-id)
     const parts = html.split(/<div class="card [^"]*\bvcard\b[^"]*" data-id="/).slice(1);
     for (const part of parts) {
       const id = part.match(/^(\d+)"/)?.[1];
@@ -1767,14 +1881,20 @@ async function scrapeWebspark(url: string, firstHtml: string): Promise<DealerSto
       const year = num(mec.match(/(\d{4})/)?.[1]);
       const gear = params.get('boîte de vitesses') ?? params.get('boite de vitesses') ?? '';
       const sold = /vcard--status-(sold|reserved)/.test(part.slice(0, 400));
+      // Cartes compactes (SIPA, Sofibrie, Edenauto, Bony) sans boîte : JSON-LD de la page (18/11). Neuve (badge « Neuf »,
+      // adresse « /voitures/neuves-… ») : ni la carte ni le JSON-LD ne donnent de km → 0.
+      const d = ld.get(id);
+      const isNew = /\bebadge--new\b/.test(part.slice(0, 1500)) || /\/voitures\/neuve/.test(link?.[1] ?? '');
+      const priceAll = price ?? d?.price ?? null;
       seen.add(id); added++;
       out.push({
         external_id: id, url: link?.[1] ?? null, title: [makeModel, version].filter(Boolean).join(' ').trim(), brand: makeModel.split(/\s+/)[0] || null, model: makeModel.split(/\s+/).slice(1).join(' ') || null,
-        price, km: num(params.get('kilométrage')?.replace(/km/i, '').replace(/\s/g, '')), year, fuel: params.get('energie') ?? params.get('énergie') ?? null,
-        gearbox: /auto/i.test(gear) ? 'Automatique' : /manu/i.test(gear) ? 'Manuelle' : gear || null,
-        plate: null, vin: null, body: null, image: part.match(/<img src="([^"]+)"/)?.[1] ?? null,
+        price: priceAll, km: num(params.get('kilométrage')?.replace(/km/i, '').replace(/\s/g, '')) ?? d?.km ?? (isNew ? 0 : null), year: year ?? d?.year ?? null,
+        fuel: params.get('energie') ?? params.get('énergie') ?? d?.fuel ?? null,
+        gearbox: (/auto/i.test(gear) ? 'Automatique' : /manu/i.test(gear) ? 'Manuelle' : gear || null) ?? d?.gearbox ?? null,
+        plate: null, vin: d?.vin ?? null, body: null, image: part.match(/<img src="([^"]+)"/)?.[1] ?? null,
         listed_at: mec && /^\d{2}\/\d{4}$/.test(mec) ? null : null,
-        status: sold ? 'sold' : price == null ? 'price_on_request' : null, currency: 'EUR',
+        status: sold ? 'sold' : priceAll == null ? 'price_on_request' : null, currency: 'EUR',
       });
     }
     return added;
@@ -1782,8 +1902,11 @@ async function scrapeWebspark(url: string, firstHtml: string): Promise<DealerSto
   let pages = 1;
   let added = parse(firstHtml);
   const perPage = added;
-  const lastLinked = Math.max(0, ...[...firstHtml.matchAll(/[?&]page=(\d+)/g)].map((m) => Number(m[1])));
-  const cap = Math.min(MAX_PAGES, Math.max(lastLinked, 1) + 20);
+  // Total annoncé et liens « &amp;page=99 » décodés (18/11 : Sofibrie ne voyait que « &page=2 » → 22 pages, 286 voitures
+  // sur 1 316 ; Bony plafonnée à MAX_PAGES = 150 pages, 1 950 voitures sur 3 193).
+  const declared = websparkDeclared(firstHtml);
+  const lastLinked = Math.max(0, ...[...firstHtml.replace(/&amp;/g, '&').matchAll(/[?&]page=(\d+)/g)].map((m) => Number(m[1])));
+  const cap = declared != null && perPage > 0 ? Math.min(400, Math.ceil(declared / perPage) + 1) : Math.min(MAX_PAGES, Math.max(lastLinked, 1) + 20);
   // Une page plus courte que la première est la dernière (au-delà, l'origine répond 429 et non 404).
   for (let p = 2; p <= cap && added >= perPage && added > 0; p++) {
     await sleep(10_000); // rythme toléré par l'origine : une page hors cache toutes les ~10 s
@@ -1791,7 +1914,8 @@ async function scrapeWebspark(url: string, firstHtml: string): Promise<DealerSto
     if (r.status !== 200) { if (r.status !== 404) warnings.push(`page ${p} : HTTP ${r.status}`); break; }
     added = parse(r.text); if (added > 0) pages = p;
   }
-  return { provider: 'webspark', total: out.length, declared: null, vehicles: out, pages, warnings };
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  return { provider: 'webspark', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
 }
 
 // ── catalogpager (Groupe DMD, 04/11) : 1 143 voitures, 12 par page, 96 pages servies en POST « filters[page]=N ».
