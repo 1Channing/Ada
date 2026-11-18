@@ -227,6 +227,22 @@ console.log('\n=== PLACE DE MARCHÉ DES NEUVES DU GROUPE VW (turbo-stream, 19/11
     && v?.url === 'https://azonnalelviheto.volkswagen.hu/search/car/V-2026-0520490-HU', 'voiture : fillér → forints, « Kézi » = manuelle, TVA récupérable, lien de la fiche', v);
 }
 
+console.log('\n=== OCCASIONS BMW HONGRIE (ajanlatok.bmw.hu, 19/11) ===\n');
+{
+  const ds5 = await import('../worker/dealerStock');
+  const item = { id: 291919, vin17: 'WBA31FZ010FV64590', title: 'BMW 320d xDrive Touring', brand: { label: 'BMW' }, series: { label: '3' }, bodyType: { label: 'Kombi' },
+    productionYear: 2025, registration: '2025-09-26T00:00:00+00:00', mileage: 15064, fuel: { label: 'Dízel' }, powerHP: 190, transmission: { label: 'Automata' },
+    color: { label: 'BMW Individual Dravit Szürke metálfényezés' }, warranty: 24, vatReclaimable: true, transactionalPrice: 17600000, reserved: false, reservationStatus: '',
+    campaigns: [{ text: 'BMW Gyár Debrecen cégautó' }], created: '2026-11-18T13:29:07+01:00', dealer: { id: 82, name: 'Mag3', city: 'Nyiregyhaza' } };
+  const v = ds5.bmwUsedToVehicle(item, 'https://ajanlatok.bmw.hu');
+  ok(v?.external_id === '291919' && v?.price === 17600000 && v?.currency === 'HUF' && v?.vin === 'WBA31FZ010FV64590' && v?.year === 2025 && v?.km === 15064
+    && v?.gearbox === 'Automatique' && v?.model === 'Série 3' && v?.listed_at === '2026-11-18T12:29:07.000Z' && /TVA récupérable$/.test(v?.title ?? '')
+    && v?.url === 'https://ajanlatok.bmw.hu/hasznalt/kereses/reszletek/291919', 'voiture réelle : prix, VIN, 1re immatriculation, Série 3, date de mise en ligne, TVA récupérable, lien', v);
+  const phev = ds5.bmwUsedToVehicle({ ...item, id: 290685, title: 'BMW 225e xDrive Active Tourer', fuel: { label: 'Hibrid (elektromos/benzines)' } }, 'https://ajanlatok.bmw.hu');
+  ok(phev?.fuel === 'Plug-in Hibrid (elektromos/benzines)', '« Hibrid » sur une 225e = hybride rechargeable', phev?.fuel);
+  ok(ds5.detectDealerProvider('<form><select name="dealer[$or]"></select><select name="series[$or]"></select></form>') === 'bmwused', 'plateforme reconnue par son formulaire (dealer[$or], series[$or])');
+}
+
 console.log('\n=== POLITESSE : PAS PLUS D\'UNE REQUÊTE TOUTES LES 350 MS PAR SITE ===\n');
 {
   const { reserveSiteSlot, SITE_MIN_GAP_MS } = await import('../worker/dealerStock');

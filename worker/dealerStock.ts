@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -358,6 +358,9 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/pewneauto\.pl\//.test(html) && /<title>[^<]*\d\s*aj[áa]nlat/.test(html)) return 'pewneauto';
   // vwgmarket (neuves du groupe VW, azonnalelviheto.<marque>.hu, 19/11) : React Router (turbo-stream), « storedByImporter ».
   if (/__reactRouterContext/.test(html) && /routes\/search\/search\.route/.test(html) && /storedByImporter/.test(html)) return 'vwgmarket';
+  // bmwused (occasions BMW / MINI Hongrie, 19/11) : application « használtautó-kereső » (mcon-group) — formulaire Vue
+  // « dealer[$or] » / « series[$or] » (la page d'accueil ne contient pas l'adresse de l'API).
+  if (/name="dealer\[\$or\]"/.test(html) && /name="series\[\$or\]"/.test(html)) return 'bmwused';
   // catalogpager (Groupe DMD, 04/11) : site Symfony maison, cartes <a class="fiche_vehicule">, pages chargées en POST
   // sur « /ajax/search?flag=html » avec filters[page]=N (liens « catalog-pager-link » data-page).
   if (/class="fiche_vehicule/.test(html) && /catalog-pager-link/.test(html) && /data-ajax-request-search="/.test(html)) return 'catalogpager';
@@ -4776,6 +4779,67 @@ async function scrapeVwgMarket(url: string): Promise<DealerStockResult> {
   return { provider: 'vwgmarket', total: vehicles.length, declared: truncated ? (page.total ?? null) : vehicles.length, vehicles, pages: 1, warnings };
 }
 
+// ── bmwused (occasions BMW / MINI Hongrie, 19/11 nuit) : « BMW használtautó-kereső » (ajanlatok.bmw.hu/hasznalt, même
+//    annonces sur ajanlatok.mini.hu) — les occasions de toutes les concessions BMW / MINI du pays. Adresse de la fiche ADA :
+//    « /hasznalt/?perm_dealer_id=<n°> » (le site pose alors un cookie de concession ; sans n°, refus : le pays entier n'est
+//    pas UNE vitrine). Lecture par l'API JSON publique que la page appelle, sans clé : POST /hasznalt/api/v1/ems/<bmw-used-
+//    hu_HU>/search, corps {"$match":{"dealer":n°},"$skip":k,"$limit":100}, total dans $count.$total ; un filtre vide rend 0
+//    (pas de recherche élargie, vérifié le 18/11). Chaque voiture : prix TTC (forints), TVA récupérable, km, 1re
+//    immatriculation, énergie, boîte, VIN, puissance, couleur, garantie (mois), réservation, campagnes, DATE DE MISE EN LIGNE.
+type BmwUsedItem = {
+  id?: number | string; vin17?: string | null; title?: string | null; brand?: { label?: string } | null; series?: { label?: string } | null;
+  bodyType?: { label?: string } | null; productionYear?: number | null; registration?: string | null; mileage?: number | null;
+  fuel?: { label?: string } | null; powerHP?: number | null; transmission?: { label?: string } | null; color?: { label?: string } | null;
+  warranty?: number | null; vatReclaimable?: boolean | null; transactionalPrice?: number | null; reserved?: boolean | null;
+  reservationStatus?: string | null; campaigns?: Array<{ text?: string }> | null; created?: string | null; dealer?: { id?: number; name?: string; city?: string } | null;
+};
+export function bmwUsedToVehicle(it: BmwUsedItem, origin: string): DealerVehicle | null {
+  if (it.id == null) return null;
+  const price = priceOrNull(it.transactionalPrice);
+  const title = (it.title ?? '').trim() || [it.brand?.label, it.series?.label].filter(Boolean).join(' ');
+  const series = (it.series?.label ?? '').trim();
+  const gear = it.transmission?.label ?? '';
+  return {
+    external_id: String(it.id), url: `${origin}/hasznalt/kereses/reszletek/${it.id}`, title: it.vatReclaimable ? `${title} · TVA récupérable` : title,
+    brand: it.brand?.label ?? splitTitle(title).brand, model: /^\d$/.test(series) ? `Série ${series}` : series || splitTitle(title).model,
+    price, currency: 'HUF', km: num(it.mileage), year: num(String(it.registration ?? '').slice(0, 4)) ?? num(it.productionYear),
+    // « Hibrid (elektromos/benzines) » sur une BMW « 225e / 330e / xDrive50e » = hybride RECHARGEABLE (BMW n'a pas d'hybride simple).
+    fuel: /hibrid/i.test(it.fuel?.label ?? '') && /\b\d{2,3}e\b|xdrive\d{2}e\b/i.test(title) ? `Plug-in ${it.fuel?.label}` : it.fuel?.label ?? null,
+    gearbox: !gear ? null : /automat|steptronic|dkg|dct/i.test(gear) ? 'Automatique' : /manu|k[ée]zi/i.test(gear) ? 'Manuelle' : gear,
+    plate: null, vin: it.vin17 || null,
+    body: [it.bodyType?.label, it.color?.label, it.warranty ? `garantie ${it.warranty} mois` : null, ...(it.campaigns ?? []).map((c) => c.text)].filter(Boolean).join(' · ') || null,
+    image: null, listed_at: it.created && !Number.isNaN(Date.parse(it.created)) ? new Date(it.created).toISOString() : null,
+    status: it.reserved || (it.reservationStatus ?? '').trim() ? 'reserved' : price == null ? 'price_on_request' : null,
+    power_ch: num(it.powerHP), location: [it.dealer?.name, it.dealer?.city].filter(Boolean).join(', ') || null,
+  };
+}
+async function scrapeBmwUsed(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  const dealer = num(u.searchParams.get('perm_dealer_id') ?? u.searchParams.get('dealer'));
+  if (dealer == null) throw new Error('adresse BMW használtautó sans concession (attendu : …/hasznalt/?perm_dealer_id=<n°>) : tout le pays n\'est pas la vitrine d\'une concession');
+  const ems = firstHtml.match(/\/ems\/([a-z]+-used-[a-z]{2}_[A-Z]{2})\//)?.[1] ?? (/mini/.test(u.hostname) ? 'mini-used-hu_HU' : 'bmw-used-hu_HU');
+  const api = `${u.origin}/hasznalt/api/v1/ems/${ems}/search`;
+  const warnings: string[] = [];
+  const byId = new Map<string, DealerVehicle>();
+  let declared: number | null = null;
+  let pages = 0;
+  for (let skip = 0; pages < 50; skip += 100) {
+    await sleep(SITE_DELAY_MS);
+    const r = await getTextPatient(api, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ $match: { dealer }, $skip: skip, $limit: 100 }) });
+    if (r.status !== 200) { warnings.push(`API BMW (décalage ${skip}) : HTTP ${r.status}`); break; }
+    let d: { $list?: BmwUsedItem[]; $count?: { $total?: number } };
+    try { d = JSON.parse(r.text); } catch { warnings.push(`API BMW (décalage ${skip}) : réponse illisible`); break; }
+    pages++;
+    declared = declared ?? num(d.$count?.$total);
+    const got = (d.$list ?? []).filter((it) => it.dealer?.id == null || it.dealer.id === dealer);
+    for (const it of got) { const v = bmwUsedToVehicle(it, u.origin); if (v && !byId.has(v.external_id)) byId.set(v.external_id, v); }
+    if ((d.$list ?? []).length < 100 || (declared != null && byId.size >= declared)) break;
+  }
+  const vehicles = [...byId.values()];
+  if (declared != null && vehicles.length < declared) warnings.push(`${vehicles.length} voiture(s) lue(s) pour ${declared} annoncée(s)`);
+  return { provider: 'bmwused', total: declared ?? vehicles.length, declared, vehicles, pages, warnings };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getTextPatient(url); // 04/11 : MotorK (Sofibrie, SIPA) répond 429 dès la première page après une rafale
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -4812,6 +4876,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'dasweltauto') return scrapeDasWeltAuto(url, first.text);
   if (provider === 'pewneauto') return scrapePewne(url, first.text);
   if (provider === 'vwgmarket') return scrapeVwgMarket(url);
+  if (provider === 'bmwused') return scrapeBmwUsed(url, first.text);
   if (provider === 'audaris') return scrapeAudaris(url, first.text);
   if (provider === 'kleynvans') return scrapeKleynVans(url, first.text);
   if (provider === 'ocasionplus') return scrapeOcasionPlus(url, first.text);
