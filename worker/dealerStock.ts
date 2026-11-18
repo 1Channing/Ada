@@ -31,8 +31,8 @@ import { fetchHtmlWithZyte } from './scraper';
 import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -233,6 +233,9 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/class="vehiculeinfos"/.test(html) && /class="nom"/.test(html) && /entrant=\d+|résultat\(s\)/.test(html)) return 'openflex';
   // autopolis (autopolis.sk, 04/11) : cartes <div class="car-item"> avec car-item__title et paires paramètre/valeur, « strana=N ».
   if (/class="car-item__title"/.test(html) && /car-item__parameter-info/.test(html)) return 'autopolis';
+  // autopalace (Auto Palace Bratislava, 18/11) : CMS maison « locator version2 » (data-domain-code), cartes
+  // <div class="cell slice-N item …"> avec tags registration / mileage / fuel / power / vin, pages « /page:N ».
+  if (/data-domain-code="[^"]+"/.test(html) && /class="cell slice-\d+ item/.test(html) && /class="tag vin"/.test(html)) return 'autopalace';
   // webspark / dealerk (Cobredia, 04/11) : WordPress + plugin webspark, cartes « vcard » data-id, paires label/info, « page=N ».
   // 04/11 : variante compacte (Bony, Sofibrie, Edenauto, SIPA) — pas d'étiquettes, la ligne « 12/2025 - 10 Km - Hybride »
   // est dans vcard-consumption__title.
@@ -2284,6 +2287,63 @@ async function scrapeEveho(url: string, firstHtml: string): Promise<DealerStockR
   return { provider: 'eveho', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
 }
 
+// ── autopalace (Auto Palace Bratislava, 18/11, Channing : « apprends cette vitrine dans la carte avec la pagination »)
+//    CMS maison « locator version2 » : cartes <div class="cell slice-N item …">, lien /ponuka-vozidiel/<slug>-<vin>-<id>,
+//    prix « Zvýhodnená cena » (sinon « Cenníková cena »), tags registration (« 12/2025 » ou « nové vozidlo »),
+//    mileage, fuel, power (« 285 kW (388 PS) »), vin ; « Počet záznamov: N », 15 par page, pages « /page:N » ; un
+//    « dataLayer_<id> » par carte donne marque et modèle (« BMW radu 3 » = Série 3). La boîte n'est que sur la fiche
+//    (« Prevodovka: Automatická »), lue par DETAIL_READERS. La liste « jazdené » du site mêle neufs, démos et occasions.
+async function scrapeAutopalace(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const declared = num(firstHtml.match(/Po[čc]et z[áa]znamov:\s*<span>(\d+)/)?.[1]);
+  const base = url.replace(/\/page:\d+/, '').replace(/\/+$/, '');
+  const pageUrl = (p: number) => (p <= 1 ? base : `${base}/page:${p}`);
+  const tagOf = (part: string, k: string) => htmlText(part.match(new RegExp(`class="tag ${k}">([\\s\\S]*?)(?=<div class="tag |</div>\\s*</div>)`))?.[1] ?? '');
+  const parse = (html: string): number => {
+    let added = 0;
+    for (const part of html.split(/<div class="cell slice-\d+ item/).slice(1)) {
+      const href = part.match(/<a href="(\/ponuka-vozidiel\/[^"]+)"/)?.[1];
+      if (!href) continue;
+      const id = href.split('-').pop() ?? href;
+      added++;
+      if (seen.has(id)) continue;
+      const title = htmlText(part.match(/<h2>\s*<a[^>]*>([\s\S]*?)<\/a>/)?.[1] ?? '');
+      const layer = html.match(new RegExp(`const dataLayer_${id} = \\{([\\s\\S]*?)\\};`))?.[1] ?? '';
+      const layerOf = (k: string) => layer.match(new RegExp(`${k}: '([^']*)'`))?.[1]?.trim() ?? '';
+      // dataLayer absent (neufs) ou marque « unknown » (MINI, VW) : le titre fait foi.
+      const layerBrand = layerOf('item_brand');
+      const brand = (layerBrand && !/unknown/i.test(layerBrand) ? layerBrand : title.split(/\s+/)[0]) || null;
+      const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      let model = layerOf('item_category').replace(new RegExp(`^${esc(brand ?? '')}\\s+`, 'i'), '').trim();
+      if (!model || /unknown/i.test(model)) model = title.replace(new RegExp(`^${esc(brand ?? '')}\\s+`, 'i'), '').split(/\s+/)[0] ?? '';
+      // « radu 3 » (slovaque) = Série 3 ; un code BMW « 218d », « 530e », « M135i » dit sa Série ; « M3 », « X3 », « iX » restent.
+      model = model.replace(/^radu\s+(\d)$/i, 'Série $1').replace(/^M?([1-8])\d{2}[a-z]{0,3}$/i, 'Série $1');
+      const price = euro(part.match(/class="row action">[\s\S]*?class="cell large value">([^<]+)</)?.[1] ?? '')
+        ?? euro(part.match(/class="row price[^"]*">[\s\S]*?class="cell value">([^<]+)</)?.[1] ?? '');
+      const reg = tagOf(part, 'registration');
+      const year = num(reg.match(/\b((?:19|20)\d{2})\b/)?.[1]);
+      const power = tagOf(part, 'power');
+      const ps = num(power.match(/\((\d{2,3})\s*PS\)/i)?.[1]) ?? (num(power.match(/(\d{2,3})\s*kW/i)?.[1]) != null ? Math.round(Number(power.match(/(\d{2,3})\s*kW/i)![1]) * 1.35962) : null);
+      const vin = tagOf(part, 'vin').replace(/[^A-Z0-9]/gi, '').toUpperCase() || null;
+      seen.add(id);
+      out.push({
+        external_id: id, url: origin + href, title, brand, model: model || null, price,
+        km: kmOf(tagOf(part, 'mileage')), year, fuel: tagOf(part, 'fuel') || null, gearbox: null,
+        plate: null, vin: vin && vin.length === 17 ? vin : null, body: null,
+        image: (() => { const i = part.match(/<img src="([^"]+)"/)?.[1]; return i ? (i.startsWith('http') ? i : origin + i) : null; })(), listed_at: null,
+        status: price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: ps, location: 'Bratislava',
+      });
+    }
+    return added;
+  };
+  const last = Math.max(1, ...[...firstHtml.matchAll(/\/page:(\d+)"/g)].map((m) => Number(m[1])));
+  const r = await paginate(firstHtml, parse, pageUrl, { cap: Math.min(MAX_PAGES, last + 2) });
+  if (declared != null && out.length < declared) r.warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  return { provider: 'autopalace', total: declared ?? out.length, declared, vehicles: out, pages: r.pages, warnings: r.warnings };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getTextPatient(url); // 04/11 : MotorK (Sofibrie, SIPA) répond 429 dès la première page après une rafale
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -2314,6 +2374,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'vehiclelistapi') return scrapeVehicleListApi(url);
   if (provider === 'rswusato') return scrapeRswUsato(url, first.text);
   if (provider === 'eveho') return scrapeEveho(url, first.text);
+  if (provider === 'autopalace') return scrapeAutopalace(url, first.text);
   if (provider === 'jetlisting') return scrapeJetListing(url, first.text);
   if (provider === 'gatsbyvehicles') return scrapeGatsbyVehicles(url);
   if (provider === 'dvnl') return scrapeDv(url, first.text);
@@ -2389,8 +2450,14 @@ export function readDmdDetail(html: string): DetailFields {
  * rend ce qui manque (boîte, énergie, km, année, prix). Nouveaux véhicules d'abord, DETAIL_MAX_PER_RUN fiches par
  * relevé, une à la fois avec une pause, jamais par Zyte ; une valeur lue n'écrase jamais une valeur de la liste.
  */
+/** Boîte de la fiche Auto Palace (18/11) : « Prevodovka: » / « Automatická » ou « Manuálna ». */
+export function readAutopalaceDetail(html: string): DetailFields {
+  const v = htmlText(html.match(/Prevodovka:<\/div>\s*<div class="cell">([^<]+)</i)?.[1] ?? '');
+  return { gearbox: /manu/i.test(v) ? 'Manuelle' : /auto/i.test(v) ? 'Automatique' : v || null };
+}
 export const DETAIL_READERS: Partial<Record<DealerProvider, DetailReader>> = {
   catalogpager: { fields: ['gearbox'], read: readDmdDetail },
+  autopalace: { fields: ['gearbox'], read: readAutopalaceDetail },
 };
 
 /** Relève le stock d'une concession de la carte et le compare au relevé précédent. Avec `prefetched` (vitrine
