@@ -17,7 +17,7 @@ import { isDealerExtractPdf, parseDealerExtractPdf } from '../lib/offers/parseSu
 import { ADMIN_BUCKET, signedUrl } from '../services/storageAccess';
 import { supabase } from '../lib/supabase';
 import type { OfferSourceFile } from '../services/offers';
-import { buildOfferWorkbook, downloadBlob, slugFile, fmtEur, fmtKm, fmtDate } from '../lib/offers/exportOfferXlsx';
+import { buildOfferWorkbook, downloadBlob, slugFile, fmtEur, fmtKm, fmtDate, fuelLabel } from '../lib/offers/exportOfferXlsx';
 import { buildOfferPdf } from '../lib/offers/exportOfferPdf';
 import { useOfferFiches, OfferFichesBanner, OfferFichesModal } from '../components/OfferFiches';
 import { SingleUnitModal, type SingleUnitOptions } from '../components/SingleUnitModal';
@@ -113,6 +113,11 @@ export function Offres() {
   // modèles en une seule fois… un critère commun à toute une liste d'un modèle donné, sur cette page uniquement »).
   const [bulk, setBulk] = useState<{ field: BulkField; value: string } | null>(null);
   const [modelQuery, setModelQuery] = useState('');
+  /** FILTRES DE SÉLECTION (18/11, Channing : « dans la sélection, ajoute la possibilité de choisir : carburant, année,
+   *  km… ») : s'appliquent aux deux vues (par modèle, liste complète) ET aux actions « Tout retenir / Aucun / case
+   *  d'un modèle ou d'une marque », qui ne touchent alors que les véhicules filtrés. */
+  const [selFilters, setSelFilters] = useState<SelFilters>(EMPTY_SEL_FILTERS);
+  const selFiltersActive = Object.values(selFilters).some(Boolean);
   /** Onglet Sélection : par modèle (cartes par marque) ou liste complète — retenu sur ce poste. */
   const [selectionLayout, setSelectionLayout] = useState<'models' | 'list'>(() => {
     try { return localStorage.getItem('ada_offres_layout') === 'list' ? 'list' : 'models'; } catch { return 'models'; }
@@ -488,7 +493,7 @@ export function Offres() {
     if (stale) { info('Dates relues avec les règles du jour (fichier au format américain) — offre enregistrée.'); void persist(next); }
     setDraft(next); if (!stale) setParsed(null); setSaveState({ kind: 'idle' }); setTargetsOpen(null); setEditLot(null); setEditVehicle(null);
     if (!stale) setMsg(null);
-    setNotSaved([]); setModelPopup(null); setModelQuery(''); setSettingsOpen(false);
+    setNotSaved([]); setModelPopup(null); setModelQuery(''); setSelFilters(EMPTY_SEL_FILTERS); setSettingsOpen(false);
     setView(next.vehicles.some((v) => v.selected) ? 'analyse' : 'selection');
     setListOpen(false);
     setSurvey((s) => (s && s.done < s.total && s.current !== 'arrêté' ? s : null));
@@ -578,10 +583,30 @@ export function Offres() {
 
   // ── CHOIX DES MODÈLES, regroupés par marque (refonte 11/10) ─────────────────
   const modelKeyOf = (v: OfferVehicle) => `${v.brand} ${v.model}`.trim();
+  /** Notre prix affiché (ou celui du fournisseur), dans la base d'affichage de l'offre. */
+  const shownPriceOf = (v: OfferVehicle) => (v.sale_price != null ? toShown(v.sale_price, S) : supplierShown(v, S));
+  const matchesSelFilters = (v: OfferVehicle): boolean => {
+    const f = selFilters;
+    if (f.fuel && (v.fuel ?? '').trim().toUpperCase() !== f.fuel) return false;
+    if (f.gearbox && (v.gearbox ?? '') !== f.gearbox) return false;
+    if (f.yearMin && (v.year == null || v.year < Number(f.yearMin))) return false;
+    if (f.yearMax && (v.year == null || v.year > Number(f.yearMax))) return false;
+    if (f.kmMax && (v.km == null || v.km > Number(f.kmMax))) return false;
+    if (f.priceMax) { const p = shownPriceOf(v); if (p == null || p > Number(f.priceMax)) return false; }
+    if (f.vat && (f.vat === 'oui' ? v.vat_recoverable !== true : v.vat_recoverable === true)) return false;
+    return true;
+  };
+  /** Valeurs proposées par les filtres : celles présentes dans l'offre. */
+  const selFilterOptions = useMemo(() => {
+    const vs = draft?.vehicles ?? [];
+    const uniq = (xs: Array<string | null | undefined>) => [...new Set(xs.map((x) => (x ?? '').trim().toUpperCase()).filter(Boolean))].sort();
+    return { fuels: uniq(vs.map((v) => v.fuel)), gearboxes: uniq(vs.map((v) => v.gearbox)), years: [...new Set(vs.map((v) => v.year).filter((y): y is number => y != null))].sort((a, b) => a - b) };
+  }, [draft]);
+  const filteredVehicles = useMemo(() => (draft?.vehicles ?? []).filter(matchesSelFilters), [draft, selFilters]); // eslint-disable-line react-hooks/exhaustive-deps
   const brandGroups = useMemo(() => {
     type M = { key: string; model: string; units: number; selected: number; kmSum: number; kmN: number; priceSum: number; priceN: number };
     const brands = new Map<string, { brand: string; units: number; selected: number; models: Map<string, M> }>();
-    for (const v of draft?.vehicles ?? []) {
+    for (const v of filteredVehicles) {
       const brand = v.brand || '—';
       const b = brands.get(brand) ?? { brand, units: 0, selected: 0, models: new Map<string, M>() };
       const key = modelKeyOf(v);
@@ -590,7 +615,7 @@ export function Offres() {
       m.units += q; b.units += q;
       if (v.selected) { m.selected += q; b.selected += q; }
       if (v.km != null) { m.kmSum += v.km; m.kmN++; }
-      const p = v.sale_price != null ? toShown(v.sale_price, S) : supplierShown(v, S);
+      const p = shownPriceOf(v);
       if (p != null) { m.priceSum += p; m.priceN++; }
       b.models.set(key, m);
       brands.set(brand, b);
@@ -600,14 +625,14 @@ export function Offres() {
       .map((b) => ({ ...b, models: [...b.models.values()].filter((m) => !q || m.key.toLowerCase().includes(q)).sort((x, y) => x.model.localeCompare(y.model, 'fr')) }))
       .filter((b) => b.models.length > 0)
       .sort((x, y) => x.brand.localeCompare(y.brand, 'fr'));
-  }, [draft, modelQuery]); // eslint-disable-line react-hooks/exhaustive-deps
-  /** Liste complète filtrée par la recherche (modèle, version, VIN/plaque, couleur, motorisation). */
+  }, [filteredVehicles, modelQuery]); // eslint-disable-line react-hooks/exhaustive-deps
+  /** Liste complète filtrée par les filtres et la recherche (modèle, version, VIN/plaque, couleur, motorisation). */
   const listVehicles = useMemo(() => {
     const q = modelQuery.trim().toLowerCase();
-    const all = draft?.vehicles ?? [];
-    return q ? all.filter((v) => `${v.brand} ${v.model} ${v.version} ${v.vin ?? ''} ${v.color ?? ''} ${v.engine ?? ''}`.toLowerCase().includes(q)) : all;
-  }, [draft, modelQuery]);
-  const setModelSelected = (key: string, on: boolean) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => (modelKeyOf(v) === key ? { ...v, selected: on } : v)) }));
+    return q ? filteredVehicles.filter((v) => `${v.brand} ${v.model} ${v.version} ${v.vin ?? ''} ${v.color ?? ''} ${v.engine ?? ''}`.toLowerCase().includes(q)) : filteredVehicles;
+  }, [filteredVehicles, modelQuery]);
+  // Les actions de masse ne touchent que les véhicules qui passent les filtres (un filtre actif = une intention).
+  const setModelSelected = (key: string, on: boolean) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => (modelKeyOf(v) === key && matchesSelFilters(v) ? { ...v, selected: on } : v)) }));
   /** Un critère corrigé pour tous les véhicules d'un modèle (même mécanique que le crayon : la correction est gardée dans `manual`). */
   const correctModel = (key: string, patch: Partial<OfferVehicle>) => {
     let nextKey = key;
@@ -623,8 +648,8 @@ export function Offres() {
     // Marque ou modèle renommés : la fenêtre suit la liste sous son nouveau nom.
     if (nextKey !== key) setModelPopup(nextKey);
   };
-  const setBrandSelected = (brand: string, on: boolean) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => ((v.brand || '—') === brand ? { ...v, selected: on } : v)) }));
-  const setAllSelected = (on: boolean) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => ({ ...v, selected: on })) }));
+  const setBrandSelected = (brand: string, on: boolean) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => ((v.brand || '—') === brand && matchesSelFilters(v) ? { ...v, selected: on } : v)) }));
+  const setAllSelected = (on: boolean) => update((d) => ({ ...d, vehicles: d.vehicles.map((v) => (matchesSelFilters(v) ? { ...v, selected: on } : v)) }));
 
   // ── COLONNES DE L'OFFRE EXPORTÉE ────────────────────────────────────────────
   const columns = draft?.export_columns ?? defaultExportColumns();
@@ -1250,8 +1275,8 @@ export function Offres() {
                     <span className="sr-only">{selectionLayout === 'models' ? 'Chercher un modèle' : 'Chercher un véhicule'}</span>
                     <input value={modelQuery} onChange={(e) => setModelQuery(e.target.value)} placeholder={selectionLayout === 'models' ? 'Chercher un modèle' : 'Modèle, VIN, plaque, couleur…'} className="w-48 outline-none bg-transparent" />
                   </label>
-                  <button onClick={() => setAllSelected(true)} className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Tout retenir</button>
-                  <button onClick={() => setAllSelected(false)} className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">Aucun</button>
+                  <button onClick={() => setAllSelected(true)} className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50" title={selFiltersActive ? 'Retient les véhicules qui passent les filtres' : 'Retient tous les véhicules'}>{selFiltersActive ? `Retenir les ${filteredVehicles.length} filtrés` : 'Tout retenir'}</button>
+                  <button onClick={() => setAllSelected(false)} className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50" title={selFiltersActive ? 'Retire les véhicules qui passent les filtres' : 'Ne retient aucun véhicule'}>{selFiltersActive ? 'Aucun des filtrés' : 'Aucun'}</button>
                   <span className="flex items-center gap-3 text-xs">
                     {parsed?.warnings.length ? (
                       <details className="relative">
@@ -1264,10 +1289,46 @@ export function Offres() {
                     {draft.source_grid && <button onClick={rereadFile} className="text-brand-ocean hover:underline" title="Relit le fichier conservé avec les règles de lecture actuelles — sélection, prix et corrections gardés">Relire le fichier</button>}
                   </span>
                 </div>
+                <div className="px-4 py-2 border-b border-slate-100 flex items-center gap-2 flex-wrap text-xs" role="group" aria-label="Filtres de sélection">
+                  <span className="text-slate-500 font-medium">Filtres</span>
+                  <select aria-label="Carburant" value={selFilters.fuel} onChange={(e) => setSelFilters({ ...selFilters, fuel: e.target.value })} className={selFilterCls(Boolean(selFilters.fuel))}>
+                    <option value="">Carburant : tous</option>
+                    {selFilterOptions.fuels.map((f) => <option key={f} value={f}>{fuelLabel(f)}</option>)}
+                  </select>
+                  <select aria-label="Boîte" value={selFilters.gearbox} onChange={(e) => setSelFilters({ ...selFilters, gearbox: e.target.value })} className={selFilterCls(Boolean(selFilters.gearbox))}>
+                    <option value="">Boîte : toutes</option>
+                    {selFilterOptions.gearboxes.map((g) => <option key={g} value={g}>{g === 'AUTOMATIQUE' ? 'Automatique' : g === 'MANUELLE' ? 'Manuelle' : g}</option>)}
+                  </select>
+                  <select aria-label="Année minimum" value={selFilters.yearMin} onChange={(e) => setSelFilters({ ...selFilters, yearMin: e.target.value })} className={selFilterCls(Boolean(selFilters.yearMin))}>
+                    <option value="">Année min</option>
+                    {selFilterOptions.years.map((y) => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                  <select aria-label="Année maximum" value={selFilters.yearMax} onChange={(e) => setSelFilters({ ...selFilters, yearMax: e.target.value })} className={selFilterCls(Boolean(selFilters.yearMax))}>
+                    <option value="">Année max</option>
+                    {selFilterOptions.years.map((y) => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                  <label className={`flex items-center gap-1 ${selFilterCls(Boolean(selFilters.kmMax))}`}>Km max
+                    <input type="number" aria-label="Kilométrage maximum" value={selFilters.kmMax} onChange={(e) => setSelFilters({ ...selFilters, kmMax: e.target.value })} placeholder="—" step={5000} min={0} className="w-20 outline-none bg-transparent text-right" />
+                  </label>
+                  <label className={`flex items-center gap-1 ${selFilterCls(Boolean(selFilters.priceMax))}`}>Prix max {B}
+                    <input type="number" aria-label={`Prix maximum ${B}`} value={selFilters.priceMax} onChange={(e) => setSelFilters({ ...selFilters, priceMax: e.target.value })} placeholder="—" step={500} min={0} className="w-20 outline-none bg-transparent text-right" />
+                  </label>
+                  <select aria-label="TVA récupérable" value={selFilters.vat} onChange={(e) => setSelFilters({ ...selFilters, vat: e.target.value })} className={selFilterCls(Boolean(selFilters.vat))}>
+                    <option value="">TVA : toutes</option>
+                    <option value="oui">TVA récupérable</option>
+                    <option value="non">TVA sur marge / inconnue</option>
+                  </select>
+                  {selFiltersActive && (
+                    <>
+                      <span className="text-slate-600">{filteredVehicles.length} / {draft.vehicles.length} véhicule{filteredVehicles.length > 1 ? 's' : ''} · {filteredVehicles.filter((v) => v.selected).length} retenu{filteredVehicles.filter((v) => v.selected).length > 1 ? 's' : ''}</span>
+                      <button onClick={() => setSelFilters(EMPTY_SEL_FILTERS)} className="text-brand-ocean hover:underline">Effacer</button>
+                    </>
+                  )}
+                </div>
                 {selectionLayout === 'models' ? (
                   <>
                 {brandGroups.length === 0 ? (
-                  <p className="px-4 py-6 text-sm text-slate-400 text-center">{draft.vehicles.length ? 'Aucun modèle ne correspond.' : 'Aucun véhicule dans cette offre.'}</p>
+                  <p className="px-4 py-6 text-sm text-slate-400 text-center">{draft.vehicles.length ? (selFiltersActive ? 'Aucun véhicule ne passe les filtres.' : 'Aucun modèle ne correspond.') : 'Aucun véhicule dans cette offre.'}</p>
                 ) : (
                   <div className="p-3 grid gap-3 grid-cols-[repeat(auto-fill,minmax(280px,1fr))]">
                     {brandGroups.map((b) => {
@@ -1936,6 +1997,10 @@ export function Offres() {
 }
 
 /** Correction à la main des valeurs lues d'un véhicule (11/10 — remplace l'écran de correspondance des colonnes). */
+/** Filtres de l'onglet Sélection (18/11) : vides = tout. Prix dans la base d'affichage de l'offre. */
+type SelFilters = { fuel: string; gearbox: string; yearMin: string; yearMax: string; kmMax: string; priceMax: string; vat: string };
+const EMPTY_SEL_FILTERS: SelFilters = { fuel: '', gearbox: '', yearMin: '', yearMax: '', kmMax: '', priceMax: '', vat: '' };
+const selFilterCls = (active: boolean) => `px-2 py-1 rounded-lg border bg-white ${active ? 'border-brand-ocean text-brand-encre font-semibold' : 'border-slate-200 text-slate-700'}`;
 type BulkField = 'brand' | 'model' | 'version' | 'engine' | 'fuel' | 'gearbox' | 'power_ch' | 'co2' | 'color' | 'vat_recoverable' | 'damages' | 'year' | 'report_url';
 const BULK_FIELDS: Array<{ id: BulkField; label: string }> = [
   { id: 'brand', label: 'Marque' }, { id: 'model', label: 'Modèle' }, { id: 'version', label: 'Version' }, { id: 'engine', label: 'Motorisation' },
