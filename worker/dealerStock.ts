@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -351,6 +351,9 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/<meta name="generator" content="Gatsby/.test(html) && /window\.pagePath="[^"]*"/.test(html) && /digitalexperience\.b-cdn\.net/.test(html) && !/gatsby-theme-vehicles/.test(html)) return 'autralis';
   // carlution (Autohaus Keller, 14/11) : bloc <div class="_cl_marketplace" data-uuid="3|list">, script carlution.biz.
   if (/class="_cl_marketplace"/.test(html) && /data-uuid="[^"]+"/.test(html) && /carlution\.biz\//.test(html)) return 'carlution';
+  // cfdnext (Bierschneider, refonte du 18/11) : Next.js « cdn.cfdnext.com/fahrzeuge », stock par l'API publique
+  // api.cfdnext.com ; AVANT la ligne JSON-LD générique (la nouvelle page porte aussi un ItemList de Car).
+  if (/cdn\.cfdnext\.com\/fahrzeuge\//.test(html) && /"ssrCount"\s*:/.test(html)) return 'cfdnext';
   if (/"@type":\s*"ItemList"/.test(html) && /"Car"/.test(html)) return 'datamotive';
   if (/"listerpage":\s*\{[^}]*"ajax_url"/.test(html)) return 'listerpage';
   if (/data-update-url="[^"]*\/voorraad-api\/vehiclelist\/\d+\/vehicles\.json/.test(html)) return 'dvapi';
@@ -1359,6 +1362,106 @@ async function scrapeCarzilla(url: string, firstHtml: string): Promise<DealerSto
   if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncés`);
   return { provider: 'carzilla', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
 }
+
+// ── cfdnext (Auto Bierschneider, refonte constatée le 18/11) ──────────────────
+// L'ancienne vitrine carzilla (« /fahrzeuge/fahrzeugsuche/trefferliste/?of=SalePrice ») répond 404 « Seite nicht
+// gefunden ». Le stock est désormais sur « https://www.bierschneider.de/fahrzeuge/ » : application Next.js
+// (scripts cdn.cfdnext.com/fahrzeuge), 12 voitures rendues dans __NEXT_DATA__ (ssrVehicles, ssrCount 6 426), la
+// suite chargée par l'API publique que la page appelle, sans clé : « https://api.cfdnext.com/list/?dealer=
+// bierschneider&page=N&limit=100 » (100 par page) et « /count/?dealer=bierschneider » → {"count":6426}.
+// Chaque voiture : vehicleId, url, displayName / additionalName, tags (Gebrauchtwagen, Neuwagen, Jahreswagen,
+// Tageszulassung), price.fullPrice, features (Treibstoff, Getriebe, Erstzulassung « 12/2025 », Kilometerstand
+// « 100 km », Leistung, Standort), meta.vin, createdDate. Les « Neuwagen » n'ont ni Erstzulassung ni km (neuves).
+type CfdItem = {
+  vehicleId?: number | string; url?: string; displayName?: string; additionalName?: string; tags?: string[]; availability?: string;
+  price?: { fullPrice?: number; featured?: string }; offers?: Array<{ type?: string; value?: string }>;
+  features?: Array<{ label?: string; value?: string }>; meta?: { vin?: string }; categories?: { brand?: string };
+  createdDate?: string; images?: Array<{ md?: string; full?: string }>;
+};
+const CFD_BRANDS: Record<string, string> = { VW: 'Volkswagen', 'MERCEDES-BENZ': 'Mercedes-Benz', 'LAND ROVER': 'Land Rover', 'ALFA ROMEO': 'Alfa Romeo', 'LYNK & CO': 'Lynk & Co' };
+const cfdBrand = (b: string) => CFD_BRANDS[b.toUpperCase()] ?? (b.length <= 3 ? b.toUpperCase() : b.charAt(0).toUpperCase() + b.slice(1).toLowerCase());
+/** Réglages lus dans la page : adresse de l'API, nom du concessionnaire, chemin des fiches, total annoncé. */
+export function cfdnextConfig(html: string): { api: string; dealer: string; route: string; count: number | null } | null {
+  const m = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+  if (!m) return null;
+  try {
+    const pp = (JSON.parse(m[1]) as { props?: { pageProps?: { api?: string; ssrCount?: number; dealer?: { name?: string; route?: string } } } }).props?.pageProps;
+    if (!pp?.api || !pp.dealer?.name) return null;
+    return { api: pp.api.replace(/\/$/, ''), dealer: pp.dealer.name, route: pp.dealer.route || '/fahrzeuge', count: typeof pp.ssrCount === 'number' ? pp.ssrCount : null };
+  } catch { return null; }
+}
+/** Voitures d'une réponse de « /list/ » (tableau JSON). */
+export function parseCfdnextList(json: string, origin: string, route = '/fahrzeuge'): DealerVehicle[] {
+  let items: CfdItem[] = [];
+  try { const d = JSON.parse(json) as unknown; items = Array.isArray(d) ? (d as CfdItem[]) : []; } catch { return []; }
+  const out: DealerVehicle[] = [];
+  for (const it of items) {
+    const id = it.vehicleId != null ? String(it.vehicleId) : '';
+    if (!id) continue;
+    const f = (label: string) => it.features?.find((x) => x.label === label)?.value ?? null;
+    const brand = cfdBrand(it.categories?.brand ?? (it.displayName ?? '').split(' ')[0] ?? '');
+    const title = `${brand} ${it.additionalName ?? (it.displayName ?? '').split(' ').slice(1).join(' ')}`.replace(/\s+/g, ' ').trim();
+    const price = priceOrNull(it.price?.fullPrice) ?? euro(it.offers?.find((o) => o.type === 'price')?.value);
+    const tags = (it.tags ?? []).join(' · ');
+    out.push({
+      external_id: id, url: it.url ? `${origin}${route}${it.url}` : null, title, brand, model: splitTitle(title).model,
+      price, currency: 'EUR', km: kmOf(f('Kilometerstand')), year: yearOf(f('Erstzulassung')), fuel: f('Treibstoff'), gearbox: gearboxOf(f('Getriebe')),
+      plate: null, vin: it.meta?.vin ?? null, body: tags || null, image: it.images?.[0]?.md ?? null,
+      listed_at: it.createdDate ? new Date(it.createdDate).toISOString() : null, location: f('Standort'),
+      status: /reserviert/i.test(`${it.availability ?? ''} ${tags}`) ? 'reserved' : price == null ? 'price_on_request' : null,
+      power_ch: powerFromText(f('Leistung')),
+    });
+  }
+  return out;
+}
+export async function scrapeCfdnext(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const warnings: string[] = [];
+  const cfg = cfdnextConfig(firstHtml);
+  if (!cfg) return { provider: 'cfdnext', total: null, declared: null, vehicles: [], pages: 0, warnings: ['réglages de la vitrine (__NEXT_DATA__ : api, dealer) illisibles'] };
+  const origin = new URL(url).origin;
+  const q = `dealer=${encodeURIComponent(cfg.dealer)}`;
+  let declared = cfg.count;
+  try { const c = await getText(`${cfg.api}/count/?${q}`); declared = num((JSON.parse(c.text) as { count?: number }).count) ?? declared; } catch { /* repli : ssrCount de la page */ }
+  const PER = 100;
+  const byId = new Map<string, DealerVehicle>();
+  let pages = 0;
+  // Pages numérotées À PARTIR DE 0 (le site demande « page=W+1 » après ses 12 premières voitures, W partant de 0) :
+  // commencer à 1 sautait les 100 premières (prouvé 18/11 : pages 1–64 = 6 326, page 0 = les 100 manquantes).
+  const cap = declared != null ? Math.ceil(declared / PER) + 1 : 150;
+  for (let p = 0; p <= cap; p++) {
+    await sleep(350);
+    let r: { status: number; text: string } = { status: 0, text: '' };
+    for (let attempt = 0; attempt < 2 && r.status !== 200; attempt++) { try { r = await getText(`${cfg.api}/list/?${q}&page=${p}&limit=${PER}`); } catch { await sleep(2000); } }
+    if (r.status !== 200) { warnings.push(`page ${p} : HTTP ${r.status || 'délai dépassé'} — relevé partiel`); break; }
+    const got = parseCfdnextList(r.text, origin, cfg.route);
+    pages = p + 1;
+    for (const v of got) if (!byId.has(v.external_id)) byId.set(v.external_id, v);
+    if (got.length < PER || (declared != null && byId.size >= declared)) break; // une page pleine de doublons n'arrête pas la lecture
+  }
+  if (declared != null && byId.size < declared) warnings.push(`${byId.size} voiture(s) lue(s) pour ${declared} annoncée(s)`);
+  return { provider: 'cfdnext', total: declared ?? byId.size, declared, vehicles: [...byId.values()], pages, warnings };
+}
+
+/** Fiche cfdnext : la page porte la voiture entière dans __NEXT_DATA__ (props.pageProps.vehicle) —
+ *  condition { new, mileage, registrationYear }, data { fuel, transmission }. La liste ne donne ni km ni année
+ *  pour les neuves : la fiche rend le km (« mileage » 10) ; l'année reste vide (neuve, pas d'immatriculation). */
+export function readCfdnextDetail(html: string): { gearbox?: string | null; fuel?: string | null; km?: number | null; year?: number | null; price?: number | null } {
+  const m = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+  if (!m) return {};
+  try {
+    const v = (JSON.parse(m[1]) as { props?: { pageProps?: { vehicle?: { condition?: { mileage?: number; registrationYear?: number; registrationDate?: string }; data?: { transmission?: string } } } } }).props?.pageProps?.vehicle;
+    const c = v?.condition ?? {};
+    const t = v?.data?.transmission ?? '';
+    return {
+      km: typeof c.mileage === 'number' && c.mileage >= 0 ? c.mileage : null,
+      year: typeof c.registrationYear === 'number' ? c.registrationYear : yearOf(c.registrationDate ?? null),
+      gearbox: /^auto|semi/i.test(t) ? 'Automatique' : /^manual/i.test(t) ? 'Manuelle' : null,
+    };
+  } catch { return {}; }
+}
+/** Entrée DETAIL_READERS : 'km' seulement — la fiche d'une neuve n'a pas d'année ; avec 'year', les 1 044 neuves
+ *  seraient relues à chaque relevé (200 fiches perdues par nuit). */
+export const CFDNEXT_DETAIL = { fields: ['km'] as Array<'km'>, read: readCfdnextDetail };
 
 // ── hexon (Oostendorp Automotive, www.oostendorpautomotive.nl) ───────────────
 // Constat 14/10 (boîte à apprendre, Channing : « apprends Ada à lire cette
@@ -4391,6 +4494,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'carcards') return scrapeCarCards(url, first.text);
   if (provider === 'autrado') return scrapeAutrado(url, first.text);
   if (provider === 'carzilla') return scrapeCarzilla(url, first.text);
+  if (provider === 'cfdnext') return scrapeCfdnext(url, first.text);
   if (provider === 'hexon') return scrapeHexon(url, first.text);
   if (provider === 'listerpage') return scrapeListerpage(url, first.text);
   if (provider === 'cmsms') return scrapeCmsms(url, first.text);
@@ -4556,6 +4660,8 @@ export const DETAIL_READERS: Partial<Record<DealerProvider, DetailReader>> = {
   autrado: { fields: ['km', 'year'], read: (html) => readAutradoDetail(html) },
   // wpcarsync (Voets) : secours du filtre « Kraftstoff » du site.
   wpcarsync: { fields: ['fuel'], read: readWpcarsyncDetail },
+  // cfdnext (Bierschneider) : km des neuves (la liste n'en donne pas, la fiche dit « 10 km ») ; jamais l'année d'une neuve.
+  cfdnext: { fields: ['km'], read: readCfdnextDetail },
 };
 
 /** Relève le stock d'une concession de la carte et le compare au relevé précédent. Avec `prefetched` (vitrine
