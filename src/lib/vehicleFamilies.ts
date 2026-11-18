@@ -21,9 +21,14 @@ export function fuelFamily(text: string | null | undefined): FuelFamily | null {
   if (/plug[- ]?in|rechargeable|phev|e-?hybrid|\bplugin\b|enchufable|hybrid\s?(?:180|195|225|300|360)(?:\s?(?:pk|ch|cv|hp|ps))?\b|hybrid4\b|e-tense\s?(?:225|300|360)\b|\be-eat8\b/.test(t)) return 'phev';
   // Même gamme, chiffre déplacé (« HYbrid Allure Pack 225 EAT8 ») ou collé (« HYBRID 225PK ») : seulement sur un titre Stellantis.
   if (/peugeot|citroen|\bds\b|opel|vauxhall|eat8/.test(t) && !/hybrid\s?(?:100|110|120|130|136|145)(?:\s?(?:pk|ch|cv|hp|ps))?\b/.test(t) && /hybrid\b.{0,30}\b(?:180|195|225|300|360)(?:\s?(?:pk|ch|cv|hp|ps))?\b/.test(t)) return 'phev';
-  if (/hybrid|hybride|hybridi|\bhibrid|\bibrid|\bhev\b|mhev|e-tech|\bh\b|\d{2,3}h\b/.test(t)) return 'hybrid';
+  // 19/11 (Hongrie, Das WeltAuto) : « Hibr.B/E külső töltő » = hybride à recharge extérieure ; « Benzin/elektromos »,
+  // « benzín + elektro » = hybride (sinon lu « électrique » par la ligne suivante).
+  if (/kulso tolto/.test(t)) return 'phev';
+  if (/hybrid|hybride|hybridi|\bhibrid|\bhibr\b|\bibrid|\bhev\b|mhev|e-tech|\bh\b|\d{2,3}h\b/.test(t)
+    || /(?:benzin|dizel|diesel|nafta|petrol|essence)\s*[\/+]\s*(?:elektr|electr)|(?:elektr|electr)\w*\s*[\/+]\s*(?:benzin|dizel|diesel|nafta|petrol|essence)/.test(t)) return 'hybrid';
   if (/electri|elektr|sahko|\bev\b|\bbev\b|\bel\b|elettric|electric|\belectra\b/.test(t)) return 'electric';
-  if (/diesel|gasolio|\btdi\b|\bhdi\b|\bdci\b|\bcdi\b|\bcrdi\b|\bd4d\b|bluehdi|\bgazole\b/.test(t)) return 'diesel';
+  // 19/11 : « Dízel » (HU), « Nafta » (SK).
+  if (/diesel|\bdizel\b|\bnafta\b|gasolio|\btdi\b|\bhdi\b|\bdci\b|\bcdi\b|\bcrdi\b|\bd4d\b|bluehdi|\bgazole\b/.test(t)) return 'diesel';
   if (/essence|benzin|bensin|bensiini|petrol|gasolin|super ?plus|\be85\b|ethanol|etanol|\btsi\b|\btfsi\b|\btce\b|puretech|\bvti\b/.test(t)) return 'petrol';
   if (/\bgpl\b|\bglp\b|\blpg\b|\bcng\b|\bgnv\b|metano|erdgas|autogas|kaasu|\bgaz\b|\bgas\b/.test(t)) return 'gas';
   return null;
