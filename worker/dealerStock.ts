@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -274,6 +274,9 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   // autopalace (Auto Palace Bratislava, 18/11) : CMS maison « locator version2 » (data-domain-code), cartes
   // <div class="cell slice-N item …"> avec tags registration / mileage / fuel / power / vin, pages « /page:N ».
   if (/data-domain-code="[^"]+"/.test(html) && /class="cell slice-\d+ item/.test(html) && /class="tag vin"/.test(html)) return 'autopalace';
+  // autosphere (Emil Frey France, 18/11) : Next.js ; la page /recherche porte dans son flux RSC « initialValues":{"total":N »
+  // (échappé \") et des photos media.autosphere.fr ; la liste vient de l'API du site /api/stock/vehicles.
+  if (/initialValues\\?":\{\\?"total\\?":\d+/.test(html) && /media\.autosphere\.fr/.test(html)) return 'autosphere';
   // webspark / dealerk (Cobredia, 04/11) : WordPress + plugin webspark, cartes « vcard » data-id, paires label/info, « page=N ».
   // 04/11 : variante compacte (Bony, Sofibrie, Edenauto, SIPA) — pas d'étiquettes, la ligne « 12/2025 - 10 Km - Hybride »
   // est dans vcard-consumption__title.
@@ -2803,6 +2806,63 @@ async function scrapeAutopalace(url: string, firstHtml: string): Promise<DealerS
   return { provider: 'autopalace', total: declared ?? out.length, declared, vehicles: out, pages: r.pages, warnings: r.warnings };
 }
 
+// ── autosphere (Emil Frey France / Autosphère, 18/11) : la liste vient de l'API du site « /api/stock/vehicles »
+//    (JSON Elasticsearch que la page appelle elle-même, sans clé) : marque, modèle, version, prix, km, année, énergie,
+//    boîte, immatriculation, VIN, ville. Les paramètres de l'adresse de la fiche ADA sont repris tels quels :
+//    « /recherche » = tout le réseau (16 758 le 13/11, dont 4 200 de concessions partenaires) ;
+//    « /recherche?dealer_brand=Mercedes » = les concessions Mercedes du groupe (912 le 18/11) ; « ?dealer_id=MER022 » = une seule.
+type AsData = { sku?: string; brand?: string | null; model?: string | null; version?: string | null; price?: number | null; mileage?: number | null; year?: string | number | null; fuel_type?: string | null; gears_type?: string | null; license_number?: string | null; serial_number?: string | null; city?: string | null; seo_card?: string | null; seo_title?: string | null; images?: { m?: string[] } | null };
+export function parseAutosphereApi(json: string, origin: string): { total: number | null; vehicles: DealerVehicle[] } {
+  let d: { total?: number; results?: Array<{ _data?: AsData }> };
+  try { d = JSON.parse(json); } catch { return { total: null, vehicles: [] }; }
+  const vehicles: DealerVehicle[] = [];
+  for (const hit of d.results ?? []) {
+    const v = hit._data;
+    if (!v?.sku) continue;
+    const price = priceOrNull(v.price);
+    vehicles.push({
+      external_id: v.sku, url: v.seo_card && v.seo_title ? `${origin}/${v.seo_card}/${v.seo_title}` : null,
+      title: [v.brand, v.model, v.version].filter(Boolean).join(' '), brand: v.brand ?? null, model: v.model ?? null,
+      price, km: num(v.mileage), year: num(v.year), fuel: v.fuel_type ?? null, gearbox: gearboxOf(v.gears_type ?? null),
+      plate: v.license_number ?? null, vin: v.serial_number ?? null, body: null, image: v.images?.m?.[0] ?? null, listed_at: null,
+      status: price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: powerFromText(v.version ?? ''), location: v.city ?? null,
+    });
+  }
+  return { total: typeof d.total === 'number' ? d.total : null, vehicles };
+}
+export async function scrapeAutosphere(url: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  const scope = new URLSearchParams();
+  for (const [k, v] of u.searchParams) if (!/^(page|from|size|sortField|sortDirection)$/.test(k)) scope.set(k, v);
+  if (!scope.has('internal_type')) scope.set('internal_type', 'vo,vd');
+  const SIZE = 500;
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const warnings: string[] = [];
+  let declared: number | null = null;
+  let pages = 0;
+  // Deux lectures au besoin (prix croissant puis décroissant) : un tri à ex æquo peut déplacer une voiture d'une page
+  // à l'autre entre deux appels ; la réunion des deux lectures rattrape (même règle qu'eveho).
+  for (const dir of ['asc', 'desc']) {
+    for (let from = 0; pages < 200; from += SIZE) {
+      if (pages > 0) await sleep(PAGE_DELAY_MS);
+      const q = new URLSearchParams(scope);
+      q.set('sortField', 'price'); q.set('sortDirection', dir); q.set('size', String(SIZE));
+      if (from > 0) q.set('from', String(from));
+      const r = await getTextPatient(`${u.origin}/api/stock/vehicles?${q.toString()}`, { headers: { Accept: 'application/json' } });
+      if (r.status !== 200) { warnings.push(`API du site (${dir}, à partir de ${from}) : HTTP ${r.status}`); break; }
+      const { total, vehicles } = parseAutosphereApi(r.text, u.origin);
+      declared = declared ?? total;
+      pages++;
+      for (const v of vehicles) if (!seen.has(v.external_id)) { seen.add(v.external_id); out.push(v); }
+      if (vehicles.length < SIZE || (total != null && from + SIZE >= total)) break;
+    }
+    if (declared == null || out.length >= declared) break;
+  }
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  return { provider: 'autosphere', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getTextPatient(url); // 04/11 : MotorK (Sofibrie, SIPA) répond 429 dès la première page après une rafale
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -2834,6 +2894,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'rswusato') return scrapeRswUsato(url, first.text);
   if (provider === 'eveho') return scrapeEveho(url, first.text);
   if (provider === 'autopalace') return scrapeAutopalace(url, first.text);
+  if (provider === 'autosphere') return scrapeAutosphere(url);
   if (provider === 'jetlisting') return scrapeJetListing(url, first.text);
   if (provider === 'gatsbyvehicles') return scrapeGatsbyVehicles(url);
   if (provider === 'dvnl') return scrapeDv(url, first.text);
