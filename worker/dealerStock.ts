@@ -1770,15 +1770,15 @@ async function scrapeOpenflex(url: string, firstHtml: string): Promise<DealerSto
       const info = htmlText(inner.match(/class="info">([\s\S]*?)<\/span>/)?.[1] ?? '');
       const infos = htmlText(inner.match(/class="vehiculeinfos">([\s\S]*?)<\/span>/)?.[1] ?? '');
       const prixRaw = htmlText(inner.match(/class="prix">([\s\S]*?)<\/span>/)?.[1] ?? '');
-      const [yearS, kmS, fuel] = infos.split('/').map((x) => x.trim());
+      const inf = openflexInfos(infos); // année, km, énergie lus par forme (18/11)
       const brand = nom.split(/\s+/)[0] || null;
       const model = nom.split(/\s+/).slice(1).join(' ') || null;
       const price = priceOrNull(prixRaw.replace(/[^\d]/g, ''));
       seen.add(id); added++;
       out.push({
         external_id: id, url: href.startsWith('http') ? href : origin + href, title: [nom, info].filter(Boolean).join(' ').trim(), brand, model,
-        price, km: num((kmS ?? '').replace(/km/i, '').replace(/\s/g, '')), year: num(yearS), fuel: fuel ?? null,
-        gearbox: /BVA|DSG|EAT|automati|powershift|s-?tronic|dct/i.test(info) ? 'Automatique' : /BVM/i.test(info) ? 'Manuelle' : null,
+        price, km: inf.km ?? (/\/vehicules-neufs\//.test(href) ? 0 : null), year: inf.year, fuel: inf.fuel,
+        gearbox: gearboxOfVersion(info), // sinon fiche détail (DETAIL_READERS.openflex)
         plate: null, vin: null, body: null, image: inner.match(/data-original="([^"]+)"/)?.[1] ?? null, listed_at: null,
         status: price == null ? (/vendu/i.test(inner) ? 'sold' : 'price_on_request') : null, currency: 'EUR',
       });
@@ -2921,8 +2921,24 @@ export function readAutodataDetail(html: string): DetailFields {
     price: euro(htmlText(html.match(/class="aanbod-product-price">\s*<h3>([\s\S]*?)<\/h3>/)?.[1] ?? '')),
   };
 }
+/** Fiche openflex (18/11, Vikings) : <ul class="grille-3 caracteristiques"> avec <li class="km">102666 km</li>,
+ *  <li class="boite">Boîte automatique</li>, <li class="carburant">Essence / Courant Electrique</li>,
+ *  <li class="date">30-09-2020</li> ; prix <span class="prixspan">22 990€</span>. */
+export function readOpenflexDetail(html: string): DetailFields {
+  const ul = html.match(/<ul class="grille-3 caracteristiques">([\s\S]*?)<\/ul>/)?.[1] ?? '';
+  const li = (c: string) => htmlText(ul.match(new RegExp(`<li class="${c}">([\\s\\S]*?)<\\/li>`))?.[1] ?? '') || null;
+  const boite = li('boite'), fuel = li('carburant');
+  return {
+    gearbox: !boite ? null : /automati/i.test(boite) ? 'Automatique' : /manuel/i.test(boite) ? 'Manuelle' : boite,
+    fuel: fuel && /\/.*lectri/i.test(fuel) ? `Hybride ${fuel}` : fuel,
+    km: num(li('km')?.replace(/km/i, '').replace(/[\s .]/g, '')),
+    year: num(li('date')?.match(/\b((?:19|20)\d{2})\b/)?.[1]),
+    price: priceOrNull((html.match(/<span class="prixspan">([^<]*)<\/span>/)?.[1] ?? '').replace(/[^\d]/g, '')),
+  };
+}
 export const DETAIL_READERS: Partial<Record<DealerProvider, DetailReader>> = {
   catalogpager: { fields: ['gearbox'], read: readDmdDetail },
+  openflex: { fields: ['gearbox', 'fuel'], read: readOpenflexDetail },
   // autodata : la liste donne prix, km, année ; la fiche donne l'énergie et la boîte (km / année en secours).
   autodata: { fields: ['fuel', 'gearbox', 'km', 'year'], read: readAutodataDetail },
   // cmsms (Louwman) : secours seulement — la boîte vient des passes filtrées « Transmissie » de la liste.
