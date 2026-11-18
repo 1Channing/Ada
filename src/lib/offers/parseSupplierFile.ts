@@ -131,6 +131,12 @@ export function fuelOfCell(raw: string, fromLine: string | null): string | null 
 export function canonFuel(raw: string | null | undefined): string | null {
   const s = (raw ?? '').trim().normalize('NFD').replace(/\p{M}/gu, '');
   if (!s) return null;
+  // Hybridation LÉGÈRE annoncée avec son carburant (« Diesel/Micro-Hybride », « Essence/Micro-Hybride », « Mild Hybrid
+  // Diesel » — liste marchand BMW 18/11) : c'est un diesel ou une essence, pas une hybride.
+  if (/micro-?hybrid|mild|mhev|48 ?v/i.test(s) && !/plug|rechargeable|phev/i.test(s)) {
+    if (/diesel|gasoil|gazole/i.test(s)) return 'DIESEL';
+    if (/petrol|essence|benzin|gasolin/i.test(s)) return 'ESSENCE';
+  }
   for (const [re, canon] of FUEL_CANON) if (re.test(s)) return canon;
   return s.toUpperCase();
 }
@@ -830,7 +836,8 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
     if (!brandPrefix && brand) {
       const names = [...new Set([brand, ...knownBrandNames])];
       const sm = splitBrand(model, names);
-      if (model && sm.rest && canonBrand(sm.brand) === brand) model = unDouble(sm.rest);
+      const brandIsModel = known.some((k) => k.toUpperCase() === brand);
+      if (model && sm.rest && canonBrand(sm.brand) === brand && !brandIsModel) model = unDouble(sm.rest);
       const sv = splitBrand(versionLine, names);
       if (versionLine && sv.rest && canonBrand(sv.brand) === brand) versionLine = unDouble(sv.rest);
     }
@@ -845,8 +852,14 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
     // Colonne « MODEL » qui porte un CODE de flotte (« CW41 », « DV19 » — Stock Export 06/11) et désignation à côté
     // (« Formentor 1.5 eTSI DSG 150 ») : quand le code n'est pas un modèle connu de la marque mais que la
     // désignation commence par un modèle connu, c'est elle qui donne le modèle. Le code reste dans la version.
+    // BMW sans colonne modèle (liste marchand 18/11 : « 316D 122ch Berline ») : le code de version dit la Série.
+    if (brand === 'BMW' && /^[1-8]\d{2}[A-Z]{0,3}$/i.test(model)) model = `SERIE ${model[0]}`;
     // Colonne « Modèle (code) » (liste loueur 18/11) : code court résolu sur les modèles connus de la marque.
-    if (cell(rec.model) && /^[A-Z0-9]{1,4}$/i.test(cell(rec.model).trim())) model = resolveModelCode(cell(rec.model), known);
+    // Seulement un vrai code : quatre lettres (TRCU, DUCA), « 2SER », ou un en-tête qui dit « code » / « MODL » — un modèle
+    // court réel (iX, X1, C3, 208) n'est jamais « résolu » vers un nom plus long (liste marchand 18/11 : iX → iX1).
+    const modelHeader = normHeader(header[fields.indexOf('model')] ?? '');
+    const looksLikeCode = /^[A-Z]{4}$/i.test(cell(rec.model).trim()) || /^\dSER$/i.test(cell(rec.model).trim()) || (/\bcode\b|^modl$|^mdl$/.test(modelHeader) && /^[A-Z0-9]{1,4}$/i.test(cell(rec.model).trim()));
+    if (cell(rec.model) && looksLikeCode) model = resolveModelCode(cell(rec.model), known);
     if (known.length && versionLine && model !== versionLine) {
       const knownUp = known.map((k) => k.toUpperCase());
       if (!knownUp.includes(model)) {

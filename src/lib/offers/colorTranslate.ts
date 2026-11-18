@@ -53,7 +53,7 @@ const WORDS: Record<ColorKey, string[]> = {
   COPPER: ['cuivre', 'copper', 'kupfer', 'koper', 'rame', 'cobre', 'koppar', 'kobber'],
 };
 const FINISH_WORDS: Record<Finish, string[]> = {
-  METALLIC: ['metallise', 'metallisee', 'metallic', 'metallik', 'metalizado', 'metalizada', 'metallizzato', 'metallizzata', 'metalic', 'metaliczny', 'metaliza', 'met'],
+  METALLIC: ['metallise', 'metallisee', 'metalisee', 'metallic', 'metallik', 'metal', 'metalizado', 'metalizada', 'metallizzato', 'metallizzata', 'metalic', 'metaliczny', 'metaliza', 'met'],
   PEARL: ['nacre', 'nacree', 'pearl', 'perle', 'perlmutt', 'perleffekt', 'parleffekt', 'perlato', 'perla', 'perlado', 'parelmoer', 'perlowy'],
   MATTE: ['mat', 'mate', 'matt', 'matte', 'opaco', 'opaca', 'matowy', 'matny', 'matta'],
 };
@@ -82,7 +82,7 @@ export interface ColorTranslation {
 const TWO_TONE = /\b(bitono|bicolou?r|bicolore|bi-?tone?|two-?tone|zweifarbig|tweekleurig|duo-?tone|tvafarg(ad)?)\b/i;
 const TWO_TONE_LABEL = { fr: 'bicolore', en: 'two-tone' } as const;
 /** « PLATINIUM » → « Platinium » (nom commercial en capitales), un mot déjà mixte reste tel quel. */
-const titleCase = (w: string) => (w === w.toUpperCase() && /[A-Z]/.test(w) ? w.charAt(0) + w.slice(1).toLowerCase() : w);
+const titleCase = (w: string) => (w === w.toUpperCase() && /[A-Z]/.test(w) && !/^[IVX]+$/.test(w) ? w.charAt(0) + w.slice(1).toLowerCase() : w);
 
 /**
  * Traduit une couleur de fichier fournisseur ; l'original est rendu tel quel si rien n'est reconnu.
