@@ -2126,12 +2126,25 @@ async function scrapeYooflex(url: string, firstHtml: string): Promise<DealerStoc
   return { provider: 'yooflex', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
 }
 
+/** Énergie de chaque véhicule d'une page de liste, lue dans son JSON-LD ItemList (13/11, DUTCH Vans : la carte HTML n'a
+ *  pas l'énergie, le bloc ld+json de la même page porte « fuelType »: "Diesel" / "Elektrisch" / "Benzine" pour chaque
+ *  voiture, avec son url — 362 / 362 sur 16 pages). Clé = url sans « / » final. */
+export function ldFuelByUrl(html: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const el of parseItemList(html)?.items ?? []) {
+    const item = (el.item ?? {}) as Record<string, unknown>;
+    const u = String(el.url ?? item.url ?? '').replace(/\/$/, '');
+    if (u && item.fuelType) out.set(u, String(item.fuelType));
+  }
+  return out;
+}
 // ── dutchvans (NL, 04/11) : cartes « item-summary » (titre | km | année | boîte | Euro | Kopen | prix | Excl. btw), pages « ?pagina=N ».
 async function scrapeDutchvans(url: string, firstHtml: string): Promise<DealerStockResult> {
   const out: DealerVehicle[] = [];
   const seen = new Set<string>();
   const parse = (html: string): number => {
     let added = 0;
+    const fuels = ldFuelByUrl(html);
     for (const part of html.split(/item-summary"/).slice(1)) {
       const href = part.match(/href="(https?:\/\/[^"]+\/bedrijfswagen\/[^"]+)"/)?.[1];
       if (!href) continue;
@@ -2146,7 +2159,7 @@ async function scrapeDutchvans(url: string, firstHtml: string): Promise<DealerSt
       seen.add(id); added++;
       out.push({
         external_id: id, url: href, title, brand, model, price, km: kmOf(t.find((x) => /km$/i.test(x))), year: num(t.find((x) => /^(19|20)\d{2}$/.test(x))),
-        fuel: null, gearbox: gearboxOf(t.find((x) => /^(automaat|handgeschakeld)$/i.test(x))), plate: null, vin: /^[A-Z0-9]{17}$/.test(id) ? id : null, body: null,
+        fuel: fuels.get(href.replace(/\/$/, '')) ?? null, gearbox: gearboxOf(t.find((x) => /^(automaat|handgeschakeld)$/i.test(x))), plate: null, vin: /^[A-Z0-9]{17}$/.test(id) ? id : null, body: null,
         image: part.match(/<img[^>]+src="([^"]+)"/)?.[1] ?? null, listed_at: null, status: price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: powerFromText(title),
       });
     }
