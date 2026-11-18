@@ -1021,11 +1021,55 @@ async function scrapeCarCards(url: string, firstHtml: string): Promise<DealerSto
 // statut « sur demande » — jamais 0. Pagination : « itemsperpage=100 » +
 // « npage=N » (« page » seul est ignoré au-delà de 10 par page ; prouvé :
 // 525 voitures en 6 pages).
+// Constat 13/11 et 18/11 : la plateforme n'affiche pas les mêmes cartes partout. Autexx montre les pictos
+// « c-icon-details » (boîte, énergie, puissance, km si > 0) ; MFH n'en montre AUCUN (titre, catégorie, délai, prix)
+// d'où 0 % partout. Le prix MFH « 12.290,&ndash;&nbsp;€ » échappait à la lecture (« &ndash; ») alors que la carte
+// porte <meta itemprop="price" content="12290">. MFH annonce 17 726 voitures (18/11, « von 17726 gefundenen ») :
+// le relevé s'arrêtait à 150 pages × 100 = 15 000 (11/11), puis à 3 785 (37 pages pleines + une page de 85 : la
+// boucle s'arrête à la première page incomplète ; le serveur a mis 19 s à servir une page de 100 le 18/11).
+// Désormais : on lit jusqu'au total annoncé, une page incomplète est relue (3 essais) et n'arrête jamais la lecture.
+// Ce que les cartes ne disent pas, le MOTEUR DE RECHERCHE du site le dit : chaque filtre du formulaire « Detailsuche »
+// (109 Kraftstoffart, 110 Getriebeart, 8 Erstzulassung, 9 Kilometer) accepte une valeur exacte, et l'appel public
+// « services/rest/search.php?method=RefreshForm » (celui du formulaire, sans clé) donne le nombre de voitures par
+// valeur. On relit la liste filtrée valeur par valeur : chaque voiture prend la valeur du filtre sous lequel elle
+// apparaît ; la plus grosse valeur est déduite par élimination, contrôlée par son compte.
+// Prix réservés (« Nach Login », Autexx) : jamais lus ici.
+const AUTRADO_PER = 100;               // page de 100 (choix du site) : chaque requête reste loin du délai de 30 s de getText
+const AUTRADO_KM_MIN = 20;             // km : une valeur exacte n'est relue par filtre que si ≥ 20 voitures la portent
+const AUTRADO_FUEL: Record<string, string> = { 1: 'Benzin', 2: 'Diesel', 3: 'Autogas', 4: 'Erdgas', 6: 'Elektro', 7: 'Hybrid-Benzin', 8: 'Wasserstoff', 9: 'Ethanol', 10: 'Hybrid-Diesel', 11: 'Bi-Fuel' };
+const AUTRADO_GEAR: Record<string, string | null> = { 0: null, 1: 'Manuelle', 2: 'Automatique', 3: 'Automatique' }; // 2 = Halbautomatik
+
+/** Total annoncé : « Fahrzeug 1 bis 100 von 17726 gefundenen Fahrzeugen », ou, quand tout tient sur une page,
+ *  « 12 gefundene Fahrzeuge » (Autexx 18/11, liste filtrée : sans cette forme, la lecture ne savait pas s'arrêter). */
+export function autradoDeclared(html: string): number | null {
+  const m = html.match(/von\s+([\d.]+)\s+gefundenen\s+Fahrzeug/) ?? html.match(/vehicles-found[^>]*>\s*([\d.]+)\s+gefundene\s+Fahrzeug/);
+  return m ? Number(m[1].replace(/\./g, '')) : null;
+}
+/** Identifiants des cartes d'une page (lectures par filtre : seul l'identifiant compte). */
+export function autradoIds(html: string): string[] {
+  return [...html.matchAll(/<article\b[^>]*\bc-vehicle\b[^>]*\bdata-id="(\d+)"/g)].map((m) => m[1]);
+}
+/** Réponse de RefreshForm : nombre total et, par filtre, le nombre de voitures par valeur (« remainders »). */
+export function parseAutradoFacets(json: string): { matching: number | null; facets: Record<string, Record<string, number>> } | null {
+  try {
+    const d = (JSON.parse(json) as { data?: { matching?: number; fields?: Record<string, { remainders?: unknown }> } }).data;
+    if (!d) return null;
+    const facets: Record<string, Record<string, number>> = {};
+    for (const [fid, f] of Object.entries(d.fields ?? {})) {
+      const r = f?.remainders;
+      // PHP rend une LISTE quand les clés sont 0, 1, 2… dans l'ordre (Mazda seule : km « [139] » = { 0: 139 }).
+      if (Array.isArray(r)) facets[fid] = Object.fromEntries(r.map((c, i) => [String(i), Number(c)]));
+      else if (r && typeof r === 'object') facets[fid] = r as Record<string, number>;
+    }
+    return { matching: typeof d.matching === 'number' ? d.matching : null, facets };
+  } catch { return null; }
+}
+
 export function parseAutradoCards(html: string, origin: string): DealerVehicle[] {
   const out: DealerVehicle[] = [];
-  // Les icônes SVG embarquent un <style> : retiré avant lecture (constat 08/10 :
-  // « .a{fill:none…} Kilometerstand 10 km » → km illisible).
-  const text = (s: string) => unesc(s.replace(/<style[\s\S]*?<\/style>|<svg[\s\S]*?<\/svg>/g, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '));
+  // Entités allemandes (« R&Uuml;CKFAHRKAMERA », « h&ouml;henverstellbar ») décodées avec le reste.
+  const UML: Record<string, string> = { auml: 'ä', ouml: 'ö', uuml: 'ü', Auml: 'Ä', Ouml: 'Ö', Uuml: 'Ü', szlig: 'ß', ndash: '–' };
+  const text = (s: string) => unesc(s.replace(/<style[\s\S]*?<\/style>|<svg[\s\S]*?<\/svg>/g, ' ').replace(/<[^>]+>/g, ' ').replace(/&(auml|ouml|uuml|Auml|Ouml|Uuml|szlig|ndash);/g, (_, e: string) => UML[e]).replace(/\s+/g, ' '));
   for (const m of html.matchAll(/<article\b([^>]*\bclass="[^"]*\bc-vehicle\b[^"]*"[^>]*)>([\s\S]*?)<\/article>/g)) {
     const id = m[1].match(/data-id="(\d+)"/)?.[1];
     if (!id) continue;
@@ -1040,63 +1084,189 @@ export function parseAutradoCards(html: string, origin: string): DealerVehicle[]
       const t = text(r[1]).replace(/^(Getriebe|Kraftstoff|Außenfarbe|Leistung|Kilometerstand|Fahrzeugnr\.|Erstzulassung)\s*/i, '').trim();
       return t || null;
     };
-    const gearRaw = attr('gearing') ?? '';
-    const fuelRaw = attr('fuel') ?? '';
-    const powerRaw = attr('power') ?? '';
-    const kmRaw = attr('mileage') ?? attr('kilometer') ?? (text(inner).match(/Kilometerstand\s*([\d.]+)\s*km/)?.[1] ?? '');
+    // Catégorie : « Neuwagen », « Neuwagen mit Tageszulassung », « Gebrauchtwagen »… + disponibilité du lien de carte
+    // (« Lagerfahrzeug », « Vorlauffahrzeug », « Bestellfahrzeug, konfigurierbar », « Tageszulassung oder Gebrauchtfahrzeug »).
+    const category = text(inner.match(/c-vehicle-single__sub-item--ecm-category[^>]*>([\s\S]*?)<\/span>/)?.[1] ?? '') || null;
+    const availability = text(inner.match(/u-faux-block-link__overlay[^>]*>([^<]*?)\s+-\s+[^<]*<\/a>/)?.[1] ?? '') || null;
+    // Prix : la donnée structurée de la carte d'abord (MFH « 12290 » ; Autexx « » = réservé), sinon le montant affiché.
+    const meta = inner.match(/itemprop="price"\s+content="([^"]*)"/)?.[1];
+    const shown = text(inner.match(/class="u-h2[^"]*"[^>]*>([\s\S]*?)<\/div>/)?.[1] ?? '').match(/(\d{1,3}(?:\.\d{3})+|\d{3,6})(?:,(?:\d{2}|–|-))?\s*€/)?.[1];
+    const price = priceOrNull(meta) ?? priceOrNull(shown?.replace(/\./g, ''));
+    const kmRaw = attr('mileage') ?? attr('kilometer');
     const ezRaw = text(inner).match(/Erstzulassung\s*(\d{2}\/\d{4}|\d{2}\.\d{4}|\d{2}\.\d{2}\.\d{4})/)?.[1] ?? '';
-    const category = text(inner).match(/\b(Neuwagen|Lagerfahrzeug|Gebrauchtwagen|Vorführwagen|Tageszulassung|Jahreswagen)\b/)?.[1] ?? null;
-    const delivery = text(inner).match(/(?:Lieferzeit:\s*([^|]{2,30}?)\s{2,}|sofort lieferbar)/)?.[0]?.trim() ?? null;
-    const price = priceOrNull(text(inner).match(/(\d{1,3}(?:\.\d{3})+|\d{4,6})(?:,\d{2})?\s*€/)?.[1]?.replace(/\./g, ''));
-    const { brand, model } = splitTitle(brandModel);
+    const powerRaw = attr('power') ?? '';
     const ps = powerRaw.match(/\((\d+)\s*PS\)/)?.[1];
     const kw = powerRaw.match(/(\d+)\s*kW/)?.[1];
+    const { brand, model } = splitTitle(brandModel);
     out.push({
       external_id: id, url, title: `${brandModel} ${sub}`.trim(), brand, model,
-      price, km: num(kmRaw.replace(/\./g, '')),
-      year: ezRaw ? num(ezRaw.slice(-4)) : null,
-      fuel: fuelRaw || null,
-      gearbox: /schalt/i.test(gearRaw) ? 'Manuelle' : /automat|dsg|s-?tronic|dct|cvt/i.test(gearRaw) ? 'Automatique' : gearRaw || null,
-      plate: null, vin: null, body: category, image: inner.match(/<img[^>]+src="([^"]+)"/)?.[1] ?? null, listed_at: null,
-      status: price == null ? 'price_on_request' : null,
-      currency: 'EUR',
+      price, km: kmOf(kmRaw), year: ezRaw ? num(ezRaw.slice(-4)) : null,
+      fuel: attr('fuel'), gearbox: gearboxOf(attr('gearing')),
+      plate: null, vin: null, body: [availability, category].filter(Boolean).join(' · ') || null,
+      image: inner.match(/<img[^>]+src="([^"]+)"/)?.[1] ?? null, listed_at: null,
+      status: price == null ? 'price_on_request' : null, currency: 'EUR',
       power_ch: ps ? num(ps) : kw ? Math.round((num(kw) ?? 0) * 1.35962) || null : null,
     });
-    void delivery;
   }
   return out;
 }
-async function scrapeAutrado(url: string, firstHtml: string): Promise<DealerStockResult> {
-  const warnings: string[] = [];
-  const out: DealerVehicle[] = [];
-  const seen = new Set<string>();
-  const u = new URL(url);
-  const origin = u.origin;
-  const PER = 100;
-  const pageUrl = (n: number) => { const p = new URL(url); p.searchParams.set('itemsperpage', String(PER)); p.searchParams.set('page', '1'); p.searchParams.set('npage', String(n)); return p.toString(); };
-  let pages = 0;
-  for (let n = 1; n <= MAX_PAGES; n++) {
-    let html: string | null = null;
-    if (n === 1 && (u.searchParams.get('itemsperpage') === String(PER))) html = firstHtml;
-    else {
-      for (let attempt = 0; attempt < 2 && html == null; attempt++) {
-        if (attempt > 0) await sleep(1500);
-        const r = await getText(pageUrl(n));
-        if (r.status === 200) html = r.text;
-      }
-      if (html == null) { warnings.push(`arrêt à la page ${n} : page illisible — relevé partiel`); break; }
-    }
-    pages = n;
-    const cards = parseAutradoCards(html, origin);
-    let added = 0;
-    for (const v of cards) { if (seen.has(v.external_id)) continue; seen.add(v.external_id); out.push(v); added++; }
-    if (cards.length === 0 || added === 0) break;   // page vide ou page resservie = fin
-    if (cards.length < PER) break;
-    await sleep(PAGE_DELAY_MS);
+
+/** Fiche détail autrado : liste « o-split__item » (Getriebe, Kraftstoff, Kilometerstand, Erstzulassung) et prix affiché.
+ *  `hiddenPrice` : lit aussi le prix que la page porte dans son code (microdonnée itemprop="price", champ caché
+ *  « fahrzeugGesamtpreis ») quand l'écran affiche « Nach Login » — À NE PAS ACTIVER sans l'accord de Channing. */
+export function readAutradoDetail(html: string, opts: { hiddenPrice?: boolean } = {}): { gearbox?: string | null; fuel?: string | null; km?: number | null; year?: number | null; price?: number | null } {
+  const spec = new Map<string, string>();
+  for (const m of html.matchAll(/<li class="o-split__item"[^>]*>\s*<span class="o-split__title">([^<]+)<\/span>([\s\S]*?)<\/li>/g)) {
+    const k = unesc(m[1]).trim().toLowerCase();
+    if (!spec.has(k)) spec.set(k, unesc(m[2].replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim());
   }
-  if (out.length > 0 && out.every((v) => v.price == null)) warnings.push('Prix réservés aux comptes connectés sur ce site (« Nach Login ») : stock relevé sans prix.');
-  return { provider: 'autrado', total: out.length, declared: null, vehicles: out, pages, warnings };
+  const shown = (html.match(/id="preisSumCarForm"[^>]*>([\s\S]*?)<\/div>/)?.[1] ?? '').replace(/<[^>]+>/g, ' ').replace(/&ndash;/g, '–');
+  const shownPrice = priceOrNull(shown.match(/(\d{1,3}(?:\.\d{3})+|\d{3,6})(?:,(?:\d{2}|–|-))?\s*(?:&nbsp;)?\s*€/)?.[1]?.replace(/\./g, ''));
+  const hidden = opts.hiddenPrice ? priceOrNull(html.match(/itemprop="price"\s+content="(\d+)"/)?.[1]) : null;
+  const ez = spec.get('erstzulassung') ?? '';
+  return {
+    gearbox: gearboxOf(spec.get('getriebe')),
+    fuel: spec.get('kraftstoff') ?? null,
+    // Pas de ligne « Kilometerstand » sur la fiche d'une neuve : inconnu (null), le filtre km du site dit 0.
+    km: kmOf(spec.get('kilometerstand')),
+    year: /\d{4}/.test(ez) ? yearOf(ez) : null,
+    price: shownPrice ?? hidden,
+  };
 }
+
+/** Adresse de la liste avec des filtres en plus (searchdata.fields fusionné), page n de `per`. */
+function autradoListUrl(url: string, extra: Record<string, unknown>, n: number, per: number): string {
+  const u = new URL(url);
+  let fields: Record<string, unknown> = {};
+  try { fields = (JSON.parse(u.searchParams.get('searchdata') ?? '{}') as { fields?: Record<string, unknown> }).fields ?? {}; } catch { /* pas de recherche : tout le stock */ }
+  u.searchParams.set('searchdata', JSON.stringify({ fields: { ...fields, ...extra } }));
+  u.searchParams.set('itemsperpage', String(per)); u.searchParams.set('page', '1'); u.searchParams.set('npage', String(n));
+  return u.toString();
+}
+function autradoFacetUrl(url: string, extra: Record<string, unknown>): string {
+  const u = new URL(url);
+  let fields: Record<string, unknown> = {};
+  try { fields = (JSON.parse(u.searchParams.get('searchdata') ?? '{}') as { fields?: Record<string, unknown> }).fields ?? {}; } catch { /* idem */ }
+  return `${u.origin}/services/rest/search.php?method=RefreshForm&profile=${u.searchParams.get('profileID') ?? '5'}&master=${u.searchParams.get('master') ?? '1'}&params=${encodeURIComponent(JSON.stringify({ ...fields, ...extra }))}`;
+}
+/** Une page de liste, relue jusqu'à 3 fois si elle échoue ou arrive avec moins de cartes qu'attendu. */
+async function autradoPage(u: string, origin: string, n: number, expected: number): Promise<{ cards: DealerVehicle[]; declared: number | null } | null> {
+  let best: { cards: DealerVehicle[]; declared: number | null } | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await sleep(3000 * attempt);
+    try {
+      const r = await getText(u);
+      if (r.status !== 200) continue;
+      const got = { cards: parseAutradoCards(r.text, origin), declared: autradoDeclared(r.text) };
+      if (!best || got.cards.length > best.cards.length) best = got;
+      // Cartes attendues sur CETTE page d'après le total qu'elle annonce elle-même (dernière page : le reste).
+      const want = got.declared != null ? Math.min(AUTRADO_PER, Math.max(0, got.declared - (n - 1) * AUTRADO_PER)) : expected;
+      if (got.cards.length >= want) break;
+    } catch { /* délai dépassé ou coupure : nouvel essai */ }
+  }
+  return best;
+}
+/** Toute une liste (filtrée ou non), jusqu'au total qu'elle annonce : une page incomplète ou illisible ne l'arrête pas. */
+async function autradoReadAll(url: string, extra: Record<string, unknown>, origin: string, onCard: (v: DealerVehicle) => void): Promise<{ declared: number | null; seen: Set<string>; pages: number; complete: boolean; lost: number }> {
+  const seen = new Set<string>();
+  let declared: number | null = null; let pages = 0; let lost = 0; let cap = 400; let idle = 0;
+  for (let n = 1; n <= cap; n++) {
+    if (n > 1) await sleep(PAGE_DELAY_MS);
+    const expected = declared == null ? AUTRADO_PER : Math.min(AUTRADO_PER, declared - (n - 1) * AUTRADO_PER);
+    if (expected <= 0) break;
+    const p = await autradoPage(autradoListUrl(url, extra, n, AUTRADO_PER), origin, n, expected);
+    pages = n;
+    if (!p) { lost++; continue; }
+    if (declared == null && p.declared != null) { declared = p.declared; cap = Math.min(400, Math.ceil(declared / AUTRADO_PER) + 1); }
+    const before = seen.size;
+    for (const v of p.cards) if (!seen.has(v.external_id)) { seen.add(v.external_id); onCard(v); }
+    if (declared != null && seen.size >= declared) break;
+    // Au-delà de la dernière page, le site resservit la dernière (ou rien) : deux pages sans voiture nouvelle = fin.
+    idle = seen.size > before ? 0 : idle + 1;
+    if (idle >= 2 || (p.cards.length === 0 && declared == null)) break;
+  }
+  return { declared, seen, pages, complete: declared != null && seen.size >= declared, lost };
+}
+
+export async function scrapeAutrado(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const warnings: string[] = [];
+  const origin = new URL(url).origin;
+  const byId = new Map<string, DealerVehicle>();
+  // 1. Liste complète jusqu'au total annoncé (plus de plafond à 150 pages, plus d'arrêt sur une page incomplète).
+  const base = await autradoReadAll(url, {}, origin, (v) => { byId.set(v.external_id, v); });
+  const declared = base.declared ?? autradoDeclared(firstHtml);
+  let pages = base.pages;
+  if (base.lost) warnings.push(`${base.lost} page(s) de liste illisible(s) après 3 essais`);
+  // 2. Ce que les cartes ne disent pas : relecture par filtre du moteur du site.
+  let facets: ReturnType<typeof parseAutradoFacets> = null;
+  try { const fr = await getText(autradoFacetUrl(url, {})); facets = fr.status === 200 ? parseAutradoFacets(fr.text) : null; } catch { /* fail-open */ }
+  if (!facets) {
+    warnings.push('compteurs du moteur de recherche illisibles : énergie / boîte / année / km limités à ce que montrent les cartes');
+    return { provider: 'autrado', total: declared ?? byId.size, declared, vehicles: [...byId.values()], pages, warnings };
+  }
+  /** Lit une liste filtrée : chaque voiture prend la valeur ; une voiture que la liste complète avait manquée est ajoutée. */
+  const readFiltered = async (filter: Record<string, unknown>, apply: (v: DealerVehicle) => void) => {
+    await sleep(PAGE_DELAY_MS);
+    const r = await autradoReadAll(url, filter, origin, (c) => { const v = byId.get(c.external_id) ?? c; if (!byId.has(c.external_id)) byId.set(c.external_id, c); apply(v); });
+    pages += r.pages;
+    return r;
+  };
+  /** Une valeur par voiture pour un filtre à valeurs fermées (énergie, boîte, année) ; la plus grosse par élimination. */
+  const partition = async (label: string, values: Array<{ key: string; filter: Record<string, unknown>; count: number }>, has: (v: DealerVehicle) => boolean, set: (v: DealerVehicle, key: string) => void) => {
+    if (![...byId.values()].some((v) => !has(v)) || values.length === 0) return;
+    const [big, ...rest] = [...values].sort((a, b) => b.count - a.count);
+    const seen = new Set<string>();
+    let complete = true;
+    for (const val of rest) {
+      const r = await readFiltered(val.filter, (v) => { if (!has(v)) set(v, val.key); });
+      if (!r.complete) complete = false;
+      for (const id of r.seen) seen.add(id);
+    }
+    // Élimination : les voitures sous aucun autre filtre ont la plus grosse valeur si leur nombre est celui que le site
+    // annonce pour elle (à 0,5 % près : ventes et arrivées pendant les ~20 min du relevé) ; sinon on la relit aussi.
+    const left = [...byId.values()].filter((v) => !seen.has(v.external_id));
+    let bigCount: number | null = null;
+    try { bigCount = parseAutradoFacets((await getText(autradoFacetUrl(url, big.filter))).text)?.matching ?? null; } catch { /* compte inconnu : relecture */ }
+    if (complete && bigCount != null && Math.abs(left.length - bigCount) <= Math.max(5, Math.ceil(byId.size * 0.005))) { for (const v of left) if (!has(v)) set(v, big.key); return; }
+    await readFiltered(big.filter, (v) => { if (!has(v)) set(v, big.key); });
+    warnings.push(`${label} : élimination impossible (${left.length} restantes pour ${bigCount ?? '?'} annoncées) — valeur « ${big.key} » relue par filtre`);
+  };
+  const f = facets.facets;
+  // Énergie (109) et boîte (110) : valeurs codées, libellés du formulaire.
+  await partition('énergie', Object.entries(f['109'] ?? {}).filter(([, c]) => c > 0).map(([k, c]) => ({ key: k, filter: { 109: [k] }, count: c })),
+    (v) => v.fuel != null, (v, k) => { v.fuel = AUTRADO_FUEL[k] ?? null; });
+  await partition('boîte', Object.entries(f['110'] ?? {}).filter(([, c]) => c > 0).map(([k, c]) => ({ key: k, filter: { 110: [k] }, count: c })),
+    (v) => v.gearbox != null, (v, k) => { v.gearbox = AUTRADO_GEAR[k] ?? null; });
+  // Année (8) : le filtre est par année ; les neuves SANS immatriculation sont rangées par le site dans l'année en
+  // cours (MFH 13/11 : EZ 2026 → 16 589 voitures dont 8 397 sans date) : elles prennent cette année-là, comme le site
+  // les classe. `body` dit « Neuwagen » / « Bestellfahrzeug » pour les distinguer.
+  const years = new Map<string, number>();
+  for (const [k, c] of Object.entries(f['8'] ?? {})) { const y = k.match(/(\d{4})$/)?.[1] ?? (k === '' ? String(new Date().getFullYear()) : null); if (y) years.set(y, (years.get(y) ?? 0) + c); }
+  await partition('année', [...years.entries()].map(([y, c]) => ({ key: y, filter: { 8: { min: y, max: y } }, count: c })),
+    (v) => v.year != null, (v, y) => { v.year = Number(y); });
+  // Km (9) : valeurs exactes (min = max), seulement celles que ≥ AUTRADO_KM_MIN voitures portent et que les cartes
+  // n'ont pas déjà toutes données (Autexx affiche le km sauf quand il vaut 0 : seul « 0 » est relu).
+  const shownKm = new Map<number, number>();
+  for (const v of byId.values()) if (v.km != null) shownKm.set(v.km, (shownKm.get(v.km) ?? 0) + 1);
+  const kmVals = Object.entries(f['9'] ?? {}).filter(([k]) => /^\d+$/.test(k)).map(([k, c]) => ({ km: Number(k), c }))
+    .filter((x) => x.c >= AUTRADO_KM_MIN && x.c > (shownKm.get(x.km) ?? 0));
+  // « 0 » se demande « max 1 » (min 0 = pas de borne) : la valeur 1, si elle existe, est relue avant.
+  kmVals.sort((a, b) => (a.km === 0 ? 1 : b.km === 0 ? -1 : b.c - a.c));
+  if (kmVals.some((x) => x.km === 0) && (f['9']?.['1'] ?? 0) > 0 && !kmVals.some((x) => x.km === 1)) kmVals.unshift({ km: 1, c: f['9']['1'] });
+  for (const x of kmVals) await readFiltered({ 9: x.km === 0 ? { min: '0', max: '1' } : { min: String(x.km), max: String(x.km) } }, (v) => { if (v.km == null) v.km = x.km; });
+  const all = [...byId.values()];
+  if (declared != null && all.length < declared) warnings.push(`${all.length} voiture(s) lue(s) pour ${declared} annoncée(s)`);
+  const noKm = all.filter((v) => v.km == null).length;
+  if (noKm) warnings.push(`${noKm} km rares (valeur portée par moins de ${AUTRADO_KM_MIN} voitures) : lus sur la fiche détail (DETAIL_READERS)`);
+  if (all.length > 0 && all.every((v) => v.price == null)) warnings.push('Prix réservés aux comptes connectés sur ce site (« Nach Login ») : stock relevé sans prix.');
+  return { provider: 'autrado', total: declared ?? all.length, declared, vehicles: all, pages, warnings };
+}
+
+/** Entrée DETAIL_READERS : le km des voitures que les filtres n'ont pas couvertes (valeurs rares, surtout des
+ *  occasions dont la fiche porte « Kilometerstand ») et l'année si un filtre a échoué. Ni 'price' (Autexx : jamais
+ *  affiché, « Nach Login »), ni 'gearbox' (23 voitures MFH sans boîte dans la base du site, fiche comprise) : elles
+ *  seraient relues à chaque relevé pour rien. */
+export const AUTRADO_DETAIL = { fields: ['km', 'year'] as Array<'km' | 'year'>, read: (html: string) => readAutradoDetail(html) };
 
 // ── carzilla (Auto Bierschneider, www.bierschneider.de) ──────────────────────
 // Constat 11/10 (boîte à apprendre « Vitrine non reconnue ») : plateforme
@@ -4188,6 +4358,9 @@ export const DETAIL_READERS: Partial<Record<DealerProvider, DetailReader>> = {
   autopalace: { fields: ['gearbox'], read: readAutopalaceDetail },
   stocklisting: { fields: ['gearbox', 'year'], read: readStockListingDetail },
   sfxlisting: { fields: ['year'], read: readSfxDetail },
+  // autrado (Autexx, MFH) : km et année des rares voitures que le moteur de recherche n'a pas données ; jamais le prix
+  // (Autexx le réserve aux comptes connectés : « Nach Login »).
+  autrado: { fields: ['km', 'year'], read: (html) => readAutradoDetail(html) },
 };
 
 /** Relève le stock d'une concession de la carte et le compare au relevé précédent. Avec `prefetched` (vitrine
