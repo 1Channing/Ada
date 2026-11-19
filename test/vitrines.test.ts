@@ -168,6 +168,22 @@ console.log('\n=== DAS WELTAUTO (HONGRIE, 19/11) : LA CONCESSION, RIEN QUE LA CO
   ok(empty.vehicles.length === 0 && empty.declared === 0, 'concession sans occasion : 0 voiture (pas celles que l\'API rend en élargissant)', [empty.vehicles.length, empty.declared]);
   ok(JSON.stringify(['https://x.hu/haendler/porschebuda/4859/s', 'https://x.hu/gruppe/hu_walter/HU_WALTER/849/s', 'https://x.hu/s?dealerId=999'].map((u) => ds2.dwaConfig(u, html).dealerId)) === '["4859","849","999"]',
     'n° de concession : page concession, page de groupe (identifiant en lettres), recherche filtrée');
+  // Page de GROUPE (Slovaquie, 19/11) : le n° est celui de la page du groupe ; l'API filtre par groupe, voitures de ses trois concessions.
+  const htmlSk = html.replace(/hu_HU/g, 'sk_SK');
+  const apiSk = 'https://dwa.test/api/locales/sk_SK/vehicles/search/?dealerGroupId=PIA&dealerPageId=1015';
+  pages['https://dwa.test/gruppe/porscheinterauto/PIA/1015/s'] = htmlSk;
+  pages[`${apiSk}&pageSize=100&page=1&sortBy=price&sortAscending=true`] = JSON.stringify({ count: 3, pruned: false, resultListPage: { content: [
+    { ...item('20001', { modelVariant: 'T-Roc Style 1.5 TSI ACT 6G', transmission: null, fuelText: 'Benzín', priceHistory: [] }), id: { dealerIdNumber: 8135, fiveDigitsVehicleId: '20001' } },
+    { ...item('20002', { brand: 'SEAT', modelVariant: 'Ateca Style 1.6 TDI 6-G', transmission: null, fuelText: 'Nafta', priceHistory: [] }), id: { dealerIdNumber: 8101, fiveDigitsVehicleId: '20002' } },
+    { ...item('20003', { brand: 'Škoda', modelVariant: 'Superb Combi 2.0 TDI 7DSG', transmission: null, fuelText: 'Hybr.D/E ext.nab.', priceHistory: [] }), id: { dealerIdNumber: 8199, fiveDigitsVehicleId: '20003' } }] } });
+  pages[`${apiSk}&pageSize=100&page=1&pretaxDeductible=true`] = JSON.stringify({ count: 0, pruned: true, resultListPage: { content: [] } });
+  const grp = await ds2.fetchDealerStock('https://dwa.test/gruppe/porscheinterauto/PIA/1015/s');
+  const gv = (id: string) => grp.vehicles.find((v) => v.external_id === id);
+  ok(grp.vehicles.length === 3 && gv('813520001')?.currency === 'EUR', 'page de groupe : dealerGroupId + dealerPageId, voitures des trois concessions, en euros', grp.vehicles.map((v) => v.external_id));
+  ok(gv('813520001')?.gearbox === 'Manuelle' && gv('810120002')?.gearbox === 'Manuelle' && gv('819920003')?.gearbox === 'Automatique',
+    'boîte absente : « 6G », « 6-G » = manuelle, « 7DSG » = automatique (lues dans la version)', grp.vehicles.map((v) => [v.title, v.gearbox]));
+  ok(ds2.dwaGearOfVariant('DS7 Crossback BlueHDi 130', 'DS') === null && ds2.dwaGearOfVariant('Passat 2.0 TDI DS7', 'VW') === 'Automatique', '« DS7 » = DSG 7, sauf chez la marque DS');
+  ok(ds2.dwaConfig('https://x.hu/gruppe/hu_walter/HU_WALTER/849/s', html).groupId === 'HU_WALTER' && ds2.dwaConfig('https://x.hu/haendler/porschebuda/4859/s', html).groupId === null, 'groupe lu dans l\'adresse (page de groupe seulement)');
 }
 
 console.log('\n=== WEBSPARK (BONY, 19/11) : UNE PAGE QUI REPREND DES CARTES N\'EST PAS LA DERNIÈRE ===\n');

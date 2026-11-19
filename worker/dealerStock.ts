@@ -4506,14 +4506,16 @@ type DwaItem = {
   fuelText?: string | null; bodyType?: string | null; transmission?: string | null; gearTypeText?: string | null; vin?: string | null;
   warranty?: string | null; priceHistory?: Array<{ changedAt?: string | null; price?: number | null }> | null;
 };
-/** Origine, langue de l'API (« hu_HU ») et n° de concession de l'adresse de la fiche. */
-export function dwaConfig(url: string, html: string): { origin: string; locale: string; dealerId: string | null } {
+/** Origine, langue de l'API (« hu_HU »), n° de concession et groupe de l'adresse de la fiche. */
+export function dwaConfig(url: string, html: string): { origin: string; locale: string; dealerId: string | null; groupId: string | null } {
   const u = new URL(url);
   const tld = u.hostname.split('.').pop() ?? '';
   const locale = html.match(/\/api\/locales\/([a-z]{2}_[A-Z]{2})\//)?.[1] ?? `${tld}_${tld.toUpperCase()}`;
-  // Groupe : « /gruppe/hu_walter/HU_WALTER/849/s » (identifiant de groupe en lettres).
-  const m = u.pathname.match(/\/haendler\/[^/]+\/(\d+)(?:\/|$)/) ?? u.pathname.match(/\/gruppe\/[^/]+\/[^/]+\/(\d+)(?:\/|$)/);
-  return { origin: u.origin, locale, dealerId: m?.[1] ?? u.searchParams.get('dealerId') ?? u.searchParams.get('dealerPageId') };
+  // Groupe : « /gruppe/hu_walter/HU_WALTER/849/s » (identifiant de groupe en lettres, puis n° de la PAGE du groupe).
+  const g = u.pathname.match(/\/gruppe\/[^/]+\/([^/]+)\/(\d+)(?:\/|$)/);
+  const m = u.pathname.match(/\/haendler\/[^/]+\/(\d+)(?:\/|$)/);
+  return { origin: u.origin, locale, dealerId: m?.[1] ?? g?.[2] ?? u.searchParams.get('dealerId') ?? u.searchParams.get('dealerPageId'),
+    groupId: m ? null : g?.[1] ?? u.searchParams.get('dealerGroupId') };
 }
 /** Énergie : le libellé du site ; « Egyéb » (autre, 45 % des fiches du centre de l'importateur) → lue dans la version. */
 export const dwaFuel = (fuel: string | null | undefined, variant: string): string | null => {
@@ -4526,6 +4528,10 @@ export const dwaFuel = (fuel: string | null | undefined, variant: string): strin
   if (/\b(TFSI|TSI|MPI|FSI)\b/i.test(variant)) return 'Benzin';
   return null;
 };
+/** Boîte écrite dans la version, quand le site n'en publie pas (19/11, Slovaquie : 13 voitures sur 417) : « 6G », « 6-G »
+ *  (6 rapports, « Gang ») = manuelle ; « 7DSG », « DS7 » (DSG 7 rapports, sauf chez la marque DS) = automatique. */
+export const dwaGearOfVariant = (variant: string, brand?: string | null): string | null =>
+  /\d?DSG\d?\b/i.test(variant) || (!/^ds\b/i.test(brand ?? '') && /\bDS[67]\b/i.test(variant)) ? 'Automatique' : /\b[5-7]-?G\b/i.test(variant) ? 'Manuelle' : null;
 /** Boîte : « Automata, DSG, Tiptronic » ; « Sebességváltó » (« boîte de vitesses », sans plus) = manuelle. */
 export const dwaGear = (t: string | null | undefined): string | null =>
   !t ? null : /automat|dsg|tiptronic|s ?tronic|cvt/i.test(t) ? 'Automatique' : /sebess[ée]gv[áa]lt[óo]|manu[áa]l|k[ée]zi|schalt|manu/i.test(t) ? 'Manuelle' : t;
@@ -4543,7 +4549,7 @@ export function dwaToVehicle(it: DwaItem, origin: string, currency: string, vat?
   return {
     external_id: id, url: `${origin}/vehicle/${id}`, title: vat?.has(id) ? `${base} · TVA récupérable` : base, brand,
     model: it.nameLabel?.trim() || splitTitle(base).model, price, currency, km: num(it.mileage), year: num(String(it.registration ?? '').slice(0, 4)),
-    fuel: dwaFuel(it.fuelText, variant), gearbox: dwaGear(it.transmission ?? it.gearTypeText) ?? gearboxOfVersion(variant), plate: null, vin: it.vin?.trim() || null,
+    fuel: dwaFuel(it.fuelText, variant), gearbox: dwaGear(it.transmission ?? it.gearTypeText) ?? gearboxOfVersion(variant) ?? dwaGearOfVariant(variant, brand), plate: null, vin: it.vin?.trim() || null,
     body: [it.bodyType, it.ldJsonExtra?.colorTextNew, it.fleetVehicle ? 'ex-flotte' : null, it.warranty === 'DASWELTAUTO' ? 'garantie Das WeltAuto' : null].filter(Boolean).join(' · ') || null,
     image: it.imageUrls?.[0] ?? null, listed_at: since ? new Date(since).toISOString() : null,
     status: it.reserved ? 'reserved' : price == null ? 'price_on_request' : null,
@@ -4552,9 +4558,13 @@ export function dwaToVehicle(it: DwaItem, origin: string, currency: string, vat?
   };
 }
 async function scrapeDasWeltAuto(url: string, firstHtml: string): Promise<DealerStockResult> {
-  const { origin, locale, dealerId } = dwaConfig(url, firstHtml);
+  const { origin, locale, dealerId, groupId } = dwaConfig(url, firstHtml);
   if (!dealerId) throw new Error('adresse Das WeltAuto sans n° de concession (attendu : …/haendler/<nom>/<n°>/s ou ?dealerId=<n°>) : la recherche de tout le pays n\'est pas la vitrine d\'une concession');
   const currency = DWA_CURRENCY[locale.slice(0, 2)] ?? 'EUR';
+  // Page de GROUPE (19/11, Slovaquie : « /gruppe/porscheinterauto/PIA/1015/s ») : 1015 est le n° de la page du groupe,
+  // pas d'une concession — « dealerId=1015 » rendait une recherche élargie, 0 voiture ; « dealerGroupId=PIA&dealerPageId=1015 »
+  // rend les 168 voitures des trois concessions du groupe. En Hongrie (groupes d'une concession), même résultat qu'avant.
+  const scope = groupId ? `dealerGroupId=${encodeURIComponent(groupId)}&dealerPageId=${encodeURIComponent(dealerId)}` : `dealerId=${encodeURIComponent(dealerId)}`;
   const warnings: string[] = [];
   let pages = 0;
   const readAll = async (query: string): Promise<{ items: DwaItem[]; count: number | null; ok: boolean }> => {
@@ -4562,7 +4572,7 @@ async function scrapeDasWeltAuto(url: string, firstHtml: string): Promise<Dealer
     let count: number | null = null;
     for (let p = 1; p <= 60; p++) {
       await sleep(SITE_DELAY_MS);
-      const r = await getTextPatient(`${origin}/api/locales/${locale}/vehicles/search/?dealerId=${encodeURIComponent(dealerId)}&pageSize=100&page=${p}${query}`, { headers: { accept: 'application/json' } });
+      const r = await getTextPatient(`${origin}/api/locales/${locale}/vehicles/search/?${scope}&pageSize=100&page=${p}${query}`, { headers: { accept: 'application/json' } });
       if (r.status !== 200) { warnings.push(`API Das WeltAuto (${query || 'liste'}), page ${p} : HTTP ${r.status}`); return { items, count, ok: false }; }
       let d: { count?: number; pruned?: boolean; resultListPage?: { content?: DwaItem[] } };
       try { d = JSON.parse(r.text); } catch { warnings.push(`API Das WeltAuto (${query || 'liste'}), page ${p} : réponse illisible`); return { items, count, ok: false }; }
@@ -4573,7 +4583,7 @@ async function scrapeDasWeltAuto(url: string, firstHtml: string): Promise<Dealer
       // et une concession sans occasion aurait reçu celles d'une autre. Réponse élargie = aucun résultat ; et seules
       // les voitures de LA concession sont gardées.
       if (d.pruned || count === 0) { count = 0; break; }
-      const got = (d.resultListPage?.content ?? []).filter((it) => String(it.id?.dealerIdNumber ?? '') === dealerId);
+      const got = (d.resultListPage?.content ?? []).filter((it) => groupId != null || String(it.id?.dealerIdNumber ?? '') === dealerId);
       items.push(...got);
       if ((d.resultListPage?.content ?? []).length < 100 || (count != null && items.length >= count)) break;
     }
