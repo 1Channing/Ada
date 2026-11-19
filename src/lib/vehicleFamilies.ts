@@ -23,8 +23,9 @@ export function fuelFamily(text: string | null | undefined): FuelFamily | null {
   if (/peugeot|citroen|\bds\b|opel|vauxhall|eat8/.test(t) && !/hybrid\s?(?:100|110|120|130|136|145)(?:\s?(?:pk|ch|cv|hp|ps))?\b/.test(t) && /hybrid\b.{0,30}\b(?:180|195|225|300|360)(?:\s?(?:pk|ch|cv|hp|ps))?\b/.test(t)) return 'phev';
   // 19/11 (Hongrie, Das WeltAuto) : « Hibr.B/E külső töltő » = hybride à recharge extérieure ; « Benzin/elektromos »,
   // « benzín + elektro » = hybride (sinon lu « électrique » par la ligne suivante).
-  if (/kulso tolto/.test(t)) return 'phev';
-  if (/hybrid|hybride|hybridi|\bhibrid|\bhibr\b|\bibrid|\bhev\b|mhev|e-tech|\bh\b|\d{2,3}h\b/.test(t)
+  // Slovaquie (Das WeltAuto) : « Hybr.B/E ext.nab. », « Hybr.D/E ext.nab. » (externé nabíjanie = recharge extérieure).
+  if (/kulso tolto|ext\.?\s?nab/.test(t)) return 'phev';
+  if (/hybrid|hybride|hybridi|\bhibrid|\bhibr\b|\bhybr\b|\bibrid|\bhev\b|mhev|e-tech|\bh\b|\d{2,3}h\b/.test(t)
     || /(?:benzin|dizel|diesel|nafta|petrol|essence)\s*[\/+]\s*(?:elektr|electr)|(?:elektr|electr)\w*\s*[\/+]\s*(?:benzin|dizel|diesel|nafta|petrol|essence)/.test(t)) return 'hybrid';
   if (/electri|elektr|sahko|\bev\b|\bbev\b|\bel\b|elettric|electric|\belectra\b/.test(t)) return 'electric';
   // 19/11 : « Dízel », « Gázolaj » (HU), « Nafta » (SK).
