@@ -38,9 +38,11 @@ const pages: Record<string, string> = {
 const fetched: string[] = [];
 const statuses: Record<string, number> = {}; // code HTTP d'une page simulée, quand ce n'est pas 200
 const flaky: Record<string, number> = {};    // nombre de réponses 502 avant la bonne (erreur de passerelle passagère)
+const cut: Record<string, number> = {};      // nombre de connexions coupées (« fetch failed ») avant la bonne
 globalThis.fetch = (async (input: string | URL | Request) => {
   const u = String(input instanceof Request ? input.url : input);
   fetched.push(u);
+  if ((cut[u] ?? 0) > 0) { cut[u]--; throw new TypeError('fetch failed'); }
   if ((flaky[u] ?? 0) > 0) { flaky[u]--; return new Response('Bad Gateway', { status: 502 }); }
   const body = pages[u];
   return new Response(body ?? 'introuvable', { status: body ? statuses[u] ?? 200 : 404 });
@@ -242,9 +244,13 @@ console.log('\n=== WEBSPARK (BONY, 19/11) : UNE PAGE QUI REPREND DES CARTES N\'E
   try {
     ok(dsw.detectDealerProvider(pages['https://ws.test/stock/']) === 'webspark', 'webspark reconnu (cartes vcard)');
     flaky['https://ws.test/stock/?page=3'] = 1; // Sofibrie, 19/11 : un 502 passager à la page 41 arrêtait le relevé
+    cut['https://ws.test/stock/'] = 1;          // autobazar.eu, 19/11 : connexion coupée sur la première page
+    cut['https://ws.test/stock/?page=2'] = 2;
     const st = await dsw.fetchDealerStock('https://ws.test/stock/');
     ok(st.vehicles.length === 10 && st.pages === 3 && !st.warnings.some((w) => /lu\(s\) pour|HTTP 502/.test(w)),
-      'page 2 avec une carte déjà lue : la lecture continue ; un 502 passager en page 3 est réessayé : 10 voitures sur 10', [st.vehicles.length, st.pages, st.warnings]);
+      'page 2 avec une carte déjà lue : la lecture continue ; un 502 et des connexions coupées passagères sont réessayés : 10 voitures sur 10', [st.vehicles.length, st.pages, st.warnings]);
+    const dead = await dsw.fetchDealerStock('https://ws.test/mort/').then(() => 'lu', (e: Error) => e.message);
+    ok(/introuvable|HTTP 404/.test(dead), 'une page absente (404) n\'est pas réessayée comme une connexion coupée', dead);
     const before = fetched.length;
     const loop = await dsw.fetchDealerStock('https://ws2.test/stock/');
     const asked = fetched.slice(before).filter((u) => u.startsWith('https://ws2.test/'));

@@ -2001,11 +2001,22 @@ async function scrapeKamux(url: string): Promise<DealerStockResult> {
 const htmlText = (s: string) => decode(s.replace(/<[^>]+>/g, ' ')).replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))).replace(/\s+/g, ' ').trim();
 /** GET avec reprise sur HTTP 429/503 (5 s, 10 s, 20 s, 40 s) : l'origine MotorK de Cobredia répond 429 pendant ~20 s
  *  après deux pages hors cache rapprochées (mesuré le 04/11 : 429 à t+11 s, 200 dès t+24 s). */
+/** Erreur de CONNEXION (pas une réponse du site) : coupée, refusée, délai dépassé, nom introuvable un instant. */
+const isNetworkError = (e: unknown): boolean =>
+  e instanceof Error && !(e instanceof DealerSiteBlockedError)
+  && /fetch failed|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|EAI_AGAIN|UND_ERR|socket|aborted|network|terminated/i.test(`${e.message} ${String((e as { cause?: unknown }).cause ?? '')}`);
 async function getTextPatient(url: string, init?: RequestInit): Promise<{ status: number; text: string; headers: Headers }> {
-  let r = await getText(url, init);
+  // 19/11 : une connexion coupée (« fetch failed ») levait une exception qui arrêtait le relevé sur-le-champ — autobazar.eu
+  // coupe les connexions après une série de requêtes rapprochées (7 relevés en échec au passage de rattrapage du 19/11,
+  // lus sans peine depuis un autre poste). Réessayée comme un 503 ; une page bloquée (Cloudflare) ne l'est pas.
+  const once = async (): Promise<{ status: number; text: string; headers: Headers } | Error> => {
+    try { return await getText(url, init); } catch (e) { if (!isNetworkError(e)) throw e; return e as Error; }
+  };
+  let r = await once();
   // 5 reprises (5 s → 80 s, 155 s en tout) : SIPA a tenu 41 pages puis 429 persistant pendant qu'une autre vitrine MotorK était lue.
   // 19/11 : aussi les erreurs de passerelle passagères (502, 504) — Sofibrie abandonnée à la page 41 sur un 502 (520 lues sur 1 316).
-  for (let i = 0; i < 5 && [429, 502, 503, 504].includes(r.status); i++) { await sleep(5000 * 2 ** i); r = await getText(url, init); }
+  for (let i = 0; i < 5 && (r instanceof Error || [429, 502, 503, 504].includes(r.status)); i++) { await sleep(5000 * 2 ** i); r = await once(); }
+  if (r instanceof Error) throw r;
   return r;
 }
 /** Même URL avec un paramètre de requête changé. */
