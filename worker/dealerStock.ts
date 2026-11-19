@@ -3309,7 +3309,11 @@ async function scrapeAutopalace(url: string, firstHtml: string): Promise<DealerS
     for (const part of html.split(/<div class="cell slice-\d+ item/).slice(1)) {
       const href = part.match(/<a href="(\/ponuka-vozidiel\/[^"]+)"/)?.[1];
       if (!href) continue;
-      const id = href.split('-').pop() ?? href;
+      // Numéro = fin de l'adresse (« …-49717 ») ; neuves « …-66713-neue-klasse » : « klasse » prenait toutes les iX3 sous un
+      // seul numéro (19/11, MD-Bavaria : 144 lues pour 158) → le numéro de la carte (« car-id », celui du dataLayer). Les
+      // numéros déjà en base (fin d'adresse avec un chiffre) ne changent pas.
+      const tail = href.split('-').pop() ?? href;
+      const id = /\d/.test(tail) ? tail : part.match(/car-id="(\d+)"/)?.[1] ?? part.match(/dataLayer_(\w+)_onClickEvent/)?.[1] ?? href;
       added++;
       if (seen.has(id)) continue;
       const title = htmlText(part.match(/<h2>\s*<a[^>]*>([\s\S]*?)<\/a>/)?.[1] ?? '');
