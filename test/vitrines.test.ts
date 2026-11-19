@@ -36,11 +36,12 @@ const pages: Record<string, string> = {
   'https://dmd.test/f': box('Rob Double Embray'),
 };
 const fetched: string[] = [];
+const statuses: Record<string, number> = {}; // code HTTP d'une page simulée, quand ce n'est pas 200
 globalThis.fetch = (async (input: string | URL | Request) => {
   const u = String(input instanceof Request ? input.url : input);
   fetched.push(u);
   const body = pages[u];
-  return new Response(body ?? 'introuvable', { status: body ? 200 : 404 });
+  return new Response(body ?? 'introuvable', { status: body ? statuses[u] ?? 200 : 404 });
 }) as typeof fetch;
 
 const { runDealerStock, readDmdDetail, DETAIL_READERS } = await import('../worker/dealerStock');
@@ -269,6 +270,43 @@ console.log('\n=== PLACE DE MARCHÉ DES NEUVES DU GROUPE VW (turbo-stream, 19/11
   const v = ds4.vwgmToVehicle(car, 'https://azonnalelviheto.volkswagen.hu');
   ok(v?.price === 7312580 && v?.brand === 'Volkswagen' && v?.gearbox === 'Manuelle' && v?.fuel === 'Gázolaj' && /TVA récupérable$/.test(v?.title ?? '')
     && v?.url === 'https://azonnalelviheto.volkswagen.hu/search/car/V-2026-0520490-HU', 'voiture : fillér → forints, « Kézi » = manuelle, TVA récupérable, lien de la fiche', v);
+
+  // Slovaquie (19/11) : boîtes réelles, CUPRA sous le code SEAT, utilitaires « LNF », gamme « Nové Audi A6 Avant ».
+  const gears = ['DSG 7-st.', 'S tronic 7-st.', '6-st.', 'Automatická', 'Tiptronic 8-st.', '5-st.', 'Elek.ovlád.mechanick', 'S-tronic 6-st.', 'Kézi 5 fokozatú'].map((g) => ds4.vwgmGear(g));
+  ok(JSON.stringify(gears) === '["Automatique","Automatique","Manuelle","Automatique","Automatique","Manuelle","Automatique","Automatique","Manuelle"]', 'boîtes slovaques : « 6-st. » = manuelle, « S-tronic », « Elek.ovlád. » (eHybrid) = automatique', gears);
+  const sk = (o: Record<string, unknown>) => ds4.vwgmToVehicle({ ...real, id: 'V-SK-1', priceData: { display: { currency: 'EUR', gross: 4339000 } }, ...o } as never, 'https://skladove-vozidla.seat.sk');
+  const cu = sk({ brand: 'SEAT', model: { name: 'CUPRA Formentor 1,5 eTSI 150 7DSG', groupName: 'CUPRA Formentor' } });
+  const ln = sk({ brand: 'LNF', model: { name: 'Multivan Style1.5 TSI eHybrid 4M LR', groupName: 'Multivan' } });
+  const a6 = sk({ brand: 'AUDI', model: { name: 'A6 Avant 40 TDI quattro', groupName: 'Nové Audi A6 Avant' } });
+  ok(cu?.brand === 'CUPRA' && cu?.model === 'Formentor' && /^CUPRA Formentor 1,5/.test(cu?.title ?? '') && cu?.price === 43390 && cu?.currency === 'EUR'
+    && ln?.brand === 'Volkswagen Užitkové vozidlá' && ln?.model === 'Multivan' && a6?.model === 'A6 Avant',
+    'CUPRA (code SEAT) = marque CUPRA, « LNF » = utilitaires VW, gamme sans « Nové » ni la marque, euros', [cu?.brand, cu?.model, cu?.title, cu?.price, ln?.brand, a6?.model]);
+
+  // Plus de 100 voitures : découpe par « stock-cars » / « test-drive », puis par gamme ; page de groupe ; concession sans page.
+  const mk = (id: string, o: { dealer?: string; importer?: boolean; demo?: boolean; group?: string } = {}) => ({ ...real, id, model: { name: `${o.group ?? 'Audi Q5 SUV'} ${id}`, groupName: o.group ?? 'Audi Q5 SUV' },
+    flagData: { stockVehicle: !o.demo, testDrive: !!o.demo, storedByImporter: o.importer ? true : null }, patchedDealer: { internetDealerId: o.dealer ?? '08135', name: 'Porsche Zlaté Piesky' } });
+  const resp = (cars: unknown[], total: number, groups: Array<[string, number]> = []) => JSON.stringify(enc({ 'routes/search/search.route': { data: {
+    resultList: cars.map((c) => ({ type: 'car', car: c })), page: { total, size: 100 }, filters: [{ id: 'fmodel_group', sections: [{ id: 'mg', items: groups.map(([code, count]) => ({ code, count })) }] }] } } }));
+  const c1 = mk('A1'), c2 = mk('A2'), c3 = mk('A3', { importer: true, group: 'Nové Audi A6 Avant' }), c4 = mk('A4', { group: 'Nové Audi A6 Avant' }), c5 = mk('A5', { demo: true });
+  const gm = 'https://vwgm.test/d-8135/search.data?size=100';
+  pages['https://vwgm.test/d-8135/search'] = '<script>window.__reactRouterContext = {"routes/search/search.route":{"storedByImporter":null}};</script>';
+  pages[gm] = resp([c1, c2, c3], 5);                                                     // 5 annoncées, 3 servies (plafond)
+  pages[`${gm}&stock-cars=true`] = resp([c1, c2, c3], 4, [['Audi Q5 SUV', 2], ['Nové Audi A6 Avant', 2]]);
+  pages[`${gm}&stock-cars=true&mg=${encodeURIComponent('Audi Q5 SUV')}`] = resp([c1, c2], 2);
+  pages[`${gm}&stock-cars=true&mg=${encodeURIComponent('Nové Audi A6 Avant')}`] = resp([c3, c4], 2);
+  pages[`${gm}&test-drive=true`] = resp([c5], 1);
+  const split = await ds4.fetchDealerStock('https://vwgm.test/d-8135/search');
+  ok(split.vehicles.length === 4 && split.declared === 4 && !split.warnings.some((w) => /partiel/.test(w)) && split.vehicles.some((x) => x.external_id === 'A4'),
+    'liste plafonnée : découpe stock / démonstration puis par gamme, les 4 voitures de la concession lues, relevé complet (l\'importateur écarté)', [split.vehicles.map((x) => x.external_id), split.declared, split.warnings]);
+  pages['https://vwgm.test/g-sk_galimex/search'] = pages['https://vwgm.test/d-8135/search'];
+  pages['https://vwgm.test/g-sk_galimex/search.data?size=100'] = resp([mk('G1', { dealer: '08108' }), mk('G2', { dealer: '08125' }), mk('G3', { importer: true, dealer: '' })], 3);
+  const grpV = await ds4.fetchDealerStock('https://vwgm.test/g-sk_galimex/search');
+  ok(grpV.vehicles.length === 2 && grpV.declared === 2, 'page de groupe « /g-<groupe>/ » : voitures de ses deux concessions, sans l\'importateur', grpV.vehicles.map((x) => x.external_id));
+  pages['https://vwgm.test/d-8407/search'] = pages['https://vwgm.test/d-8135/search'];
+  pages['https://vwgm.test/d-8407/search.data?size=100'] = '[["SingleFetchRedirect",1],{"_2":3,"_4":5},"redirect","https://vwgm.test/search?size=100","status",302]';
+  statuses['https://vwgm.test/d-8407/search.data?size=100'] = 202; // renvoi React Router : HTTP 202 (réel, 19/11)
+  const redir = await ds4.fetchDealerStock('https://vwgm.test/d-8407/search').then(() => 'lu', (e: Error) => e.message);
+  ok(/recherche nationale/.test(redir), 'concession renvoyée vers la recherche nationale : échec du relevé (pas de stock national pris pour le sien)', redir);
 }
 
 console.log('\n=== OCCASIONS BMW HONGRIE (ajanlatok.bmw.hu, 19/11) ===\n');

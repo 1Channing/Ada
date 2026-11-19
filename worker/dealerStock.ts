@@ -4712,11 +4712,14 @@ async function scrapePewne(url: string, firstHtml: string): Promise<DealerStockR
 //    .vwh.hu / .skoda.hu (Porsche Informatik) — neuves en stock et véhicules de démonstration de chaque concession. Adresse
 //    de la fiche ADA : le mode concession « /d-<n°>/search ». Les données sont celles de la page, au format « turbo-stream »
 //    de React Router (« /d-<n°>/search.data?size=100 », sans clé) : un tableau aplati où chaque objet renvoie à ses
-//    valeurs par indice (décodé par turboStreamDecode). 100 voitures au plus par requête, aucun paramètre de page ni de
-//    filtre d'adresse n'est pris en compte (vérifié le 19/11) : au-delà, relevé déclaré partiel (aucune voiture marquée
-//    disparue). La liste d'une concession contient aussi les voitures « stockées par l'importateur » (montrées chez
-//    toutes) et parfois celles d'autres concessions : seules celles de LA concession sont gardées. Prix brut en fillér
-//    (÷ 100), énergie, boîte, année de fabrication, puissance, couleur, démonstration / stock, TVA récupérable, réservé.
+//    valeurs par indice (décodé par turboStreamDecode). 100 voitures au plus par requête, pas de pagination ; au-delà, la
+//    liste est découpée par les filtres du site (« stock-cars=true » / « test-drive=true », puis « mg=<gamme> », vérifiés
+//    le 19/11 en Hongrie et en Slovaquie) ; encore trop longue : relevé déclaré partiel (aucune voiture marquée disparue).
+//    La liste d'une concession contient aussi les voitures « stockées par l'importateur » (montrées chez toutes) et
+//    parfois celles d'autres concessions : seules celles de LA concession sont gardées. Page de groupe « /g-<groupe>/search »
+//    (Galimex, Slovaquie) : les voitures de ses concessions, sans celles de l'importateur. Concession sans page pour la
+//    marque : renvoi vers la recherche nationale (« SingleFetchRedirect ») = échec du relevé, rien marqué disparu. Prix brut
+//    en centimes (÷ 100), énergie, boîte, année de fabrication, puissance, couleur, démonstration / stock, TVA récupérable.
 /** Décodeur « turbo-stream » (React Router) : tableau aplati, objets aux clés « _<indice> », valeurs par indice. */
 export function turboStreamDecode(arr: unknown[]): unknown {
   const memo = new Map<number, unknown>();
@@ -4751,31 +4754,43 @@ type VwgmCar = {
   images?: { sorted?: Array<{ sources?: Array<{ url?: string }> }> } | null;
   patchedDealer?: { internetDealerId?: string | null; name?: string | null } | null;
 };
-const VWGM_BRAND: Record<string, string> = { VW: 'Volkswagen', VWN: 'Volkswagen Haszongépjármű', AUDI: 'Audi', SKODA: 'Škoda', SEAT: 'SEAT', CUPRA: 'CUPRA', PORSCHE: 'Porsche' };
-/** Voitures et pagination d'une réponse « search.data » (fonction pure). */
-export function parseVwgMarket(text: string): { cars: VwgmCar[]; page: { total?: number; size?: number } | null } {
+// « LNF » (Slovaquie) = utilitaires VW, comme « VWN » en Hongrie : le nom du site de la marque dans le pays.
+const VWGM_BRAND: Record<string, string> = { VW: 'Volkswagen', VWN: 'Volkswagen Haszongépjármű', LNF: 'Volkswagen Užitkové vozidlá', AUDI: 'Audi', SKODA: 'Škoda', SEAT: 'SEAT', CUPRA: 'CUPRA', PORSCHE: 'Porsche' };
+type VwgmFilter = { id?: string; sections?: Array<{ id?: string; items?: Array<{ code?: unknown; count?: number }> }> };
+/** Voitures, pagination et gammes (filtre « mg » du site, avec leur nombre) d'une réponse « search.data » (fonction pure). */
+export function parseVwgMarket(text: string): { cars: VwgmCar[]; page: { total?: number; size?: number } | null; groups: Array<{ code: string; count: number }>; redirect: boolean } {
   const first = text.split('\n').find((l) => l.trim().startsWith('['));
-  if (!first) return { cars: [], page: null };
+  if (!first) return { cars: [], page: null, groups: [], redirect: false };
   let arr: unknown[];
-  try { arr = JSON.parse(first) as unknown[]; } catch { return { cars: [], page: null }; }
-  const d = turboStreamDecode(arr) as Record<string, { data?: { resultList?: Array<{ type?: string; car?: VwgmCar }>; page?: { total?: number; size?: number } } }>;
+  try { arr = JSON.parse(first) as unknown[]; } catch { return { cars: [], page: null, groups: [], redirect: false }; }
+  if (Array.isArray(arr[0]) && arr[0][0] === 'SingleFetchRedirect') return { cars: [], page: null, groups: [], redirect: true };
+  const d = turboStreamDecode(arr) as Record<string, { data?: { resultList?: Array<{ type?: string; car?: VwgmCar }>; page?: { total?: number; size?: number }; filters?: VwgmFilter[] } }>;
   const data = d?.['routes/search/search.route']?.data;
-  return { cars: (data?.resultList ?? []).filter((x) => x?.type === 'car' && x.car).map((x) => x.car as VwgmCar), page: data?.page ?? null };
+  const mg = (data?.filters ?? []).flatMap((f) => f?.sections ?? []).find((x) => x?.id === 'mg');
+  const groups = (mg?.items ?? []).filter((i) => typeof i?.code === 'string' && (i.count ?? 0) > 0).map((i) => ({ code: i.code as string, count: i.count ?? 0 }));
+  return { cars: (data?.resultList ?? []).filter((x) => x?.type === 'car' && x.car).map((x) => x.car as VwgmCar), page: data?.page ?? null, groups, redirect: false };
 }
+/** Boîte : « Kézi 5 fokozatú » (HU), « 6-st. » (6-stupňová, SK) = manuelle ; « DSG 7-st. », « S-tronic 6-st. », « Tiptronic »,
+ *  « Automatická » et « Elek.ovlád.mechanick » (Multivan eHybrid) = automatique. */
+export const vwgmGear = (g: string | null | undefined): string | null =>
+  !g ? null : /dsg|automat|tiptronic|s[ -]?tronic|cvt|e-?gear|elek\.?\s?ovl/i.test(g) ? 'Automatique' : /k[ée]zi|manu|\b\d-st\b/i.test(g) ? 'Manuelle' : g;
+const dropLead = (s: string, w: string | null | undefined): string => (w && s.toLowerCase().startsWith(`${w.toLowerCase()} `) ? s.slice(w.length + 1) : s);
 export function vwgmToVehicle(c: VwgmCar, origin: string): DealerVehicle | null {
   if (!c.id) return null;
-  const brand = VWGM_BRAND[(c.brand ?? '').toUpperCase()] ?? c.brand ?? null;
   const name = (c.model?.name ?? '').trim();
+  // CUPRA vendue sous le code « SEAT » (Slovaquie : « SEAT » + « CUPRA Formentor … ») : la marque est CUPRA.
+  const brand = VWGM_BRAND[/^cupra\b/i.test(name) ? 'CUPRA' : (c.brand ?? '').toUpperCase()] ?? c.brand ?? null;
   const f = c.flagData ?? {};
   const gross = num(c.priceData?.display?.gross);
-  const price = gross != null && gross > 0 ? Math.round(gross / 100) : null;   // fillér → forints
-  const gear = c.technicalData?.gearName ?? '';
-  const base = [brand, name].filter(Boolean).join(' ');
+  const price = gross != null && gross > 0 ? Math.round(gross / 100) : null;   // fillér → forints, centimes → euros
+  const base = brand && name.toLowerCase().startsWith(`${brand.toLowerCase()} `) ? name : [brand, name].filter(Boolean).join(' ');
+  // Gamme : « Nové Audi A6 Avant » → « A6 Avant », « CUPRA Formentor » → « Formentor », « Nový Golf » → « Golf ».
+  const group = dropLead(dropLead((c.model?.groupName ?? '').trim().replace(/^(nov[éýáa]|új)\s+/i, ''), brand), brand?.split(' ')[0]);
   return {
     external_id: c.id, url: `${origin}/search/car/${encodeURIComponent(c.id)}`, title: f.vatDeductible ? `${base} · TVA récupérable` : base,
-    brand, model: c.model?.groupName ?? splitTitle(base).model, price, currency: c.priceData?.display?.currency ?? 'HUF',
+    brand, model: group || splitTitle(base).model, price, currency: c.priceData?.display?.currency ?? 'HUF',
     km: num(c.mileageKm), year: num(c.technicalData?.manufacturingYear) ?? num(c.model?.year), fuel: c.technicalData?.combinedFuelGroupName ?? null,
-    gearbox: !gear ? null : /k[ée]zi|manu/i.test(gear) ? 'Manuelle' : /dsg|automat|tiptronic|s ?tronic|cvt|e-?gear/i.test(gear) ? 'Automatique' : gear,
+    gearbox: vwgmGear(c.technicalData?.gearName),
     plate: null, vin: null, body: [f.testDrive ? 'démonstration' : f.stockVehicle ? 'neuve en stock' : null, c.colorData?.exterior?.name, c.technicalData?.driveName].filter(Boolean).join(' · ') || null,
     image: c.images?.sorted?.[0]?.sources?.[0]?.url ?? null, listed_at: null,
     status: f.reservedOnline ? 'reserved' : price == null ? 'price_on_request' : null, power_ch: num(c.technicalData?.power?.powerHp),
@@ -4785,22 +4800,54 @@ export function vwgmToVehicle(c: VwgmCar, origin: string): DealerVehicle | null 
 async function scrapeVwgMarket(url: string): Promise<DealerStockResult> {
   const u = new URL(url);
   const id = u.pathname.match(/\/d-(\d+)\//)?.[1] ?? u.searchParams.get('dealer')?.match(/id:(\d+)/)?.[1];
-  if (!id) throw new Error('adresse de la place de marché sans concession (attendu : …/d-<n°>/search) : le stock national n\'est pas la vitrine d\'une concession');
-  const dealer = id.padStart(5, '0');
-  await sleep(SITE_DELAY_MS);
-  const r = await getTextPatient(`${u.origin}/d-${Number(id)}/search.data?size=100`, { headers: { accept: '*/*', 'accept-language': 'hu-HU,hu;q=0.9' } });
-  if (r.status !== 200) throw new Error(`place de marché : HTTP ${r.status}`);
-  const { cars, page } = parseVwgMarket(r.text);
+  const group = id ? null : u.pathname.match(/\/g-([\w-]+)\//)?.[1] ?? null;
+  if (!id && !group) throw new Error('adresse de la place de marché sans concession (attendu : …/d-<n°>/search ou …/g-<groupe>/search) : le stock national n\'est pas la vitrine d\'une concession');
+  const dealer = id?.padStart(5, '0');
+  const path = id ? `/d-${Number(id)}` : `/g-${group}`;
+  const lang = /\.sk$/.test(u.hostname) ? 'sk-SK,sk;q=0.9' : 'hu-HU,hu;q=0.9';
   const warnings: string[] = [];
-  if (!page) return { provider: 'vwgmarket', total: null, declared: null, vehicles: [], pages: 1, warnings: ['réponse « search.data » illisible (format turbo-stream changé ?)'] };
-  const own = cars.filter((c) => !c.flagData?.storedByImporter && (c.patchedDealer?.internetDealerId ?? '').padStart(5, '0') === dealer);
+  let pages = 0;
+  const read = async (filter: string) => {
+    await sleep(SITE_DELAY_MS);
+    const r = await getTextPatient(`${u.origin}${path}/search.data?size=100${filter}`, { headers: { accept: '*/*', 'accept-language': lang } });
+    // Renvoi React Router : HTTP 202 et charge « SingleFetchRedirect » (vérifié le 19/11).
+    if (r.status !== 200 && r.status !== 202) throw new Error(`place de marché${filter ? ` (${filter.slice(1)})` : ''} : HTTP ${r.status}`);
+    pages++;
+    const p = parseVwgMarket(r.text);
+    if (p.redirect) throw new Error('la place de marché renvoie vers la recherche nationale : pas de page pour cette concession (marque non vendue ?) — relevé abandonné, rien marqué disparu');
+    return p;
+  };
+  const first = await read('');
+  if (!first.page) return { provider: 'vwgmarket', total: null, declared: null, vehicles: [], pages, warnings: ['réponse « search.data » illisible (format turbo-stream changé ?)'] };
+  const byId = new Map<string, VwgmCar>();
+  const add = (cs: VwgmCar[]) => { for (const c of cs) if (c.id && !byId.has(c.id)) byId.set(c.id, c); };
+  add(first.cars);
+  const total = first.page.total ?? first.cars.length;
+  let complete = first.cars.length >= total;
+  if (!complete) {
+    // Plus de 100 voitures : la place de marché ne pagine pas → découpe par les filtres du site (neuves en stock, démonstration),
+    // puis par gamme quand une moitié dépasse encore 100.
+    complete = true;
+    for (const flag of ['&stock-cars=true', '&test-drive=true']) {
+      const sub = await read(flag);
+      add(sub.cars);
+      if (sub.cars.length >= (sub.page?.total ?? sub.cars.length)) continue;
+      for (const g of sub.groups) {
+        const one = await read(`${flag}&mg=${encodeURIComponent(g.code)}`);
+        add(one.cars);
+        if ((one.page?.total ?? 0) > one.cars.length) { complete = false; warnings.push(`gamme « ${g.code} » (${flag.slice(1)}) : ${one.page?.total} voitures, ${one.cars.length} servies`); }
+      }
+    }
+    if (byId.size < total) complete = false;
+  }
+  const cars = [...byId.values()];
+  const own = cars.filter((c) => !c.flagData?.storedByImporter && (group != null || (c.patchedDealer?.internetDealerId ?? '').padStart(5, '0') === dealer));
   const vehicles = own.map((c) => vwgmToVehicle(c, u.origin)).filter((v): v is DealerVehicle => !!v);
   const imported = cars.filter((c) => c.flagData?.storedByImporter).length;
   if (imported) warnings.push(`${imported} voiture(s) stockée(s) par l'importateur (montrées chez toutes les concessions) : non comptées`);
-  // Plus de 100 voitures dans la liste : la place de marché ne pagine pas → relevé partiel déclaré (aucune disparition marquée).
-  const truncated = (page.total ?? 0) > cars.length;
-  if (truncated) warnings.push(`liste de ${page.total} voitures, ${cars.length} servies (la place de marché ne pagine pas) : relevé partiel`);
-  return { provider: 'vwgmarket', total: vehicles.length, declared: truncated ? (page.total ?? null) : vehicles.length, vehicles, pages: 1, warnings };
+  // Découpe insuffisante : relevé partiel déclaré (aucune disparition marquée).
+  if (!complete) warnings.push(`liste de ${total} voitures, ${byId.size} lues malgré la découpe par filtres : relevé partiel`);
+  return { provider: 'vwgmarket', total: vehicles.length, declared: complete ? vehicles.length : total, vehicles, pages, warnings };
 }
 
 // ── bmwused (occasions BMW / MINI Hongrie, 19/11 nuit) : « BMW használtautó-kereső » (ajanlatok.bmw.hu/hasznalt, même
