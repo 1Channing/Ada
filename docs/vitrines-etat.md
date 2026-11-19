@@ -228,7 +228,11 @@ Interstrip Auto GmbH (12), Rævhede Auto (107), Flexicar (23 565), FLEXICAR AS
 - **Sites BMW** (autopalace) : les neuves « …-neue-klasse » se recouvraient sous un seul numéro ; elles prennent maintenant le numéro de leur carte (MD-Bavaria 158 sur 158 au lieu de 144).
 - **Kia neuves de Hongrie** : l'année était à 0 % ; c'est maintenant l'année-modèle codée dans le VIN.
 
-**Hongrie et Slovaquie, le 19/11 au matin :**
-- **Hongrie** : 7 lecteurs pour les sites de groupe (JP Auto, Autentik, MBM, Duna, Schiller, Petrányi, Leier) ; 14 fiches remises sur leur vraie vitrine, dont 9 qui étaient arrêtées.
-- **Slovaquie** : 139 concessions ajoutées. 37 sont lues chaque nuit dès maintenant ; 102 restent en « off » en attendant leur lecteur (ŠkodaPlus, stock neuf Škoda, autobazar.eu, Hedin, Kia, Todos, sites propres).
-- Détail dans le BACKLOG.
+**Hongrie et Slovaquie, le 19/11 au matin** (audit de 5 h 47 UTC, après les nouveaux lecteurs et les premiers relevés) :
+
+| | Fiches | Lues chaque nuit | Complètes | Voitures en stock | Ce qui manque encore |
+|---|---:|---:|---:|---:|---|
+| Hongrie | 140 | 140 | 125 | 5 922 | année des neuves non publiée (5 fiches), km (1) |
+| Slovaquie | 140 | 132 | 77 | 7 771 | km des neuves et démos (37 fiches), année des neuves BMW et Hedin (17), prix « sur demande » (6), boîte (2) |
+
+Toutes les vitrines inscrites : 372, dont 337 relevées, 253 complètes et 162 477 voitures en stock. En Slovaquie, 8 fiches restent en « off » : 7 n'ont aucune vitrine lisible, la 8e est en attente d'une décision (Bavaria Trnava). Le détail est dans le BACKLOG.
