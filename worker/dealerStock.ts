@@ -3269,6 +3269,11 @@ async function scrapeEveho(url: string, firstHtml: string): Promise<DealerStockR
 //    mileage, fuel, power (« 285 kW (388 PS) »), vin ; « Počet záznamov: N », 15 par page, pages « /page:N » ; un
 //    « dataLayer_<id> » par carte donne marque et modèle (« BMW radu 3 » = Série 3). La boîte n'est que sur la fiche
 //    (« Prevodovka: Automatická »), lue par DETAIL_READERS. La liste « jazdené » du site mêle neufs, démos et occasions.
+//    19/11 (les dix sites BMW de Slovaquie, même CMS) : la page de liste d'un site est celle de son GROUPE — une concession
+//    = « …/jazdene-vozidla/sklad:<n°> » ; trois cartes promotionnelles (bloc « row list inPopup ») en tête de chaque page ne
+//    sont pas la liste (« 43 lues pour 35 annoncées » à Trnava) ; lieu « stockName » (BA, TT, ZA, TN, KE, PO…) ; étiquettes
+//    « Rezervované » = réservée, « Predané » = vendue.
+const AUTOPALACE_SITES: Record<string, string> = { BA: 'Bratislava', TT: 'Trnava', ZA: 'Žilina', TN: 'Trenčín', KE: 'Košice', PO: 'Prešov', NR: 'Nitra', BB: 'Banská Bystrica', DS: 'Dunajská Streda' };
 async function scrapeAutopalace(url: string, firstHtml: string): Promise<DealerStockResult> {
   const origin = new URL(url).origin;
   const out: DealerVehicle[] = [];
@@ -3277,8 +3282,9 @@ async function scrapeAutopalace(url: string, firstHtml: string): Promise<DealerS
   const base = url.replace(/\/page:\d+/, '').replace(/\/+$/, '');
   const pageUrl = (p: number) => (p <= 1 ? base : `${base}/page:${p}`);
   const tagOf = (part: string, k: string) => htmlText(part.match(new RegExp(`class="tag ${k}">([\\s\\S]*?)(?=<div class="tag |</div>\\s*</div>)`))?.[1] ?? '');
-  const parse = (html: string): number => {
+  const parse = (page: string): number => {
     let added = 0;
+    const html = page.replace(/<div class="row list inPopup">[\s\S]*?(?=<div class="row list(?! inPopup))/, ''); // cartes promotionnelles
     for (const part of html.split(/<div class="cell slice-\d+ item/).slice(1)) {
       const href = part.match(/<a href="(\/ponuka-vozidiel\/[^"]+)"/)?.[1];
       if (!href) continue;
@@ -3286,7 +3292,7 @@ async function scrapeAutopalace(url: string, firstHtml: string): Promise<DealerS
       added++;
       if (seen.has(id)) continue;
       const title = htmlText(part.match(/<h2>\s*<a[^>]*>([\s\S]*?)<\/a>/)?.[1] ?? '');
-      const layer = html.match(new RegExp(`const dataLayer_${id} = \\{([\\s\\S]*?)\\};`))?.[1] ?? '';
+      const layer = page.match(new RegExp(`const dataLayer_${id} = \\{([\\s\\S]*?)\\};`))?.[1] ?? '';
       const layerOf = (k: string) => layer.match(new RegExp(`${k}: '([^']*)'`))?.[1]?.trim() ?? '';
       // dataLayer absent (neufs) ou marque « unknown » (MINI, VW) : le titre fait foi.
       const layerBrand = layerOf('item_brand');
@@ -3303,13 +3309,16 @@ async function scrapeAutopalace(url: string, firstHtml: string): Promise<DealerS
       const power = tagOf(part, 'power');
       const ps = num(power.match(/\((\d{2,3})\s*PS\)/i)?.[1]) ?? (num(power.match(/(\d{2,3})\s*kW/i)?.[1]) != null ? Math.round(Number(power.match(/(\d{2,3})\s*kW/i)![1]) * 1.35962) : null);
       const vin = tagOf(part, 'vin').replace(/[^A-Z0-9]/gi, '').toUpperCase() || null;
+      const stickers = [...part.slice(0, 3000).matchAll(/<span class="sticker [^"]*">([^<]*)<\/span>/g)].map((m) => htmlText(m[1]));
+      const site = htmlText(part.match(/<div class="stockName">([^<]*)<\/div>/)?.[1] ?? '').toUpperCase();
       seen.add(id);
       out.push({
         external_id: id, url: origin + href, title, brand, model: model || null, price,
         km: kmOf(tagOf(part, 'mileage')), year, fuel: tagOf(part, 'fuel') || null, gearbox: null,
         plate: null, vin: vin && vin.length === 17 ? vin : null, body: null,
         image: (() => { const i = part.match(/<img src="([^"]+)"/)?.[1]; return i ? (i.startsWith('http') ? i : origin + i) : null; })(), listed_at: null,
-        status: price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: ps, location: 'Bratislava',
+        status: stickers.some((x) => /^predan/i.test(x)) ? 'sold' : stickers.some((x) => /^rezervovan/i.test(x)) ? 'reserved' : price == null ? 'price_on_request' : null,
+        currency: 'EUR', power_ch: ps, location: AUTOPALACE_SITES[site] ?? (site || null),
       });
     }
     return added;

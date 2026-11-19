@@ -215,6 +215,31 @@ console.log('\n=== WEBSPARK (BONY, 19/11) : UNE PAGE QUI REPREND DES CARTES N\'E
   } finally { globalThis.setTimeout = realTimeout; }
 }
 
+console.log('\n=== AUTO PALACE / SITES BMW DE SLOVAQUIE (19/11) : PROMOTIONS, LIEU, RÉSERVÉE, VENDUE ===\n');
+{
+  const dsa = await import('../worker/dealerStock');
+  // Carte réelle (bmw-zilina.sk, 19/11), raccourcie ; « Predané » sur une deuxième carte (MD-Bavaria, même gabarit).
+  const card = (id: string, slug: string, site: string, sticker: string, vin: string) => `<div class="cell slice-1 item with-compare virtual-list manager stock" style="animation-delay:0s"> <div class="info"> <div class="img-wrap">
+    <a href="/ponuka-vozidiel/${slug}-${id}" class="image" onclick="dataLayer.push(dataLayer_${id}_onClickEvent)" > <div class="stockName">${site}</div> <div class="overlay"></div> <img src="preview-file/x.jpg" alt="BMW"> </a> </div>
+    <h2> <a href="/ponuka-vozidiel/${slug}-${id}" onclick="dataLayer.push(dataLayer_${id}_onClickEvent)" > BMW 223 xDrive Gran Coupe </a> </h2> <div class="epithet_wrapper stickers"> <div class="sticker anthraciteBg">Manažérske vozidlo</div> <span class="sticker grey">${sticker}</span> </div>
+    <div class="table prices"> <div class="row action"> <div class="cell large label">Zvýhodnená cena<i>:</i></div> <div class="cell large value">33 990 €</div> </div> </div>
+    <div class="table data extender"> <div class="tag registration"> 25.06.2025 </div> <div class="tag mileage"> <div class="square"></div> 15 631km </div> <div class="tag fuel"> <div class="square"></div> Benzín </div>
+    <div class="tag power"> <div class="square"></div> 150 kW (204 PS) <div class="break"></div> </div> <div class="tag vin"> <div class="break"></div> ${vin} <div class="square"></div> </div> <div class="tag availability"> <b> Na sklade v Žiline </b> </div> </div> </div> </div>
+    <script> const dataLayer_${id} = { item_name: 'BMW 223 xDrive Gran Coupe', item_id: '${vin}', price: 33990, item_brand: 'BMW', item_category: 'BMW radu 2', item_category2: 'Benzín' }; </script>`;
+  const promo = `<div class="cell slice-1 item with-compare virtual-list new way"> <div class="info"> <div class="img-wrap"> <a href="/ponuka-vozidiel/ix3-40-0992165" class="image" > <img src="/x.jpg" alt="BMW iX3 40"> </a> </div>
+    <h2> <a href="/ponuka-vozidiel/ix3-40-0992165" > BMW iX3 40 [Neue Klasse] </a> </h2> <div class="table data extender"> <div class="tag vin"> <div class="break"></div> </div> </div> </div> </div>`;
+  pages['https://ap.test/jazdene-vozidla/sklad:3'] = `<div class="locator version2 bmw bmw-zilina" data-domain-code="bmw-zilina"> <div class="row list inPopup"> <div class="content"> ${promo} </div> </div>
+    <div class="row list bmw"> <div class="content" id="filter_content"> <p>Počet záznamov: <span>2</span></p> ${card('54124', 'bmw-223-xdrive-gran-coupe-6ac66c867f322', 'ZA', 'Rezervované', 'WBA71GG0407T56031')}
+    ${card('52444', 'bmw-ix3-50-xdrive-da05284', 'TN', 'Predané', 'WBA71GG0407T56032')} </div> </div> </div>`;
+  ok(dsa.detectDealerProvider(pages['https://ap.test/jazdene-vozidla/sklad:3']) === 'autopalace', 'CMS des concessions BMW reconnu (autopalace)');
+  const ap = await dsa.fetchDealerStock('https://ap.test/jazdene-vozidla/sklad:3');
+  const g = (id: string) => ap.vehicles.find((v) => v.external_id === id);
+  ok(ap.vehicles.length === 2 && !g('0992165'), 'les cartes promotionnelles (bloc « inPopup ») ne sont pas la liste : 2 lues pour 2 annoncées', ap.vehicles.map((v) => v.external_id));
+  ok(g('54124')?.status === 'reserved' && g('54124')?.location === 'Žilina' && g('52444')?.status === 'sold' && g('52444')?.location === 'Trenčín'
+    && g('54124')?.model === 'Série 2' && g('54124')?.price === 33990 && g('54124')?.km === 15631,
+    '« Rezervované » = réservée, « Predané » = vendue, lieu « stockName » (ZA, TN), Série 2, prix, km', ap.vehicles.map((v) => [v.external_id, v.status, v.location, v.model]));
+}
+
 console.log('\n=== TOYOTA HONGRIE (pewneauto, 19/11) : CARTES ET FICHES RÉELLES ===\n');
 {
   const ds3 = await import('../worker/dealerStock');
