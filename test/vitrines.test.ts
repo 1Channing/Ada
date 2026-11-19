@@ -240,6 +240,52 @@ console.log('\n=== AUTO PALACE / SITES BMW DE SLOVAQUIE (19/11) : PROMOTIONS, LI
     '« Rezervované » = réservée, « Predané » = vendue, lieu « stockName » (ZA, TN), Série 2, prix, km', ap.vehicles.map((v) => [v.external_id, v.status, v.location, v.model]));
 }
 
+console.log('\n=== GROUPES HONGROIS (JP Auto, Autentik, MBM, Duna, Schiller, Petrányi, Leier — 19/11) ===\n');
+{
+  const dh = await import('../worker/dealerStock');
+  // JP Auto, occasions : ligne réelle du tableau « lista » (jpauto.hu/hasznalt-auto/hasznaltautok-budapest, 19/11).
+  const jpRow = `<table class="lista"><tr class="tr_alt"> <td style="height: 45px; width: 20px;">91.</td> <td style="width: 65px;"><a href="https://jpauto.hu/hasznalt-auto/hasznaltautok-budapest?hirdeteskod=23741916"><img src="https://x/1.jpg" alt="" class="kiskep"/></a></td>
+    <td style="width: 280px;"><a href="https://jpauto.hu/hasznalt-auto/hasznaltautok-budapest?hirdeteskod=23741916">KIA SPORTAGE 1.6 T-GDI Platinum</a></td> <td style="width: 200px; text-align: center;">8 390 000 Ft</td> <td style="width: 200px; text-align: center;"></td>
+    <td style="text-align: center;">2022/07</td> <td style="width: 130px; text-align: center;">110 kW, 150 LE</td> <td style="width: 200px; text-align: center;">Benzin</td> </tr></table>`;
+  const [jp] = dh.parseJpUsedRows(jpRow, 'budapest');
+  ok(jp?.external_id === '23741916' && jp?.brand === 'Kia' && jp?.price === 8390000 && jp?.year === 2022 && jp?.fuel === 'Benzin' && jp?.power_ch === 150 && jp?.location === 'JP Auto Fót (Budapest M0-M3)',
+    'JP Auto : ligne réelle des occasions (code hasznaltauto, marque, prix, 1re immatriculation, énergie, puissance, site)', jp);
+  const fiche = '<ul><li><div class="alabel">Üzemanyag: </div><div class="value">benzin</div></li> <li><div class="alabel">Sebesség váltó: </div><div class="value">automata</div></li> <li><div class="alabel">Km. óra állás: </div><div class="value">23 587 km</div></li></ul>';
+  const det = dh.readHgSpecDetail(fiche);
+  ok(det.gearbox === 'Automatique' && det.km === 23587 && det.fuel === 'benzin', 'fiche « export hasznaltauto » : boîte, km, énergie (libellés réels)', det);
+  ok(dh.hgVat('KIA CEED 1.5 T-GDI ÁFA-s!') && dh.hgVat('Nettó: 12 590 000 Ft') && !dh.hgVat('nem áfás, magánszemélytől') && JSON.stringify(dh.hgPrice('11 690 000 Ft +27% ÁFA')) === '{"price":14846300,"net":true}',
+    'TVA récupérable (« ÁFA-s », « Nettó ») ; « nem áfás » non ; prix « + ÁFA » = hors taxe, converti en TTC × 1,27');
+  // Autentik / Hedin (Feki Webstudio) : tout le groupe dans la page ; la concession = « site= » (mot entier : « gyor » ne prend
+  // pas « Győri út », adresse de Sopron), « marque= » ; page de groupe sans « site= » refusée ; lieu inconnu refusé.
+  const fwCar = (id: number, brand: string, site: string) => ({ id, brand, model: 'X', type: `${brand} X 2.0`, year: '2023', km: '15 000 km', price: 9990000, currency: 'HUF', link: `https://fw.test/hu/auto/${id}`, fuel: 'Dízel', transmission: 'Automata', site });
+  const fwPage = `<script>window.FW = window.FWS = window.FekiWebstudio = ${JSON.stringify({ cars: [fwCar(1, 'MERCEDES-BENZ', '9012 Győr, Mérföldkő u. 1.'), fwCar(2, 'KIA', '9400 Sopron, Győri út 42.'), fwCar(3, 'MERCEDES-BENZ', '2800 Tatabánya, Táncsics u. 2.')] })};</script>`;
+  for (const q of ['', '?site=gyor', '?site=gyor&marque=kia', '?site=pecs']) pages[`https://fw.test/hu/hasznaltautok${q}`] = fwPage;
+  ok(dh.detectDealerProvider(fwPage) === 'fwcars', 'Autentik : page Feki Webstudio reconnue (liste « cars » en JSON)');
+  const err = (u: string) => dh.fetchDealerStock(u).then((r) => `lu ${r.vehicles.length}`, (e: Error) => e.message);
+  const whole = await err('https://fw.test/hu/hasznaltautok');
+  const gy = await dh.fetchDealerStock('https://fw.test/hu/hasznaltautok?site=gyor');
+  const gyKia = await dh.fetchDealerStock('https://fw.test/hu/hasznaltautok?site=gyor&marque=kia');
+  const nowhere = await err('https://fw.test/hu/hasznaltautok?site=pecs');
+  ok(/vitrine de groupe/.test(whole) && gy.vehicles.map((v) => v.external_id).join() === '1' && gy.vehicles[0]?.brand === 'Mercedes-Benz' && gyKia.declared === 0 && /aucune voiture au lieu/.test(nowhere),
+    'groupe sans « site= » refusé ; « site=gyor » : la voiture de Győr seulement (pas « Győri út » à Sopron) ; aucune Kia à Győr = vrai zéro ; lieu inconnu refusé (rien marqué disparu)', [whole, gy.vehicles.map((v) => v.external_id), gyKia.declared, nowhere]);
+  // JP Auto « auto-kereso » sans telephely : le stock de tout le groupe n'est pas une concession.
+  pages['https://jp.test/auto-kereso/?marka=mercedes-benz'] = '<span class="sum ">Összesen: 281 db autó</span><a href="https://www.jpauto.hu/auto-kereso/?x=1">x</a>';
+  ok(/sans telephely/.test(await err('https://jp.test/auto-kereso/?marka=mercedes-benz')), 'JP Auto : liste des neuves sans « telephely » (tout le groupe) refusée');
+  const [jn] = dh.parseJpNewCards('<div class="product-item-row" data-url="https://www.jpauto.hu/auto-kereso/ev3-earth-my26"><div class="name"><a href="#">ÚJ KIA EV3 EARTH ADA HEA LR MY26 Ivory Silver metál</a></div>'
+    + '<span class="icon"><img src="/i/icon-allapot.svg"></span><span class="val">Új</span><div class="price">16 890 000 Ft</div></div>', 'Kia', 'JP Auto Veszprém');
+  ok(jn?.external_id === 'ev3-earth-my26' && jn?.year === 2026 && jn?.price === 16890000 && /^Kia EV3 EARTH/.test(jn?.title ?? ''), 'JP Auto neuve : « MY26 » = année-modèle 2026, « ÚJ » et la marque répétée ôtés', jn);
+  // Détection : un marqueur réel par plateforme.
+  const det7 = [
+    '<a href="https://jpauto.hu/hasznalt-auto/hasznaltautok-eger">x</a> Találatok száma: 20 <table class="lista"></table>',
+    '<div id="vehicleListU"></div><input name="ha_source"><select id="pageLimitSelectorU"></select>',
+    '<div data-components--stock-search-load-endpoint-value="&#x2F;auto-kereso&#x2F;load"></div><span data-components--stock-search-target="counter"></span>',
+    '<script>window.__APP_CONFIG__ = {"API_URL":"https://api.schiller.hu/api/trpc"}</script><script src="/assets/carListing-Ab12.js"></script>',
+    '<link rel="canonical" href="https://www.petranyiauto.hu/kinalat/hasznalt-autok/" />',
+    '<body class="wp-theme-leierauto"><select name="gyartmany"></select><article class="used-vehicle-card">',
+  ].map((h) => dh.detectDealerProvider(h));
+  ok(JSON.stringify(det7) === '["jpauto","mbmauto","dunaauto","schiller","petranyi","leierauto"]', 'JP Auto, MBM, Duna, Schiller, Petrányi, Leier reconnus par leurs marqueurs', det7);
+}
+
 console.log('\n=== TOYOTA HONGRIE (pewneauto, 19/11) : CARTES ET FICHES RÉELLES ===\n');
 {
   const ds3 = await import('../worker/dealerStock');

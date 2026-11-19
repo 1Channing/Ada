@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused' | 'kiaosp' | 'pappas';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused', 'kiaosp', 'pappas'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused' | 'kiaosp' | 'pappas' | 'jpauto' | 'fwcars' | 'mbmauto' | 'dunaauto' | 'schiller' | 'petranyi' | 'leierauto';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused', 'kiaosp', 'pappas', 'jpauto', 'fwcars', 'mbmauto', 'dunaauto', 'schiller', 'petranyi', 'leierauto'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -339,6 +339,23 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   // eveho (VPN Autos, 05/11) : Nuxt rendu serveur, cartes « component-single-vehicle » (marque/modèle, version, prix,
   // « filedKmYear » km et année, « otherFields » énergie et boîte, lieu), 23 par page « ?page=N », « N résultats ».
   if (/class="component-single-vehicle"/.test(html) && /filedKmYear/.test(html)) return 'eveho';
+  // jpauto (JP Auto / Jász-Plasztik, 19/11) : occasions « /hasznalt-auto/hasznaltautok-<ville> » (tableau « lista »,
+  // « Találatok száma: N ») et neuves / démos « /auto-kereso/?marka=…&telephely=… » (« Összesen: N db autó »). Le
+  // sous-site mercedes-benz.jpauto.hu (catalogue des modèles, reconnu « jetlisting ») n'est PAS une vitrine.
+  if (/jpauto\.hu\/hasznalt-auto\/hasznaltautok-[a-z-]+/.test(html) && /Találatok száma:\s*\d+/.test(html) && /<table class="lista">/.test(html)) return 'jpauto';
+  if (/<span class="sum ">Összesen: \d+ db autó<\/span>/.test(html) && /jpauto\.hu\/auto-kereso\//.test(html)) return 'jpauto';
+  // fwcars (Autentik / Hedin, site Feki Webstudio, 19/11) : tout le stock du groupe en JSON dans la page.
+  if (/window\.FW(?:S)?\s*=\s*(?:window\.\w+\s*=\s*)*\{"cars":\[/.test(html)) return 'fwcars';
+  // mbmauto (MBM Auto Miskolc, 19/11) : page « készlet » (vehicleListU, ha_source) ; liste par « /used-car-filter ».
+  if (/id="vehicleListU"/.test(html) && /name="ha_source"/.test(html) && /id="pageLimitSelectorU"/.test(html)) return 'mbmauto';
+  // dunaauto (Duna Autó, 19/11) : composant Stimulus « stock-search » (load « /auto-kereso/load », compteur).
+  if (/data-components--stock-search-load-endpoint-value="(?:&#x2F;|\/)auto-kereso(?:&#x2F;|\/)load"/.test(html) && /data-components--stock-search-target="counter"/.test(html)) return 'dunaauto';
+  // schiller (Schiller Autó Család, 19/11) : TanStack + API tRPC « carListing » (API_URL dans __APP_CONFIG__).
+  if (/window\.__APP_CONFIG__\s*=\s*\{"API_URL":"https:\/\/api\.[a-z0-9.-]+\/api\/trpc"/.test(html) && /\/assets\/carListing-[\w-]+\.js/.test(html)) return 'schiller';
+  // petranyi (Petrányi Autó, 19/11) : listes « /kinalat/hasznalt-autok|keszlet|<marque>-keszlet/ » (adresse canonique).
+  if (/<link rel="canonical" href="https:\/\/www\.petranyiauto\.hu\/kinalat\/(?:hasznalt-autok|keszlet|[a-z]+-keszlet)\/"/.test(html)) return 'petranyi';
+  // leierauto (Leier Autó Győr, 19/11) : WordPress « leierauto », cartes « used-vehicle-card » + formulaire « gyartmany ».
+  if (/wp-theme-leierauto/.test(html) && /name="gyartmany"/.test(html) && (/<article class="used-vehicle-card">/.test(html) || /hasznalt-autok/.test(html))) return 'leierauto';
   // jetlisting (Regge Autogroep, 09/11) : WordPress + Elementor + JetEngine, cartes « jet-listing-grid__item » avec
   // data-url, titre <h3> (marque modèle), <p> version, champs dynamiques (km, année, énergie, boîte, prix), pages « /page/N/ ».
   if (/class="jet-listing-grid__item /.test(html) && /jet-engine-listing-overlay-wrap" data-url="/.test(html) && /jet-listing-dynamic-field__content/.test(html)) return 'jetlisting';
@@ -5108,6 +5125,913 @@ async function scrapePappas(url: string, firstHtml: string): Promise<DealerStock
   return { provider: 'pappas', total: declared ?? vehicles.length, declared, vehicles, pages, warnings };
 }
 
+// ── Groupes de concessions hongrois (19/11 nuit) : aides communes « hg… » ────────────────────────────────────────────
+/** Texte replié : sans accents, minuscules, blancs simples (« Győr » → « gyor », « ÁFÁS » → « afas »). */
+const hgFold = (s: string | null | undefined): string => String(s ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
+/** MOT ENTIER dans un texte replié : « gyor » trouve « 9012 Győr, Mérföldkő u. 1. » mais pas « Sopron Győri út 42. ». */
+const hgHasWord = (text: string | null | undefined, word: string): boolean => {
+  const w = hgFold(word).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return !!w && new RegExp(`(^|[^a-z0-9])${w}([^a-z0-9]|$)`).test(hgFold(text));
+};
+/** Prix en forints d'un texte : « 14 499 000 Ft », « 9.849.000 Ft », « 11 690 000 Ft +27% ÁFA » / « + ÁFA » = prix HORS TAXE
+ *  (net : converti en TTC × 1,27 ; la voiture est à TVA récupérable). */
+export function hgPrice(text: string | null | undefined): { price: number | null; net: boolean } {
+  const t = String(text ?? '').replace(/[\u00a0\u202f]/g, ' ');
+  const m = t.match(/(\d{1,3}(?:[ .]\d{3})+|\d{4,})\s*(?:Ft|HUF)\b/i);
+  if (!m) return { price: null, net: false };
+  const n = Number(m[1].replace(/[ .]/g, ''));
+  const net = /\+\s*(?:\d{1,2}\s*%\s*)?áfa/i.test(t);
+  return { price: n > 0 ? (net ? Math.round(n * 1.27) : n) : null, net };
+}
+/** Boîte d'un LIBELLÉ hongrois : « Automata (7 fokozatú) sebességváltó », « Fokozatmentes automata », « Szekvenciális »,
+ *  « automata », « Manuális (6 fokozatú) sebességváltó », « kézi ». */
+export const hgGear = (t: string | null | undefined): string | null => {
+  const s = hgFold(t);
+  if (!s) return null;
+  if (/automat|fokozatmentes|szekvencialis|robotiz|tiptronic|steptronic|s-?tronic|\bdsg\b|\bdct\b|\bcvt\b|e-?cvt|\bivt\b|\d?g-?tronic/.test(s)) return 'Automatique';
+  if (/manualis|\bkezi\b|\bmt\b/.test(s)) return 'Manuelle';
+  return null;
+};
+/** Boîte d'une DÉSIGNATION (« 9G-TRONIC », « 7G-DCT », « SPEEDSHIFT », « 140T AT SW », « (Automata) », « DCT », « MT ») —
+ *  en majuscules pour « AT » / « MT » (jamais « at » dans un mot hongrois). */
+export const hgGearTitle = (t: string | null | undefined): string | null => {
+  const s = String(t ?? '');
+  const v = gearboxOfVersion(s);
+  if (v) return v;
+  if (/\b\d?G-?TRONIC\b|SPEEDSHIFT|\bDKG\b|\bIVT\b|\bDCT\d?\b|\bDSG\b|\bCVT\b|steptronic|tiptronic|s-tronic|\(automata\)|\bautomata\b|\bAut\.?\)/i.test(s) || /\bAT\d?\b/.test(s)) return 'Automatique';
+  if (/\bMT\d?\b/.test(s) || /\bmanuális\b/i.test(s)) return 'Manuelle';
+  return null;
+};
+/** Une électrique n'a pas de boîte à choisir (rapport unique) : comparée comme une automatique (cf. evGearbox). */
+const hgEvGear = (fuel: string | null): string | null => (fuelFamily(fuel) === 'electric' ? 'Automatique' : null);
+/** Énergie : le libellé du site (« Benzin », « Dízel », « Benzin/elektromos », « Elektromos », « Hibrid »), « Plug-in … »
+ *  quand la désignation dit rechargeable (« Plug-in hybrid », « PHEV », « e-Hybrid », BYD « DM-i », Mercedes « 300 e » /
+ *  « 300 de », « EQ Power ») ; sans libellé, lue dans la désignation seulement quand elle est sans ambiguïté. */
+export const hgFuel = (fuel: string | null | undefined, title: string | null | undefined): string | null => {
+  const raw = String(fuel ?? '').trim();
+  const f = raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : '';
+  const t = String(title ?? '');
+  const said = /plug-?in|\bphev\b|e-?hybrid|\bdm-?i\b/i.test(t);                 // rechargeable écrit en toutes lettres
+  const mb = /\b\d{3} ?d?e\b|eq ?power/i.test(t);                               // Mercedes « 300 e », « 300 de », « EQ Power »
+  if (f && !/^(-|egy[ée]b|nincs megadva|n\/a)$/i.test(f)) {
+    const fam = fuelFamily(f);
+    if (/plug/i.test(f)) return f;
+    if (fam === 'hybrid' && (said || mb)) return `Plug-in ${f}`;
+    // « E 300 de … Plug-in hybrid » annoncée « Dízel » par le site : rechargeable, moteur diesel.
+    if ((fam === 'diesel' || fam === 'petrol') && said) return `Plug-in hibrid (${f})`;
+    return f;
+  }
+  if (said || mb) return 'Plug-in hibrid';
+  if (/\b(full ?hybrid|hybrid|hibrid|mhev)\b/i.test(t)) return 'Hibrid';
+  if (/\b(elektromos|electric|e-tron|bev)\b|\d+(?:[.,]\d)?\s?kwh\b|\bEV\d?\b|\bEQ[ABCES]\b/i.test(t)) return 'Elektromos';
+  if (/\b(tdi|cdi|crdi|dci|hdi|bluehdi|d-4d|jtd|multijet|ecoblue|diesel|dízel)\b|\b\d{3} ?d\b/i.test(t)) return 'Dízel';
+  if (/\b(tsi|tfsi|tce|t-?gdi|gdi|mpi|puretech|ecoboost|vvt-?i|benzin)\b/i.test(t)) return 'Benzin';
+  return null;
+};
+/** TVA récupérable : « ÁFA-s », « Áfás! », « /ÁFÁS/ », « ÁFA-ÁS », « ÁFA visszaigényelhető », prix « + ÁFA », « Nettó: … Ft »,
+ *  « Nettó 12.590.000 », « nettó 17.1M » (prix net affiché = voiture vendue avec TVA) ; jamais « nem áfás » / « áfamentes ». */
+export const hgVat = (text: string | null | undefined): boolean => {
+  const s = hgFold(text);
+  if (/nem afa|afa ?-?mentes/.test(s)) return false;
+  return /(^|[^a-z])afa-?a?s([^a-z]|$)|afa-? ?visszaig|\+\s*(\d{1,2}\s*%\s*)?afa|(^|[^a-z])netto([^a-z]|$)/.test(s);
+};
+/** Statut d'une annonce hongroise : « Eladva » / « Elkelt » (vendue), « Foglalt » / « Lefoglalva » (réservée), « Gyártás
+ *  alatt » / « Szállítás alatt » / « Beérkezés alatt » (pas encore livrée) ; mots entiers (jamais « foglaltak »). */
+const hgStatus = (text: string | null | undefined, price: number | null): DealerVehicleStatus | null => {
+  const s = hgFold(text);
+  if (/(^|[^a-z])(eladva|elkelt)([^a-z]|$)/.test(s)) return 'sold';
+  if (/(^|[^a-z])(foglalt|lefoglalva|lefoglalt)([^a-z]|$)/.test(s)) return 'reserved';
+  if (/gyartas alatt|szallitas alatt|beerkezes alatt/.test(s)) return 'expected';
+  return price == null ? 'price_on_request' : null;
+};
+const HG_BRANDS: Record<string, string> = {
+  'MERCEDES-BENZ': 'Mercedes-Benz', 'MERCEDES BENZ': 'Mercedes-Benz', 'MERCEDES-AMG': 'Mercedes-AMG', 'MERCEDES-MAYBACH': 'Mercedes-Maybach',
+  VOLKSWAGEN: 'Volkswagen', VW: 'Volkswagen', SKODA: 'Škoda', 'ŠKODA': 'Škoda', KIA: 'Kia', 'LAND ROVER': 'Land Rover', 'ALFA ROMEO': 'Alfa Romeo',
+  CITROEN: 'Citroën', 'CITROËN': 'Citroën', SSANGYONG: 'SsangYong', MINI: 'MINI', SEAT: 'SEAT', CUPRA: 'CUPRA', BMW: 'BMW', BYD: 'BYD', MG: 'MG',
+  KGM: 'KGM', DS: 'DS', DFSK: 'DFSK', LEXUS: 'Lexus', 'MERCEDES': 'Mercedes-Benz',
+};
+/** Marque lisible : « MERCEDES-BENZ » → « Mercedes-Benz », « OPEL » → « Opel », « BMW » reste « BMW », « Kia » inchangé. */
+export const hgBrand = (b: string | null | undefined): string | null => {
+  const s = String(b ?? '').replace(/\s+/g, ' ').trim();
+  if (!s) return null;
+  const k = s.toUpperCase();
+  if (HG_BRANDS[k]) return HG_BRANDS[k];
+  if (s !== k) return s;
+  return s.toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (_: string, a: string, c: string) => a + c.toUpperCase());
+};
+/** Puissance : « 225 kW, 306 LE », « 476LE (350 KW) » → chevaux (LE = lóerő) ; sinon les kW. */
+const hgPower = (t: string | null | undefined): number | null => num(String(t ?? '').match(/(\d{2,4})\s*LE\b/)?.[1]) ?? powerFromText(t);
+/** Adresse « slug » d'une désignation (« SUZUKI SX4 1.5 GLX » → « suzuki-sx4-1-5-glx »). */
+const hgSlug = (s: string): string => hgFold(s).replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+/**
+ * FICHE « EXPORT HASZNALTAUTO » (19/11) : les sites de groupes hongrois reprennent les annonces de hasznaltauto.hu et
+ * affichent, sur la fiche, des paires libellé / valeur (JP Auto <td>Km. óra állás:</td><td>23 587 km</td> ; MBM et Leier
+ * « Km. óra állás | 390 000 km », « Sebességváltó | Automata (9 fokozatú tiptronic) sebességváltó » ; Petrányi « Futott
+ * km-ek | 120.261 km », « Váltó | Manuális », « Meghajtás | Benzin » ; JP Auto neuves « Futott km: | 45489 »,
+ * « Sebesség váltó: | automata », « Üzembehelyezés: | 2022.11.11 » ; « Alvázszám » = VIN). Première occurrence de chaque
+ * libellé (les menus n'en contiennent pas). Rend km, boîte, énergie, année et VIN (le VIN n'est enregistré que si le noyau
+ * le prend : voir la retouche 6 de l'intégration).
+ */
+export function readHgSpecDetail(html: string): DetailFields & { vin?: string | null } {
+  const tokens = htmlTokens(html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<svg[\s\S]*?<\/svg>/g, ' '));
+  const spec = new Map<string, string>();
+  for (let i = 0; i + 1 < tokens.length; i++) {
+    const k = hgFold(tokens[i]).replace(/[:\s]+$/, '');
+    if (k.length <= 40 && !spec.has(k)) spec.set(k, tokens[i + 1].trim());
+  }
+  const get = (...keys: string[]): string | null => keys.map((k) => spec.get(k)).find((v) => v != null && v !== '' && v !== '-') ?? null;
+  const kmTxt = get('km. ora allas', 'km ora allas', 'futott km-ek', 'futott km', 'futott', 'kilometerora allas', 'futasteljesitmeny');
+  const fuel = get('uzemanyag', 'meghajtas');
+  const vin = (get('alvazszam', 'alvazszam (vin)', 'vin', 'vin szam') ?? '').replace(/\s/g, '').toUpperCase();
+  return {
+    km: kmTxt && /\d/.test(kmTxt) && !/^\d{4}[./]/.test(kmTxt) ? num(kmTxt.replace(/\D/g, '')) : null,
+    gearbox: hgGear(get('sebessegvalto', 'sebesseg valto', 'valto', 'valto tipusa')),
+    fuel: fuel && fuelFamily(fuel) ? fuel : null,
+    year: yearOf(get('gyartasi ev', 'evjarat', 'elso forgalomba helyezes', 'elso forgalomba helyezes datuma', 'forgalomba helyezes', 'uzembehelyezes')),
+    vin: /^[A-HJ-NPR-Z0-9]{17}$/.test(vin) ? vin : null,
+  };
+}
+
+// ── jpauto (JP Auto = Jász-Plasztik Autócentrum Kft. : Mercedes-Benz, Kia, Suzuki, Mazda, BYD ; 19/11 nuit) — deux vitrines
+//    rendues serveur, sans clé :
+//    • OCCASIONS d'un site : « /hasznalt-auto/hasznaltautok-<ville> » (budapest = Fót M0-M3, jaszbereny, nyiregyhaza,
+//      veszprem, eger, kecskemet), toutes marques, tableau de 10 lignes par page « ?page=N » (au-delà de la dernière page
+//      le site rend la page 1 : arrêt sur le total « Találatok száma: N » et sur une page sans nouveauté). Ligne : titre
+//      (annonce reprise de hasznaltauto : son code « hirdeteskod » est l'identifiant), prix (et prix promo), 1re
+//      immatriculation AAAA/MM, puissance, énergie ; « Nettó: … Ft » dans le titre = TVA récupérable. Km, boîte et VIN
+//      sont sur la fiche « ?hirdeteskod=<code> » (DETAIL_READERS ; VIN : retouche 6).
+//    • NEUVES / DÉMONSTRATION d'une marque sur un site : « /auto-kereso/?marka=<kia|mercedes-benz…>&telephely=<services
+//      du site> » (le service de la marque : « veszprem-kia-ertekesites », « budapest-mercedes-benz-szemelygepjarmu-
+//      ertekesites|budapest-mercedes-benz-transzporter-ertekesites » ; un service d'une autre marque rend 0 ; ADRESSE COURTE :
+//      au-delà d'environ 225 caractères le serveur répond HTTP 502), cartes de 24, pages « /auto-kereso//page/N?… », total
+//      « Összesen: N db autó ».
+//      Carte : désignation, puissance, état (Új / Rendszámos bemutató autó), km, énergie, boîte, prix (barré + remisé),
+//      « ÁFA-ÁS ». Année : seulement sur la fiche des démos (« Üzembehelyezés ») ; une neuve « Legkorábban átvehető :
+//      3 hónap múlva » (à commander) n'en a pas → non lue (sinon relue chaque nuit). Un telephely inconnu du moteur rend
+//      « 0 db autó » SANS lieu dans les filtres affichés (« Szűrők ») : refus ; une « marka » ignorée : refus aussi.
+//      Sans telephely : refus (tout le groupe n'est pas une concession). Paramètre du LECTEUR « sans_occasions=1 » : les
+//      voitures que le site publie AUSSI dans sa page des occasions (démos et neuves reprises de hasznaltauto, autre
+//      identifiant) sont écartées, pour la fiche dont la vitrine 1 est cette page (sinon comptées deux fois).
+//    • Politesse : 1 s entre deux requêtes (site lent ; une erreur 500 / 502 / 504 passagère → deux reprises) ; la page
+//      des occasions lue en vitrine 1 est gardée 30 min pour « sans_occasions » (pas relue).
+const JP_USED_PER = 10;
+const JP_NEW_PER = 24;
+const JP_CITY: Record<string, string> = { budapest: 'Fót (Budapest M0-M3)', jaszbereny: 'Jászberény', nyiregyhaza: 'Nyíregyháza', veszprem: 'Veszprém', eger: 'Eger', kecskemet: 'Kecskemét', solymar: 'Solymár' };
+export const jpUsedDeclared = (html: string): number | null => num(html.match(/Találatok száma:\s*(\d+)/)?.[1]);
+export const jpNewDeclared = (html: string): number | null => num(html.match(/Összesen:\s*(\d+)\s*db autó/)?.[1]);
+export function parseJpUsedRows(html: string, city: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  const table = html.match(/<table class="lista">([\s\S]*?)<\/table>/)?.[1] ?? '';
+  for (const row of table.split(/<tr\b/).slice(1)) {
+    const href = row.match(/<a href="([^"]*[?&](?:amp;)?hirdeteskod=(\d+))"/);
+    if (!href) continue;
+    const td = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((m) => m[1]);
+    const title = htmlText(td[2] ?? '');
+    const list = hgPrice(htmlText(td[3] ?? '')), promo = hgPrice(htmlText(td[4] ?? ''));
+    const price = promo.price ?? list.price;
+    const reg = htmlText(td[5] ?? '');
+    const sp = splitTitle(title);
+    const brand = hgBrand(sp.brand);
+    const named = brand && sp.brand ? `${brand}${title.slice(sp.brand.length)}` : title;
+    const fuel = hgFuel(htmlText(td[7] ?? ''), title);
+    const vat = hgVat(title) || list.net || promo.net;
+    out.push({
+      external_id: href[2], url: unesc(href[1]), title: vat ? `${named} · TVA récupérable` : named, brand, model: sp.model,
+      price, currency: 'HUF', km: null, year: yearOf(reg), fuel, gearbox: hgGearTitle(title) ?? hgEvGear(fuel), plate: null, vin: null,
+      body: [reg ? `1re immatriculation ${reg}` : null, promo.price != null && list.price != null && list.price > promo.price ? `prix barré ${list.price} Ft` : null].filter(Boolean).join(' · ') || null,
+      image: row.match(/<img src="([^"]+)"/)?.[1] ?? null, listed_at: null, status: hgStatus(title, price),
+      power_ch: hgPower(htmlText(td[6] ?? '')), location: `JP Auto ${JP_CITY[city] ?? city}`,
+    });
+  }
+  return out;
+}
+export function parseJpNewCards(html: string, brand: string | null, location: string | null): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  for (const part of html.split('<div class="product-item-row" data-url="').slice(1)) {
+    const url = unesc(part.slice(0, part.indexOf('"')));
+    const id = url.replace(/[?#].*$/, '').replace(/\/+$/, '').split('/').pop() ?? '';
+    if (!/^https?:\/\//.test(url) || !id) continue;
+    // « ÚJ KIA PV5 … », « KIA K4 SW … », « Mercedes-Benz T-osztály … » : « Új » et la marque répétée ôtés (la marque est en tête).
+    let name = htmlText(part.match(/<div class="name"><a[^>]*>([\s\S]*?)<\/a>/)?.[1] ?? '').replace(/^új\s+/i, '');
+    if (brand && hgFold(name).startsWith(`${hgFold(brand)} `)) name = name.slice(brand.length + 1).trim();
+    const attr = new Map<string, string>();
+    for (const m of part.matchAll(/icon-([a-z]+)\.svg"><\/span><span class="val">([^<]*)<\/span>/g)) attr.set(m[1], htmlText(m[2]));
+    const box = part.match(/<div class="price">([\s\S]*?)<\/div>/)?.[1] ?? '';
+    const strike = box.match(/<span class="strikeout">([\s\S]*?)<\/span>\s*<\/span>/);
+    const old = hgPrice(htmlText(strike?.[1] ?? ''));
+    const p = hgPrice(htmlText(strike ? box.replace(strike[0], ' ') : box));
+    const state = attr.get('allapot') ?? '';
+    const isNew = /^új$/i.test(state.trim());
+    const fuel = hgFuel(attr.get('uzemanyag'), name);
+    const kmTxt = attr.get('km') ?? '';
+    const base = [brand, name].filter(Boolean).join(' ');
+    const vat = hgVat(name) || p.net;
+    out.push({
+      external_id: id, url, title: vat ? `${base} · TVA récupérable` : base, brand, model: splitTitle(base).model, price: p.price, currency: 'HUF',
+      // Année : non publiée sur la carte ; l'année-modèle « MY26 » de la désignation Kia, quand elle y est (19/11).
+      km: /\d/.test(kmTxt) ? num(kmTxt.replace(/\D/g, '')) : isNew ? 0 : null, year: (() => { const y = num(name.match(/\bMY ?(\d{2})\b/i)?.[1]); return y != null ? 2000 + y : null; })(), fuel,
+      gearbox: hgGear(attr.get('sebessegvalto')) ?? hgGearTitle(name) ?? hgEvGear(fuel), plate: null, vin: null,
+      body: [isNew ? 'neuve en stock' : /bemutat/i.test(state) ? 'démonstration immatriculée' : state || null,
+        old.price != null && p.price != null && old.price > p.price ? `prix catalogue ${old.price} Ft` : null].filter(Boolean).join(' · ') || null,
+      image: part.match(/<img class="first"[^>]*src="([^"]+)"/)?.[1] ?? null, listed_at: null, status: hgStatus(name, p.price),
+      power_ch: hgPower(attr.get('teherbiras')), location,
+    });
+  }
+  return out;
+}
+/** GET poli pour jpauto.hu : 1 s entre deux requêtes (site lent) ; HTTP 500 / 502 / 504 ou connexion coupée → deux
+ *  reprises (5 s puis 15 s) avant de renoncer. (Un 502 SYSTÉMATIQUE vient d'une adresse trop longue : voir plus bas.) */
+const JP_DELAY_MS = 1000;
+async function jpGet(url: string): Promise<{ status: number; text: string }> {
+  for (let i = 0; ; i++) {
+    await sleep(i === 0 ? JP_DELAY_MS : i === 1 ? 5000 : 15000);
+    try {
+      const r = await getTextPatient(url);
+      if (![500, 502, 504].includes(r.status) || i >= 2) return r;
+    } catch (e) { if (i >= 2) throw e; }
+  }
+}
+/** Pages des occasions déjà lues (30 min) : la vitrine 2 « sans_occasions=1 » d'une fiche relit la page de sa vitrine 1. */
+const jpUsedCache = new Map<string, { at: number; vehicles: DealerVehicle[]; declared: number | null }>();
+/** Page des occasions d'un site JP Auto, toutes ses pages (« ?page=N » ; au-delà de la dernière, le site rend la page 1). */
+async function readJpUsedList(url: string, city: string, firstHtml: string | null, warnings: string[], fromCache = false): Promise<{ vehicles: DealerVehicle[]; declared: number | null; pages: number; ok: boolean }> {
+  const key = `${new URL(url).hostname.replace(/^www\./, '')}/${city}`;
+  const cacheable = !new URL(url).searchParams.has('filter');          // page filtrée par marque : jamais en cache
+  const hit = jpUsedCache.get(key);
+  if (fromCache && cacheable && hit && Date.now() - hit.at < 30 * 60_000) return { vehicles: hit.vehicles, declared: hit.declared, pages: 0, ok: true };
+  const byId = new Map<string, DealerVehicle>();
+  let pages = 0, ok = true;
+  let declared: number | null = firstHtml != null ? jpUsedDeclared(firstHtml) : null;
+  let last = declared != null ? Math.ceil(declared / JP_USED_PER) : 1;
+  for (let p = 1; p <= Math.min(Math.max(last, 1), 80); p++) {
+    let html = p === 1 && firstHtml != null && !new URL(url).searchParams.has('page') ? firstHtml : null;
+    if (html == null) {
+      const r = await jpGet(p === 1 ? url : withParam(url, 'page', String(p)));
+      if (r.status !== 200) { warnings.push(`occasions ${city}, page ${p} : HTTP ${r.status}`); ok = false; break; }
+      html = r.text;
+      if (declared == null) { declared = jpUsedDeclared(html); last = declared != null ? Math.ceil(declared / JP_USED_PER) : 1; }
+    }
+    pages++;
+    let added = 0;
+    for (const v of parseJpUsedRows(html, city)) if (!byId.has(v.external_id)) { byId.set(v.external_id, v); added++; }
+    if (added === 0) break;                           // au-delà de la dernière page, le site rend la page 1
+  }
+  const vehicles = [...byId.values()];
+  if (ok && cacheable && (declared == null || vehicles.length >= declared)) jpUsedCache.set(key, { at: Date.now(), vehicles, declared });
+  return { vehicles, declared, pages, ok };
+}
+/** Premier mot de MODÈLE d'une désignation (« AMG EQE 43 4MATIC » → « eqe », « KIA K4 SW » → « k4 », « EGYEDI ÁRAS-NIRO » → « niro »). */
+const JP_STOP = new Set(['kia', 'mercedes', 'benz', 'amg', 'maybach', 'uj', 'egyedi', 'aras', 'akcios', 'jp', 'auto', 'suzuki', 'mazda', 'byd', 'the', 'new']);
+const jpCore = (t: string): string | null => hgFold(t).split(/[^a-z0-9+]+/).find((w) => !!w && /[a-z]/.test(w) && !JP_STOP.has(w)) ?? null;
+async function scrapeJpAuto(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  const warnings: string[] = [];
+  const byId = new Map<string, DealerVehicle>();
+  let pages = 0;
+  const city = u.pathname.match(/\/hasznalt-auto\/hasznaltautok-([a-z-]+)/)?.[1];
+  if (city) {
+    const r = await readJpUsedList(url, city, firstHtml, warnings);
+    if (r.declared != null && r.vehicles.length < r.declared) warnings.push(`${r.vehicles.length} voiture(s) lue(s) pour ${r.declared} annoncée(s)`);
+    warnings.push('km, boîte (et VIN) des occasions : fiche « ?hirdeteskod= » (DETAIL_READERS)');
+    return { provider: 'jpauto', total: r.declared ?? r.vehicles.length, declared: r.declared, vehicles: r.vehicles, pages: r.pages, warnings };
+  }
+  if (!/^\/auto-kereso\/?$/.test(u.pathname)) throw new Error('adresse JP Auto non reconnue (attendu : …/hasznalt-auto/hasznaltautok-<ville> ou …/auto-kereso/?marka=<marque>&telephely=<site>)');
+  const telephely = u.searchParams.get('telephely');
+  if (!telephely) throw new Error('adresse JP Auto « auto-kereso » sans telephely (attendu : …/auto-kereso/?marka=<marque>&telephely=<site>) : le stock de tout le groupe n\'est pas la vitrine d\'une concession');
+  // ADRESSE COURTE (19/11) : au-delà d'environ 225 caractères, le serveur répond HTTP 502 (« telephely » de 4 services de
+  // Fót + « sans_occasions=1 », ou « %7C » au lieu de « | », ou « &sorrend= ») — prendre le service de la marque
+  // (« budapest-kia-ertekesites », « veszprem-mercedes-benz-ertekesites »), pas la valeur « ville » à 4 services.
+  if (url.length > 215) warnings.push(`adresse de ${url.length} caractères : jpauto.hu répond HTTP 502 au-delà d'environ 225 — raccourcir « telephely » au service de la marque`);
+  // Filtres appliqués par le site (« Szűrők ») : une marque qu'il ignorerait rendrait toutes les marques du site.
+  const chips = [...firstHtml.matchAll(/<div class="selected-item">[\s\S]*?<\/a>([^<]+)<\/div>/g)].map((m) => htmlText(m[1]));
+  const marka = u.searchParams.get('marka');
+  const squash = (s: string) => hgFold(s).replace(/[\s-]/g, '');
+  const brandChip = marka ? chips.find((c) => squash(c) === squash(marka)) : undefined;
+  if (marka && !brandChip) throw new Error(`filtre « marka=${marka} » non appliqué par jpauto.hu (filtres affichés : ${chips.join(', ') || 'aucun'}) : la page mêlerait les marques`);
+  // Un telephely inconnu du moteur (faute de frappe, service renommé, Solymár) rend « 0 db autó » SANS lieu dans les
+  // filtres affichés : jamais un stock vide (tout serait marqué vendu) → refus.
+  const placeChip = chips.find((c) => c !== brandChip);
+  if (!placeChip) throw new Error(`telephely « ${telephely} » inconnu du moteur de jpauto.hu (aucun lieu dans les filtres affichés : ${chips.join(', ') || 'aucun'}) — prendre le service de la marque du site (ex. « veszprem-kia-ertekesites », « jaszbereny-mercedes-benz-ertekesites »)`);
+  const brand = brandChip ? hgBrand(brandChip) : null;
+  const cityKey = telephely.split(/[|,]/)[0].split('-')[0];
+  const location = `JP Auto ${JP_CITY[cityKey] ?? placeChip}`;
+  let declared = jpNewDeclared(firstHtml);
+  let cardsSeen = 0, complete = false;
+  const readAll = async (extra: string): Promise<void> => {
+    const last = Math.min(Math.max(Math.ceil((declared ?? JP_NEW_PER) / JP_NEW_PER), 1), 40);
+    for (let p = 1; p <= last; p++) {
+      let html = p === 1 && !extra ? firstHtml : null;
+      if (html == null) {
+        const q = new URLSearchParams(u.search);
+        q.delete('sans_occasions');                                   // paramètre du lecteur : jamais envoyé au site
+        if (extra) q.set('sorrend', extra);
+        // « | » EN CLAIR, comme les liens du site : « %7C » allonge l'adresse de 2 caractères par séparateur, et le serveur
+        // répond HTTP 502 au-delà d'environ 225 caractères (19/11 : page 2 de Fót à 229 caractères refusée, à 223 servie).
+        const qs = q.toString().replace(/%7C/gi, '|');
+        const r = await jpGet(p === 1 ? `${u.origin}/auto-kereso/?${qs}` : `${u.origin}/auto-kereso//page/${p}?${qs}`);
+        if (r.status !== 200) { warnings.push(`page ${p}${extra ? ` (tri ${extra})` : ''} : HTTP ${r.status}`); return; }
+        html = r.text;
+      }
+      pages++;
+      const cards = parseJpNewCards(html, brand, location);
+      if (!extra) cardsSeen += cards.length;
+      let added = 0;
+      for (const v of cards) if (!byId.has(v.external_id)) { byId.set(v.external_id, v); added++; }
+      if (!extra && p === last) complete = true;
+      if (cards.length === 0 || (declared != null && byId.size >= declared)) { if (!extra) complete = true; return; }
+      if (added === 0 && p > 1) return;
+    }
+  };
+  await readAll('');
+  // ANNONCE EN DOUBLE (19/11, Kia Eger : « Sportage … többféle színből » publiée deux fois sous la même adresse, 41 annoncées
+  // pour 40 voitures) : toutes les pages lues sans manque → le total du site moins ses doublons.
+  if (complete && declared != null && byId.size < declared && cardsSeen >= declared) {
+    warnings.push(`${declared - byId.size} annonce(s) publiée(s) deux fois sous la même adresse : comptée(s) une fois`);
+    declared = byId.size;
+  }
+  // Des voitures glissent d'une page à l'autre pendant la lecture (tri « népszerű ») : il en manque → second tri (prix), réunis.
+  if (declared != null && byId.size < declared) await readAll('arnovekvo');
+  // DÉMOS ET NEUVES AUSSI DANS LA PAGE DES OCCASIONS (19/11 : le site republie une partie de son stock sur hasznaltauto,
+  // donc dans « /hasznalt-auto/hasznaltautok-<ville> » — 14 voitures sur 104 à Fót, 15 Kia sur 42 à Kecskemét, sous un
+  // autre identifiant). Avec « sans_occasions=1 » (fiche dont la vitrine 1 est cette page des occasions), la page est relue
+  // et chaque voiture qui y figure (même marque, même prix au forint, même mot de modèle ; une pour une) est écartée ici :
+  // jamais comptée deux fois, jamais deux « ventes » pour une. Page des occasions illisible : rien d'écarté (dit).
+  if (u.searchParams.get('sans_occasions') === '1') {
+    const usedUrl = `${u.origin}/hasznalt-auto/hasznaltautok-${cityKey}`;
+    const used = await readJpUsedList(usedUrl, cityKey, null, warnings, true);
+    pages += used.pages;
+    if (!used.ok || (used.declared != null && used.vehicles.length < used.declared)) warnings.push(`page des occasions ${cityKey} incomplète : aucun doublon écarté`);
+    else {
+      const pool = [...used.vehicles];
+      let dropped = 0;
+      for (const [id, v] of [...byId]) {
+        const core = jpCore(v.title);
+        const i = pool.findIndex((o) => v.price != null && o.price === v.price && o.brand === v.brand && !!core && hgFold(o.title).split(/[^a-z0-9+]+/).includes(core));
+        if (i < 0) continue;
+        pool.splice(i, 1); byId.delete(id); dropped++;
+      }
+      if (dropped) { warnings.push(`${dropped} voiture(s) aussi publiée(s) dans les occasions de ${cityKey} (vitrine 1) : écartée(s) ici`); if (declared != null) declared = Math.max(0, declared - dropped); }
+    }
+  }
+  const vehicles = [...byId.values()];
+  if (declared != null && vehicles.length < declared) warnings.push(`${vehicles.length} voiture(s) lue(s) pour ${declared} annoncée(s)`);
+  return { provider: 'jpauto', total: declared ?? vehicles.length, declared, vehicles, pages, warnings };
+}
+
+// ── fwcars (Autentik / Hedin Automotive — Győr Mérföldkő, Sopron Orientik, Tatabánya, Mosonmagyaróvár, Csorna ; site de
+//    Feki Webstudio, 19/11 nuit) : TOUT le stock du groupe est dans la page, en JSON (« window.FW = window.FWS =
+//    window.FekiWebstudio = {"cars":[…]} ») : « /hu/hasznaltautok » (occasions, 173 le 18/11) et « /hu/szalonautok »
+//    (neuves et voitures de salon, 270). Une requête par vitrine, sans clé (le jeton CSRF de la page n'est pas lu).
+//    Concession = paramètres du LECTEUR (le site les ignore) : « site=<ville> » (mot entier du lieu de la voiture :
+//    gyor, sopron, tatabanya, mosonmagyarovar, csorna — « gyor » ne prend pas « Győri út », l'adresse de Sopron et de
+//    Tatabánya) et, au besoin, « marque=<kia|mercedes-benz,…> ». Sans « site » sur une page à plusieurs lieux : refus ;
+//    aucune voiture au lieu demandé : refus (lieu renommé ? jamais un stock vide) ; des voitures au lieu mais aucune de la
+//    marque : vrai zéro.
+//    Chaque voiture (annonce reprise de hasznaltauto, son code = identifiant) : marque, modèle, version, 1re
+//    immatriculation, km, énergie, boîte, puissance, couleur, état, documents, prix TTC (promo) ; « ÁFA visszaigényelhető »
+//    dans les équipements = TVA récupérable. Pas de VIN ni de date de mise en ligne. Voitures sans lieu (FlashRent) :
+//    comptées nulle part.
+type FwCar = {
+  id?: number | string; category?: string | null; brand?: string | null; model?: string | null; type?: string | null; subtitle?: string | null;
+  make?: string | null; year?: string | null; date?: string | null; km?: string | null; action?: boolean | null; price?: number | string | null;
+  price_huf?: number | string | null; currency?: string | null; link?: string | null; cover?: string | null; images?: string[] | null;
+  fuel?: string | null; transmission?: string | null; power?: string | null; site?: string | null; status?: string | null; color?: string | null;
+  paper?: string | null; normal?: string | null; extra?: string | null; base?: string | null; description?: string | null;
+};
+/** Voitures de la page (« … = {"cars":[…], …} ») ; null si la liste est absente ou illisible. */
+export function fwCarsOf(html: string): FwCar[] | null {
+  const i = html.search(/window\.FW(?:S)?\s*=\s*(?:window\.\w+\s*=\s*)*\{"cars":\[/);
+  if (i < 0) return null;
+  const obj = jsonObjectAt(html, html.indexOf('{"cars":[', i)) as { cars?: FwCar[] } | null;
+  return Array.isArray(obj?.cars) ? obj!.cars! : null;
+}
+export function fwCarToVehicle(c: FwCar): DealerVehicle | null {
+  if (c.id == null) return null;
+  const brand = hgBrand(c.brand);
+  const version = String(c.type ?? c.subtitle ?? '').trim();
+  const base = [brand, version].filter(Boolean).join(' ');
+  const price = priceOrNull(c.currency && c.currency.toUpperCase() !== 'HUF' ? c.price_huf : c.price);
+  const vat = hgVat([version, c.normal, c.extra, c.description].filter(Boolean).join(' , '));
+  const fuel = hgFuel(c.fuel, version);
+  const kmTxt = String(c.km ?? '');
+  return {
+    external_id: String(c.id), url: c.link ?? null, title: vat ? `${base} · TVA récupérable` : base, brand,
+    model: String(c.model ?? '').replace(/\+/g, ' ').trim() || splitTitle(base).model, price, currency: 'HUF',
+    km: /\d/.test(kmTxt) ? num(kmTxt.replace(/\D/g, '')) : null, year: yearOf(c.year ?? c.date), fuel,
+    gearbox: hgGear(c.transmission) ?? hgGearTitle(version) ?? hgEvGear(fuel), plate: null, vin: null,
+    body: [c.make, c.color, c.status, c.paper, c.category && !/^személyautó$/i.test(c.category) ? c.category : null, c.action ? 'prix promotionnel' : null].filter(Boolean).join(' · ') || null,
+    image: c.cover ?? c.images?.[0] ?? null, listed_at: null, status: hgStatus(c.description, price),
+    power_ch: hgPower(c.power), location: (c.site ?? '').trim() || null,
+  };
+}
+async function scrapeFwCars(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  const cars = fwCarsOf(firstHtml);
+  if (!cars) throw new Error('page Feki Webstudio sans liste « cars » lisible (format changé ?) — rien n\'a été lu');
+  const list = (k: string) => (u.searchParams.get(k) ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  const sites = list('site');
+  const brands = list('marque').map((b) => hgFold(b).replace(/[\s-]/g, ''));
+  const places = [...new Set(cars.map((c) => (c.site ?? '').trim()).filter(Boolean))];
+  if (!sites.length && places.length > 1) throw new Error(`vitrine de groupe (${places.length} lieux : ${places.slice(0, 6).join(' ; ')}) : ajouter « ?site=<ville> » (ex. site=gyor) à l'adresse de la fiche`);
+  const keep = cars.filter((c) => (!sites.length || sites.some((s) => hgHasWord(c.site, s)))
+    && (!brands.length || brands.some((b) => hgFold(c.brand).replace(/[\s-]/g, '').startsWith(b))));
+  const vehicles = keep.map(fwCarToVehicle).filter((v): v is DealerVehicle => !!v);
+  const warnings: string[] = [];
+  // AUCUNE VOITURE au lieu demandé alors que la page en a : lieu renommé ou paramètre faux — jamais un « stock vide » (tout
+  // serait marqué vendu) : refus, rien n'est écrit (en vitrine 2, ses voitures du relevé précédent sont gardées). Le lieu a
+  // des voitures mais aucune de la marque demandée : vrai zéro pour cette marque.
+  if (vehicles.length === 0 && cars.length > 0) {
+    const atPlace = sites.length ? cars.filter((c) => sites.some((s) => hgHasWord(c.site, s))).length : cars.length;
+    if (atPlace === 0) throw new Error(`aucune voiture au lieu « ${sites.join(',')} » parmi ${cars.length} (lieux de la page : ${places.join(' ; ')}) : paramètre site= faux ou lieu renommé — relevé abandonné (rien marqué disparu)`);
+    warnings.push(`aucune voiture ${brands.join(',')} au lieu « ${sites.join(',') || 'page'} » (${atPlace} voiture(s) d'autres marques) : stock vide pour cette marque`);
+    return { provider: 'fwcars', total: 0, declared: 0, vehicles: [], pages: 1, warnings };
+  }
+  const noPlace = cars.filter((c) => !(c.site ?? '').trim()).length;
+  if (sites.length && noPlace) warnings.push(`${noPlace} voiture(s) du groupe sans lieu publié (FlashRent…) : comptées dans aucune concession`);
+  return { provider: 'fwcars', total: vehicles.length, declared: vehicles.length, vehicles, pages: 1, warnings };
+}
+
+// ── mbmauto (MBM Auto, Mercedes-Benz Miskolc / Szirmabesenyő, 19/11 nuit) : « /oldal/keszlet-p5?categoryId=<2 autos | 4
+//    utilitaires>&source=<0 occasions | 1 neuves> » ; la liste vient de l'appel AJAX public de la page « GET
+//    /used-car-filter » (JSON : cartes HTML, filtres, pagination ; sans clé ni cookie, mais orderColumn / orderDirection
+//    obligatoires — sans eux HTTP 500, vérifié le 19/11), 36 par page « pageNumber=N » ; total = somme des compteurs
+//    « Osztály (N) » des filtres. Sans categoryId dans l'adresse : toutes les catégories de la page (autos + utilitaires).
+//    Carte : 1re immatriculation (AAAA/MM) ou année, énergie, puissance, désignation (sans la marque : Mercedes-Benz),
+//    prix (barré + actuel ; « +27% ÁFA » = hors taxe → TTC × 1,27, TVA récupérable), « Bérelhető » (aussi en location).
+//    Km des occasions et boîte (quand la désignation ne dit pas 9G-TRONIC / 7G-DCT…) : fiche (DETAIL_READERS).
+const MBM_PER = 36;
+/** Total d'une catégorie : somme des compteurs « A-osztály (8) » du filtre des classes (106 = 36 + 36 + 34 le 18/11). */
+export const mbmDeclared = (filtersHtml: string): number | null => {
+  const sel = filtersHtml.match(/<select id="classCatU"[\s\S]*?<\/select>/)?.[0] ?? '';
+  const counts = [...htmlText(sel).matchAll(/\((\d+)\)/g)].map((m) => Number(m[1]));
+  return counts.length ? counts.reduce((a, b) => a + b, 0) : null;
+};
+export function parseMbmCards(html: string, origin: string, isNew: boolean, category: string | null): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  for (const part of html.split('<div class="col-xl-4 col-md-6 mb-lg-4 mb-3">').slice(1)) {
+    const href = part.match(/<a href="([^"]+)" class="vehicle-card[^"]*"/)?.[1];
+    const id = href?.match(/-c(\d+)\/?$/)?.[1];
+    if (!href || !id) continue;
+    const badges = [...part.matchAll(/<span class="badge badge-pill[^"]*">([^<]*)<\/span>/g)].map((m) => htmlText(m[1]));
+    const name = htmlText(part.match(/<h3[^>]*>([\s\S]*?)<\/h3>/)?.[1] ?? '');
+    const after = part.slice(part.indexOf('</h3>')).replace(/<span[^>]*line-through[^>]*>[\s\S]*?<\/span>/g, ' ');
+    const p = hgPrice(htmlText(after.match(/<span class="ws-nowrap ff-title[^"]*">([\s\S]*?)<\/span>/)?.[1] ?? after));
+    const old = hgPrice(htmlText(part.match(/<span[^>]*line-through[^>]*>([\s\S]*?)<\/span>/)?.[1] ?? ''));
+    const date = badges.find((b) => /^(19|20)\d{2}(\/\d{2})?$/.test(b)) ?? null;
+    const fuel = hgFuel(badges.find((b) => fuelFamily(b) != null && !/kW|LE\b/.test(b)) ?? null, name);
+    const other = /^(BMW|AUDI|VOLKSWAGEN|VW|ŠKODA|SKODA|TOYOTA|LEXUS|KIA|HYUNDAI|OPEL|FORD|RENAULT|DACIA|PEUGEOT|CITROËN|CITROEN|VOLVO|MAZDA|NISSAN|SUZUKI|PORSCHE|LAND ROVER|JAGUAR|TESLA|BYD|MG|SEAT|CUPRA|FIAT|JEEP|HONDA|MINI)\b/i.exec(name)?.[1];
+    const brand = other ? hgBrand(other) : 'Mercedes-Benz';
+    const base = other ? `${brand}${name.slice(other.length)}` : `Mercedes-Benz ${name}`;
+    const vat = hgVat(name) || p.net;
+    out.push({
+      external_id: id, url: `${origin}${href.startsWith('/') ? href : `/${href}`}`, title: vat ? `${base} · TVA récupérable` : base, brand,
+      model: splitTitle(base).model, price: p.price, currency: 'HUF', km: isNew ? 0 : null, year: yearOf(date), fuel,
+      gearbox: hgGearTitle(name) ?? hgEvGear(fuel), plate: null, vin: null,
+      body: [category, isNew ? 'neuve' : null, /class="rent-label/.test(part) ? 'aussi en location (MBM Rent)' : null,
+        old.price != null && p.price != null && old.price > p.price ? `prix barré ${old.price} Ft` : null].filter(Boolean).join(' · ') || null,
+      image: part.match(/<img src="([^"]+)"/)?.[1] ?? null, listed_at: null, status: hgStatus(name, p.price),
+      power_ch: hgPower(badges.find((b) => /kW|LE\b/.test(b))), location: 'MBM Auto, Szirmabesenyő (Miskolc)',
+    });
+  }
+  return out;
+}
+async function scrapeMbm(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  const source = u.searchParams.get('source') ?? firstHtml.match(/<input[^>]*name="ha_source"[^>]*value="([01])"[^>]*checked/)?.[1] ?? null;
+  if (source !== '0' && source !== '1') throw new Error('adresse MBM sans « source » (attendu : …/oldal/keszlet-p5?categoryId=2&source=0 pour les occasions, source=1 pour les neuves)');
+  const catNames = new Map<string, string>();
+  for (const m of firstHtml.matchAll(/data-cat-id="(\d+)"[\s\S]{0,600}?alt="([^"]*?) - [^"]*"/g)) if (!catNames.has(m[1])) catNames.set(m[1], htmlText(m[2]));
+  const asked = u.searchParams.get('categoryId');
+  const cats = asked ? [asked] : [...new Set([...firstHtml.matchAll(/data-cat-id="(\d+)"/g)].map((m) => m[1]))];
+  if (!cats.length) cats.push(firstHtml.match(/id="firstCategory" value="(\d+)"/)?.[1] ?? '2');
+  const warnings: string[] = [];
+  const byId = new Map<string, DealerVehicle>();
+  let pages = 0;
+  let declared: number | null = 0;
+  for (const cat of cats) {
+    let catDeclared: number | null = null;
+    let catRead = 0;
+    // TRI PAR PRIX INSTABLE (19/11 : la voiture 5957 vue en page 1 ET en page 2, une autre jamais vue — 105 / 106) : il
+    // en manque → seconde lecture en ordre inverse, réunie.
+    for (const direction of ['asc', 'desc']) {
+      if (direction === 'desc' && (catDeclared == null || catRead >= catDeclared)) break;
+      for (let p = 1; p <= 40; p++) {
+        await sleep(SITE_DELAY_MS);
+        const r = await getTextPatient(`${u.origin}/used-car-filter?categoryId=${encodeURIComponent(cat)}&source=${source}&orderColumn=filter_price&orderDirection=${direction}&pageLimit=${MBM_PER}&pageNumber=${p}`,
+          { headers: { accept: 'application/json', 'x-requested-with': 'XMLHttpRequest' } });
+        let d: { usedCars?: string; usedCarFilters?: string } | null = null;
+        try { d = r.status === 200 ? JSON.parse(r.text) : null; } catch { d = null; }
+        // Première page d'une catégorie illisible : son total est inconnu → relevé abandonné (sinon ses voitures seraient
+        // marquées disparues) ; une page suivante en échec → relevé partiel (total connu).
+        if (!d) {
+          if (p === 1 && direction === 'asc') throw new Error(`liste MBM (catégorie ${cat}) : ${r.status !== 200 ? `HTTP ${r.status}` : 'réponse illisible'} — relevé abandonné (rien marqué disparu)`);
+          warnings.push(`liste MBM (catégorie ${cat}, ${direction}, page ${p}) : ${r.status !== 200 ? `HTTP ${r.status}` : 'réponse illisible'}`);
+          break;
+        }
+        pages++;
+        if (p === 1 && direction === 'asc') catDeclared = mbmDeclared(d.usedCarFilters ?? '');
+        const cards = parseMbmCards(d.usedCars ?? '', u.origin, source === '1', catNames.get(cat) ?? null);
+        let added = 0;
+        for (const v of cards) if (!byId.has(v.external_id)) { byId.set(v.external_id, v); added++; }
+        catRead += added;
+        if (cards.length < MBM_PER || (catDeclared != null && catRead >= catDeclared)) break;
+      }
+    }
+    // Compteurs absents alors que des voitures sont lues : total inconnu (jamais 0).
+    declared = declared == null || (catDeclared == null && catRead > 0) ? null : declared + (catDeclared ?? 0);
+    if (catDeclared != null && catRead < catDeclared) warnings.push(`catégorie ${catNames.get(cat) ?? cat} : ${catRead} voiture(s) lue(s) pour ${catDeclared} annoncée(s)`);
+  }
+  const vehicles = [...byId.values()];
+  const noGear = vehicles.filter((v) => !v.gearbox).length;
+  if (source === '0' || noGear) warnings.push(`fiches (DETAIL_READERS) : km des occasions${noGear ? `, boîte de ${noGear} voiture(s)` : ''}`);
+  return { provider: 'mbmauto', total: declared ?? vehicles.length, declared, vehicles, pages, warnings };
+}
+
+// ── dunaauto (Duna Autó Zrt. — Óbuda Autóváros, Budakalász (centre des occasions), Szeged ; ~30 marques ; 19/11 nuit) :
+//    Symfony + composant Stimulus « stock-search » : la page rend 10 (/hasznaltauto) ou 50 (/auto-kereso) cartes et le
+//    total (« counter ») ; la suite vient de « POST /auto-kereso/load » (formulaire : filtres + offset + limit + order →
+//    JSON { stocks: [{ listElem: carte HTML }] }, limit=100 accepté), le compte de « POST /auto-kereso/count-result »
+//    ({ success, count }) — sans clé, sans cookie. PIÈGE (18/11) : une valeur de filtre inconnue (location=99, état absent
+//    du formulaire) est ignorée par la PAGE, qui rend tout le stock (488) ; count-result répond alors { success: false }.
+//    Le lecteur n'accepte donc que les valeurs du formulaire de la page, appliquées par elle (option « selected »),
+//    vérifie le lieu, l'état et la marque de chaque carte, et refuse si plus de 10 % des cartes sortent du filtre.
+//    Paramètre propre au LECTEUR (ignoré par le site) : « statuts=1,2 » (n° vehicleStatus du formulaire : 1 Új,
+//    2 Teszt, 3 Használt, 4 Beérkezés alatt, 6 Raktáron) — lire neuves + démos d'une marque sans les occasions déjà lues
+//    par la vitrine du groupe (/hasznaltauto). Carte : marque, désignation (« Áfás! »), état, année, km, boîte, lieu, prix
+//    (« Listaár » barré ; « + ÁFA » = hors taxe → TTC). ÉNERGIE absente des cartes → une lecture par énergie du
+//    formulaire (fuelType), réunie ; boîte manquante → une lecture par boîte (shiftType). Plaque : fiche seulement.
+const DUNA_LIMIT = 100;
+type DunaCard = { v: DealerVehicle; badge: string; brand: string; loc: string };
+type DunaSelect = { options: Map<string, string>; selected: string | null };
+/** Listes déroulantes du formulaire de la page (nom → options et valeur appliquée). */
+export function dunaForm(html: string): Map<string, DunaSelect> {
+  const out = new Map<string, DunaSelect>();
+  for (const m of html.matchAll(/<select id="[^"]*" name="([^"]+)"[^>]*>([\s\S]*?)<\/select>/g)) {
+    const options = new Map<string, string>();
+    let selected: string | null = null;
+    for (const o of m[2].matchAll(/<option value="([^"]*)"( selected="selected")?[^>]*>([^<]*)<\/option>/g)) { options.set(o[1], htmlText(o[3])); if (o[2]) selected = o[1]; }
+    if (!out.has(m[1])) out.set(m[1], { options, selected });
+  }
+  return out;
+}
+export function parseDunaCards(html: string, origin: string): DunaCard[] {
+  const out: DunaCard[] = [];
+  for (const part of html.split('<div class="car-card" data-id="').slice(1)) {
+    const id = part.match(/^(\d+)"/)?.[1];
+    const href = part.match(/<a href="(\/keszlet\/[^"]+)"/)?.[1];
+    if (!id || !href) continue;
+    const brandTxt = htmlText(part.match(/<div class="full-name-box">\s*<small>([^<]*)<\/small>/)?.[1] ?? '');
+    const name = htmlText(part.match(/<div class="full-name-box">[\s\S]*?<p>([\s\S]*?)<\/p>/)?.[1] ?? '');
+    const badge = htmlText(part.match(/<span class="badge[^"]*">([\s\S]*?)<\/span>/)?.[1] ?? '');
+    const props = new Map<string, string>();
+    for (const m of part.matchAll(/<strong>([^<]+?)<\/strong>([\s\S]*?)<\/small>/g)) props.set(hgFold(m[1]).replace(/:$/, ''), htmlText(m[2]));
+    const loc = htmlText(part.match(/class="location-info">([\s\S]*?)<\/span>/)?.[1] ?? '');
+    const box = part.match(/<h5 class="price-box"[^>]*>([\s\S]*?)<\/h5>/)?.[1] ?? '';
+    const p = hgPrice(htmlText(box.match(/<div class="final-price-box">([\s\S]*?)<\/div>/)?.[1] ?? box));
+    const listPrice = hgPrice(htmlText(box.match(/<div class="list-price-box">\s*<small>([\s\S]*?)<\/small>/)?.[1] ?? ''));
+    const brand = hgBrand(brandTxt);
+    const base = [brand, name].filter(Boolean).join(' ');
+    const vat = hgVat(name) || p.net;
+    const isNew = /^új$/i.test(badge);
+    const kmTxt = props.get('futott') ?? '';
+    out.push({ v: {
+      external_id: id, url: `${origin}${href}`, title: vat ? `${base} · TVA récupérable` : base, brand, model: splitTitle(base).model,
+      price: p.price, currency: 'HUF', km: /\d/.test(kmTxt) ? num(kmTxt.replace(/\D/g, '')) : isNew ? 0 : null, year: yearOf(props.get('evjarat')),
+      fuel: null, gearbox: hgGear(props.get('valto')) ?? hgGearTitle(name), plate: null, vin: null,
+      body: [badge === 'Teszt' ? 'démonstration' : badge === 'Új' ? 'neuve' : null, listPrice.price != null && p.price != null && listPrice.price > p.price ? `prix catalogue ${listPrice.price} Ft` : null].filter(Boolean).join(' · ') || null,
+      image: (() => { const s = part.match(/<img src="(\/uploads\/[^"]+)"/)?.[1]; return s ? `${origin}${s}` : null; })(), listed_at: null,
+      status: hgStatus(`${badge} ${name}`, p.price), power_ch: powerFromText(name), location: loc || null,
+    }, badge, brand: brandTxt, loc });
+  }
+  return out;
+}
+async function scrapeDunaAuto(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  const form = dunaForm(firstHtml);
+  const status = form.get('vehicleStatus'), place = form.get('location'), make = form.get('brand');
+  if (!status) throw new Error('page Duna Autó sans formulaire de recherche lisible (vehicleStatus)');
+  const filters: Record<string, string> = {};
+  for (const [name, f] of form) if (f.selected && name !== 'order') filters[name] = f.selected;
+  // Filtres de l'adresse : chaque valeur doit être une option du formulaire ET appliquée par la page. Une valeur inconnue
+  // (location=99, 19/11) fait disparaître la liste « location » du formulaire et rend tout le stock (488, marque comprise).
+  for (const [k, v] of u.searchParams) {
+    if (!['location', 'brand', 'model', 'fuelType', 'vehicleStatus', 'shiftType', 'discountType', 'minimumPrice', 'maximumPrice'].includes(k)) continue;
+    const f = form.get(k);
+    if (!f || !f.options.has(v) || f.selected !== v) throw new Error(`filtre « ${k}=${v} » inconnu ou non appliqué par dunaauto.hu : la page l'ignore et rendrait tout le stock (piège vu le 18/11) — valeurs du formulaire : ${f ? [...f.options].filter(([x]) => x).map(([x, l]) => `${x} = ${l}`).join(', ') : `liste « ${k} » absente`}`);
+  }
+  const statuts = (u.searchParams.get('statuts') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  for (const s of statuts) if (!status.options.has(s)) throw new Error(`statuts=${s} : état absent du formulaire de dunaauto.hu (${[...status.options].filter(([x]) => x).map(([x, l]) => `${x} = ${l}`).join(', ')})`);
+  if (statuts.length) delete filters.vehicleStatus;
+  const order = form.get('order')?.selected ?? '1';
+  const groups: Array<Record<string, string>> = statuts.length ? statuts.map((s) => ({ ...filters, vehicleStatus: s })) : [filters];
+  const warnings: string[] = [];
+  let pages = 0;
+  const post = async (path: string, fields: Record<string, string>) => {
+    await sleep(SITE_DELAY_MS);
+    return getTextPatient(`${u.origin}${path}`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded; charset=UTF-8', accept: 'application/json', 'x-requested-with': 'XMLHttpRequest' }, body: new URLSearchParams(fields).toString() });
+  };
+  const loadAll = async (fields: Record<string, string>): Promise<DunaCard[] | null> => {
+    const cards: DunaCard[] = [];
+    for (let offset = 0; offset < 5000; offset += DUNA_LIMIT) {
+      const r = await post('/auto-kereso/load', { ...fields, order, limit: String(DUNA_LIMIT), offset: String(offset) });
+      let d: { success?: boolean; stocks?: Array<{ listElem?: string }> } = {};
+      try { d = JSON.parse(r.text); } catch { /* illisible */ }
+      if (r.status !== 200 || !d.success) { warnings.push(`/auto-kereso/load (${new URLSearchParams(fields)}, décalage ${offset}) : ${r.status !== 200 ? `HTTP ${r.status}` : 'refusé'}`); return null; }
+      pages++;
+      for (const s of d.stocks ?? []) cards.push(...parseDunaCards(s.listElem ?? '', u.origin));
+      if ((d.stocks ?? []).length < DUNA_LIMIT) break;
+    }
+    return cards;
+  };
+  // Total annoncé : le compteur de la page (ses filtres) ; par état demandé : count-result (refus = valeur inconnue).
+  let declared: number | null = statuts.length ? 0 : num(firstHtml.match(/data-components--stock-search-target="counter"[^>]*>\s*(\d+)/)?.[1]);
+  if (statuts.length) for (const g of groups) {
+    const r = await post('/auto-kereso/count-result', g);
+    let d: { success?: boolean; count?: number } = {};
+    try { d = JSON.parse(r.text); } catch { /* illisible */ }
+    if (r.status !== 200 || !d.success || typeof d.count !== 'number') throw new Error(`/auto-kereso/count-result (${new URLSearchParams(g)}) : ${r.status !== 200 ? `HTTP ${r.status}` : 'refusé'} — filtre non appliqué, relevé abandonné`);
+    declared = (declared ?? 0) + d.count;
+  }
+  const label = (sel: DunaSelect | undefined, v: string | undefined) => (v && sel ? sel.options.get(v) ?? null : null);
+  const byId = new Map<string, DunaCard>();
+  let foreign = 0;
+  for (const g of groups) {
+    const cards = await loadAll(g);
+    if (!cards) continue;                        // total annoncé connu : lecture partielle déclarée, rien marqué disparu
+    const wantLoc = label(place, g.location), wantBrand = label(make, g.brand), wantState = label(status, g.vehicleStatus);
+    for (const c of cards) {
+      const ok = (!wantLoc || hgFold(c.loc) === hgFold(wantLoc)) && (!wantBrand || hgFold(c.brand) === hgFold(wantBrand))
+        && (!wantState || !/^(új|teszt|használt)$/i.test(wantState) || hgFold(c.badge) === hgFold(wantState));
+      if (!ok) { foreign++; continue; }
+      if (!byId.has(c.v.external_id)) byId.set(c.v.external_id, c);
+    }
+  }
+  if (foreign > 0) {
+    if (foreign > 0.1 * (foreign + byId.size)) throw new Error(`${foreign} carte(s) hors du filtre demandé (lieu, marque ou état) sur ${foreign + byId.size} : filtre ignoré par le site — relevé abandonné (rien marqué disparu)`);
+    warnings.push(`${foreign} carte(s) hors du filtre demandé écartée(s)`);
+  }
+  // ÉNERGIE (et boîte manquante) : une lecture par valeur du formulaire, sur les filtres de la vitrine (avec « statuts » :
+  // lieu / marque, tous états — une lecture par énergie au lieu d'une par énergie et par état).
+  const base: Record<string, string> = { ...filters };
+  const passes = async (field: string, values: Array<[string, string]>, set: (c: DunaCard, label: string) => void) => {
+    for (const [val, lab] of values) {
+      const got = await loadAll({ ...base, [field]: val });
+      if (!got) { warnings.push(`lecture « ${field}=${val} » échouée : ${lab} non attribué`); continue; }
+      for (const c of got) { const own = byId.get(c.v.external_id); if (own) set(own, lab); }
+    }
+  };
+  const all = [...byId.values()];
+  if (all.length && !filters.fuelType && all.length <= 1500) {
+    await passes('fuelType', [...(form.get('fuelType')?.options ?? [])].filter(([v]) => v), (c, lab) => { c.v.fuel = c.v.fuel ?? lab; });
+  } else if (filters.fuelType) for (const c of all) c.v.fuel = label(form.get('fuelType'), filters.fuelType);
+  if (all.some((c) => !c.v.gearbox) && !filters.shiftType && form.get('shiftType')) {
+    await passes('shiftType', [...(form.get('shiftType')?.options ?? [])].filter(([v]) => v), (c, lab) => { c.v.gearbox = c.v.gearbox ?? hgGear(lab); });
+  }
+  const vehicles = all.map((c) => ({ ...c.v, fuel: hgFuel(c.v.fuel, c.v.title), gearbox: c.v.gearbox ?? hgEvGear(c.v.fuel) }));
+  const noFuel = vehicles.filter((v) => !v.fuel).length;
+  if (noFuel) warnings.push(`${noFuel} voiture(s) sans énergie (aucune lecture par énergie ne l'a rendue)`);
+  if (declared != null && vehicles.length < declared) warnings.push(`${vehicles.length} voiture(s) lue(s) pour ${declared} annoncée(s)`);
+  return { provider: 'dunaauto', total: declared ?? vehicles.length, declared, vehicles, pages, warnings };
+}
+
+// ── schiller (Schiller Autó Család, Budapest IV. Váci út 119/C — « Schiller Használtautó » ; neuves BYD, Geely, Škoda,
+//    Toyota, Lexus ; 19/11 nuit) : site TanStack rendu côté client ; la liste vient de l'API tRPC publique que la page
+//    appelle (adresse « API_URL » de la configuration de la page — une adresse, pas une clé) : GET <api>/carListing.public
+//    .search?input={"json":{"condition":"USED"|"SHOWROOM","sort":…,"pagination":{"pageIndex":N,"pageSize":100}}} →
+//    listings + pagination.total. « /hasznalt-autok/ » = occasions (USED, 163 le 18/11), « /uj-autok-keszletrol/ » =
+//    neuves en stock (SHOWROOM, 119). Paramètre du lecteur « marka=<skoda|toyota|…> » (brandKey de l'API, vérifié sur
+//    chaque annonce). Annonces reprises de hasznaltauto (« hexCode » = code d'annonce = identifiant). Chaque annonce :
+//    marque, modèle, version, année, km, énergie, boîte, carrosserie, puissance (kW), prix (et prix remisé), TVA
+//    (vatPercent = 27 → TVA récupérable). VIN, couleur, 1re immatriculation : fiche « /hasznalt-autok/<slug>-<code>/ ».
+type SchillerListing = {
+  id?: string; hexCode?: string | number; condition?: string; make?: string | null; model?: string | null; variant?: string | null;
+  year?: number | null; mileageKm?: number | null; fuel?: string | null; transmission?: string | null; transmissionType?: string | null;
+  bodyType?: string | null; powerKw?: number | null; price?: number | null; discountPrice?: number | null; vatPercent?: number | null;
+  currency?: string | null; powertrain?: string | null; brandKey?: string | null; subtitle?: string | null; imageUrl?: string | null;
+};
+const SCHILLER_PATH: Record<string, string> = { USED: 'hasznalt-autok', SHOWROOM: 'uj-autok-keszletrol' };
+const SCHILLER_POWERTRAIN: Record<string, string> = { PETROL: 'Benzin', DIESEL: 'Dízel', ELECTRIC: 'Elektromos', HYBRID: 'Hibrid', PHEV: 'Plug-in hibrid', PLUGIN_HYBRID: 'Plug-in hibrid', LPG: 'LPG/benzin', CNG: 'CNG' };
+export function schillerToVehicle(it: SchillerListing, siteOrigin: string): DealerVehicle | null {
+  if (it.hexCode == null || it.hexCode === '') return null;
+  const brand = hgBrand(it.make);
+  // « EGYÉB » (= autre : modèle absent de la liste de hasznaltauto) n'est pas un modèle : retiré de la désignation.
+  const other = /^egy[ée]b$/i.test((it.model ?? '').trim());
+  const variant = String(it.variant ?? it.model ?? '').trim().replace(/^egy[ée]b\s+/i, '');
+  const base = [brand, variant].filter(Boolean).join(' ');
+  const price = priceOrNull(it.discountPrice ?? it.price);
+  const vat = (it.vatPercent ?? 0) > 0 || hgVat(variant);
+  const fuel = hgFuel(it.fuel ?? SCHILLER_POWERTRAIN[(it.powertrain ?? '').toUpperCase()] ?? null, variant);
+  const tt = (it.transmissionType ?? '').toUpperCase();
+  const kw = num(it.powerKw);
+  return {
+    external_id: String(it.hexCode), url: `${siteOrigin}/${SCHILLER_PATH[it.condition ?? 'USED'] ?? 'hasznalt-autok'}/${hgSlug(`${it.make ?? ''} ${variant}`)}-${it.hexCode}/`,
+    title: vat ? `${base} · TVA récupérable` : base, brand, model: (!other && (it.model ?? '').trim()) || splitTitle(base).model, price, currency: 'HUF',
+    km: num(it.mileageKm) ?? (it.condition === 'SHOWROOM' ? 0 : null), year: num(it.year), fuel,
+    gearbox: tt === 'MANUAL' ? 'Manuelle' : tt && tt !== 'UNKNOWN' ? 'Automatique' : hgGear(it.transmission) ?? hgGearTitle(variant) ?? hgEvGear(fuel),
+    plate: null, vin: null,
+    body: [it.bodyType, it.condition === 'SHOWROOM' ? 'neuve en stock' : null, it.discountPrice != null && it.price != null && it.price > it.discountPrice ? `prix barré ${it.price} Ft` : null].filter(Boolean).join(' · ') || null,
+    image: it.imageUrl ?? null, listed_at: null, status: price == null ? 'price_on_request' : null,
+    power_ch: kw != null ? Math.round(kw * 1.35962) : powerFromText(variant), location: it.condition === 'USED' ? 'Schiller Használtautó, Budapest IV. Váci út 119/C' : null,
+  };
+}
+async function scrapeSchiller(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  // La LISTE seulement (« /hasznalt-autok/ », « /en/hasznalt-autok/ ») : une fiche « /hasznalt-autok/<slug>-<code>/ » ou
+  // l'accueil (qui portent aussi la configuration de l'API) ne sont pas une vitrine.
+  const condition = /^\/(?:[a-z]{2}\/)?uj-autok-keszletrol\/?$/.test(u.pathname) ? 'SHOWROOM' : /^\/(?:[a-z]{2}\/)?hasznalt-autok\/?$/.test(u.pathname) ? 'USED' : null;
+  if (!condition) throw new Error('adresse Schiller qui n\'est pas une liste (attendu : https://schiller.hu/hasznalt-autok/ ou …/uj-autok-keszletrol/)');
+  const api = firstHtml.match(/"API_URL":"(https:\/\/[^"]+\/api\/trpc)"/)?.[1] ?? `https://api.${u.hostname.replace(/^www\./, '')}/api/trpc`;
+  const brandKey = (u.searchParams.get('marka') ?? '').trim().toLowerCase() || null;
+  const warnings: string[] = [];
+  const byId = new Map<string, DealerVehicle>();
+  let declared: number | null = null;
+  let pages = 0;
+  const readAll = async (sort: string): Promise<void> => {
+    for (let p = 0; p < 30; p++) {
+      await sleep(SITE_DELAY_MS);
+      const input = { json: { condition, sort, pagination: { pageIndex: p, pageSize: 100 }, ...(brandKey ? { brandKey } : {}) } };
+      const r = await getTextPatient(`${api}/carListing.public.search?input=${encodeURIComponent(JSON.stringify(input))}`, { headers: { accept: 'application/json' } });
+      if (r.status !== 200) { warnings.push(`API Schiller (${sort}, page ${p}) : HTTP ${r.status}`); return; }
+      let d: { result?: { data?: { json?: { listings?: SchillerListing[]; pagination?: { total?: number } } } } };
+      try { d = JSON.parse(r.text); } catch { warnings.push(`API Schiller (${sort}, page ${p}) : réponse illisible`); return; }
+      pages++;
+      const j = d.result?.data?.json;
+      declared = declared ?? num(j?.pagination?.total);
+      const list = j?.listings ?? [];
+      for (const it of list) {
+        if (brandKey && (it.brandKey ?? hgSlug(it.make ?? '')) !== brandKey) continue;   // filtre de marque vérifié
+        const v = schillerToVehicle(it, u.origin);
+        if (v && !byId.has(v.external_id)) byId.set(v.external_id, v);
+      }
+      if (list.length < 100 || (declared != null && byId.size >= declared)) return;
+    }
+  };
+  await readAll('PRICE_ASC');
+  if (declared != null && byId.size < declared) await readAll('CREATED_DESC');   // prix égaux qui glissent d'une page à l'autre
+  const vehicles = [...byId.values()];
+  if (declared === 0 && brandKey) { warnings.push(`aucune annonce pour marka=${brandKey} : marque inconnue de l'API ? — total laissé inconnu`); declared = null; }
+  if (declared != null && vehicles.length < declared) warnings.push(`${vehicles.length} voiture(s) lue(s) pour ${declared} annoncée(s)`);
+  return { provider: 'schiller', total: declared ?? vehicles.length, declared, vehicles, pages, warnings };
+}
+
+// ── petranyi (Petrányi Autó, Budapest : Kia Üllői út, Ford, Nissan, MG, BYD, Omoda / Jaecoo ; 19/11 nuit) : site maison
+//    rendu serveur. Occasions « /kinalat/hasznalt-autok/?store=<n° du site> » (1052 = Üllői út, la concession Kia ;
+//    1056 Kerepesi út, 1046 Budaörsi út, 1060 Mázsa tér), neuves en stock « /kinalat/keszlet/?store=<n°> » ou
+//    « /kinalat/<marque>-keszlet/ » (kia-keszlet : tout le stock Kia du groupe, y compris « Gyártás alatt » / « Szállítás
+//    alatt » = pas encore livrées). Pages « …/oldalN?… » (11 occasions, 12 ou 24 neuves par page). PAS DE TOTAL sur la
+//    page (le compteur du filtre passe par une API à clé : interdite) → total = cartes de toutes les pages ; une page en
+//    échec = relevé déclaré partiel. Un « store » inconnu rend 0 (vérifié) ; le lieu de chaque occasion est vérifié.
+//    Carte : marque modèle, prix (barré à part ; « + ÁFA » = hors taxe → TTC), boîte, lieu, année, moteur + énergie,
+//    garantie, étiquettes. Km des occasions : fiche (DETAIL_READERS).
+export function parsePetranyiCards(html: string, origin: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  for (const m of html.matchAll(/<article class="vehicle-item vehicle-item--(used|new)">([\s\S]*?)<\/article>/g)) {
+    const isNew = m[1] === 'new';
+    const a = m[2];
+    const link = a.match(/<h2>\s*<a href="([^"]+)">([\s\S]*?)<\/a>/);
+    if (!link) continue;
+    const href = link[1];
+    const id = href.replace(/\/+$/, '').split('/').pop() ?? '';
+    const name = htmlText(link[2]).replace(/^új\s+/i, '');            // « Új Kia Stonic Gold » : « Új » (neuve) n'est pas la marque
+    const priceP = a.match(/<header class="header">[\s\S]*?<p>([\s\S]*?)<\/p>/)?.[1] ?? '';
+    const p = hgPrice(htmlText(priceP.replace(/<del>[\s\S]*?<\/del>/g, ' ')));
+    const old = hgPrice(htmlText(priceP.match(/<del>([\s\S]*?)<\/del>/)?.[1] ?? ''));
+    const items = new Map<string, string>();
+    for (const li of a.matchAll(/<use xlink:href="#icon-([a-z-]+)"><\/use>\s*<\/svg>([\s\S]*?)<\/li>/g)) items.set(li[1], htmlText(li[2]));
+    const badges = [...a.matchAll(/<span class="badge[^"]*">([\s\S]*?)<\/span>/g)].map((x) => htmlText(x[1])).filter(Boolean);
+    const engine = items.get('cog') ?? '';
+    const fuelTxt = engine.replace(/^[\d.,]+\s*l\s*/i, '').trim();
+    const fuel = hgFuel(fuelFamily(fuelTxt) ? fuelTxt : null, `${name} ${engine}`);
+    const loc = items.get('location') ?? null;
+    const sp = splitTitle(name);
+    const vat = hgVat(`${name} ${htmlText(priceP)} ${badges.join(' ')}`) || p.net;
+    out.push({
+      external_id: id, url: `${origin}${href}`, title: vat ? `${name} · TVA récupérable` : name, brand: hgBrand(sp.brand), model: sp.model,
+      price: p.price, currency: 'HUF', km: isNew ? 0 : null, year: num(items.get('calendar')?.match(/\b(19|20)\d{2}\b/)?.[0]), fuel,
+      gearbox: hgGear(items.get('transmission')) ?? hgGearTitle(name) ?? hgEvGear(fuel), plate: null, vin: null,
+      body: [isNew ? 'neuve en stock' : null, engine || null, items.get('shield') ? `garantie ${items.get('shield')}` : null, ...badges,
+        old.price != null && p.price != null && old.price > p.price ? `prix barré ${old.price} Ft` : null].filter(Boolean).join(' · ') || null,
+      image: (() => { const s = a.match(/<img src="([^"]+)"/)?.[1]; return s ? (s.startsWith('/') ? `${origin}${s}` : s) : null; })(), listed_at: null,
+      status: hgStatus(`${loc ?? ''} ${badges.join(' ')}`, p.price), power_ch: powerFromText(name), location: loc,
+    });
+  }
+  return out;
+}
+async function scrapePetranyi(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  const path = u.pathname.replace(/\/oldal\d+\/?$/, '/').replace(/\/?$/, '/');
+  const isUsed = /\/hasznalt-autok\/$/.test(path);
+  const store = u.searchParams.get('store');
+  const warnings: string[] = [];
+  let storeName: string | null = null;
+  if (store) {
+    const sel = firstHtml.match(/<select name="store" id="store"[^>]*>([\s\S]*?)<\/select>/)?.[1] ?? '';
+    const opt = [...sel.matchAll(/<option value="(\d*)"( selected)?>([^<]*)<\/option>/g)].find((o) => o[1] === store);
+    if (sel && (!opt || !opt[2])) throw new Error(`store=${store} inconnu ou non appliqué par petranyiauto.hu (sites : ${[...sel.matchAll(/<option value="(\d+)"[^>]*>([^<]*)/g)].map((o) => `${o[1]} = ${htmlText(o[2])}`).join(', ')})`);
+    storeName = opt ? htmlText(opt[3]) : null;
+  }
+  const last = Math.min(Math.max(1, ...[...firstHtml.matchAll(/\/oldal(\d+)/g)].map((m) => Number(m[1]))), 60);
+  const byId = new Map<string, DealerVehicle>();
+  let pages = 0, failed = false, perPage = 0, lastCount = 0, foreign = 0;
+  for (let p = 1; p <= last; p++) {
+    let html = p === 1 && !/\/oldal\d+\/?$/.test(u.pathname) ? firstHtml : null;
+    if (html == null) {
+      await sleep(SITE_DELAY_MS);
+      const r = await getTextPatient(`${u.origin}${p === 1 ? path : `${path}oldal${p}`}${u.search}`);
+      if (r.status !== 200) { warnings.push(`page ${p} : HTTP ${r.status}`); failed = true; break; }
+      html = r.text;
+    }
+    pages++;
+    const cards = parsePetranyiCards(html, u.origin);
+    if (p === 1) perPage = cards.length;
+    lastCount = cards.length;
+    for (const v of cards) {
+      if (isUsed && storeName && hgFold(v.location) !== hgFold(storeName)) { foreign++; continue; }
+      if (!byId.has(v.external_id)) byId.set(v.external_id, v);
+    }
+    if (cards.length === 0) break;
+  }
+  // Cartes présentes mais aucune lue : gabarit changé — jamais un « stock vide » → refus.
+  const articles = (firstHtml.match(/<article class="vehicle-item vehicle-item--(?:used|new)">/g) ?? []).length;
+  if (articles > 0 && byId.size === 0 && foreign === 0) throw new Error(`${articles} carte(s) sur la page de petranyiauto.hu, aucune lisible (gabarit changé ?) — relevé abandonné (rien marqué disparu)`);
+  if (foreign) {
+    if (foreign > 0.1 * (foreign + byId.size)) throw new Error(`${foreign} occasion(s) d'un autre site que « ${storeName} » : filtre store ignoré — relevé abandonné (rien marqué disparu)`);
+    warnings.push(`${foreign} occasion(s) d'un autre site écartée(s)`);
+  }
+  const vehicles = [...byId.values()];
+  // Pas de total publié : complet = toutes les pages lues ; sinon au moins (pages − 1) pages pleines + 1 → relevé partiel
+  // (moins de 95 % du « total »), aucune voiture marquée disparue.
+  const declared = failed ? Math.max(vehicles.length + 1, (last - 1) * perPage + 1) : vehicles.length;
+  if (failed) warnings.push(`relevé incomplet : ${vehicles.length} voiture(s) lue(s), au moins ${declared} en ligne (${last} page(s), ${lastCount} carte(s) sur la dernière lue)`);
+  if (isUsed) warnings.push('km des occasions : fiche (DETAIL_READERS)');
+  return { provider: 'petranyi', total: declared, declared, vehicles, pages, warnings };
+}
+
+// ── leierauto (Leier Autó Kft., Győr Szauter F. út 9 — BMW, MINI, Hyundai, Geely ; Škoda à Pápa ; 19/11 nuit) :
+//    WordPress (thème « leierauto ») ; TOUTES les occasions du groupe sur UNE page « /hasznalt-autok/ » (84 le 18/11),
+//    cartes <article class="used-vehicle-card"> reprises de hasznaltauto (« hirdeteskod » = code d'annonce = identifiant) :
+//    marque, prix, désignation, énergie, km, puissance, 1re immatriculation ; lieu dans l'adresse de la carte
+//    (« ?hirdetes=hasznalt-bmw-gyor » : les 84 sont à Győr le 18/11, aucune à Pápa). Filtre du site « gyartmany=<MARQUE> »
+//    (vérifié sur chaque carte) ; paramètre du LECTEUR « telephely=<gyor|papa> » (lieu de la carte ; aucune carte au lieu
+//    demandé = refus, jamais un stock vide). Boîte : désignation (DCT, Steptronic…), sinon fiche (« Sebességváltó »,
+//    DETAIL_READERS). Total = cartes de la page (pas de compteur ; aucune carte lisible = refus).
+const LEIER_CITY: Record<string, string> = { gyor: 'Győr', papa: 'Pápa' };
+export function parseLeierCards(html: string, base: string): Array<DealerVehicle & { place: string | null }> {
+  const out: Array<DealerVehicle & { place: string | null }> = [];
+  for (const part of html.split('<article class="used-vehicle-card">').slice(1)) {
+    const a = part.split('</article>')[0].replace(/<svg[\s\S]*?<\/svg>/g, '');
+    const href = unesc(a.match(/<a href="([^"]*hirdeteskod=(\d+)[^"]*)"/)?.[1] ?? '');
+    const code = href.match(/hirdeteskod=(\d+)/)?.[1];
+    if (!code) continue;
+    const place = href.match(/hirdetes=[^&]*-([a-z]+)(?:&|$)/)?.[1] ?? null;
+    const brandRaw = htmlText(a.match(/<div class="brand">([\s\S]*?)<\/div>/)?.[1] ?? '');
+    const p = hgPrice(htmlText(a.match(/<div class="price">([\s\S]*?)<\/div>/)?.[1] ?? ''));
+    const type = htmlText(a.match(/<div class="used-vehicle-type">([\s\S]*?)<\/div>/)?.[1] ?? '');
+    const toks = [...a.matchAll(/<span class="used-vehicle-icon-text">([^<]*)<\/span>/g)].map((m) => htmlText(m[1]));
+    const kmTxt = toks.find((t) => /\bkm$/i.test(t)) ?? '';
+    const power = toks.find((t) => /\bkW\b|\bLE\b/.test(t)) ?? null;
+    const date = toks.find((t) => /^(19|20)\d{2}(\/\d{2})?$/.test(t)) ?? null;
+    const fuelTxt = toks.find((t) => t !== kmTxt && t !== power && t !== date && fuelFamily(t) != null) ?? null;
+    const brand = hgBrand(brandRaw);
+    const title = [brand, type].filter(Boolean).join(' ');
+    const fuel = hgFuel(fuelTxt, type);
+    const vat = hgVat(type) || p.net;
+    out.push({
+      external_id: code, url: `${base}${href.startsWith('?') ? href : `?${href.replace(/^.*\?/, '')}`}`, title: vat ? `${title} · TVA récupérable` : title, brand,
+      model: splitTitle(title).model, price: p.price, currency: 'HUF', km: /\d/.test(kmTxt) ? num(kmTxt.replace(/\D/g, '')) : null, year: yearOf(date), fuel,
+      gearbox: hgGearTitle(type) ?? hgEvGear(fuel), plate: null, vin: null, body: date ? `1re immatriculation ${date}` : null,
+      image: a.match(/<img src="([^"]+)"/)?.[1] ?? null, listed_at: null, status: hgStatus(type, p.price),
+      power_ch: hgPower(power), location: place ? `Leier Autó ${LEIER_CITY[place] ?? place}` : null, place,
+    });
+  }
+  return out;
+}
+async function scrapeLeier(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  const base = `${u.origin}${u.pathname.replace(/\/?$/, '/')}`;
+  const cards = parseLeierCards(firstHtml, base);
+  const place = (u.searchParams.get('telephely') ?? '').trim().toLowerCase() || null;
+  const make = (u.searchParams.get('gyartmany') ?? '').trim();
+  const warnings: string[] = [];
+  let off = 0;
+  const keep = cards.filter((c) => {
+    if (make && hgFold(c.brand).replace(/[\s-]/g, '') !== hgFold(make).replace(/[\s-]/g, '')) { off++; return false; }
+    return !place || c.place === place;
+  });
+  if (off) {
+    if (off > 0.1 * cards.length) throw new Error(`gyartmany=${make} ignoré par leierauto.hu (${off} carte(s) d'une autre marque) — relevé abandonné`);
+    warnings.push(`${off} carte(s) d'une autre marque écartée(s)`);
+  }
+  const vehicles: DealerVehicle[] = keep.map(({ place: _p, ...v }) => v);
+  // Pas de compteur sur la page : aucune carte lue = page changée ou vide par erreur, jamais un « stock vide » (tout serait
+  // marqué vendu) → refus ; un « telephely » sans aucune carte (Pápa le 19/11) → refus aussi (rien n'est écrit).
+  if (cards.length === 0) throw new Error('aucune carte « used-vehicle-card » lisible sur leierauto.hu (page changée ?) — relevé abandonné (rien marqué disparu)');
+  if (vehicles.length === 0) throw new Error(`aucune occasion pour telephely=${place ?? '—'} gyartmany=${make || '—'} parmi ${cards.length} (lieux des cartes : ${[...new Set(cards.map((c) => c.place))].join(', ')}) — relevé abandonné (rien marqué disparu)`);
+  const noGear = vehicles.filter((v) => !v.gearbox).length;
+  if (noGear) warnings.push(`${noGear} boîte(s) absente(s) de la désignation : lues sur la fiche (DETAIL_READERS)`);
+  return { provider: 'leierauto', total: vehicles.length, declared: vehicles.length, vehicles, pages: 1, warnings };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getTextPatient(url); // 04/11 : MotorK (Sofibrie, SIPA) répond 429 dès la première page après une rafale
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -5157,6 +6081,13 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'stocklisting') return scrapeStockListing(url, first.text);
   if (provider === 'sfxlisting') return scrapeSfxListing(url, first.text);
   if (provider === 'infinit') return scrapeInfinit(url, first.text);
+  if (provider === 'jpauto') return scrapeJpAuto(url, first.text);
+  if (provider === 'fwcars') return scrapeFwCars(url, first.text);
+  if (provider === 'mbmauto') return scrapeMbm(url, first.text);
+  if (provider === 'dunaauto') return scrapeDunaAuto(url, first.text);
+  if (provider === 'schiller') return scrapeSchiller(url, first.text);
+  if (provider === 'petranyi') return scrapePetranyi(url, first.text);
+  if (provider === 'leierauto') return scrapeLeier(url, first.text);
   if (provider === 'jetlisting') return scrapeJetListing(url, first.text);
   if (provider === 'gatsbyvehicles') return scrapeGatsbyVehicles(url);
   if (provider === 'dvnl') return scrapeDv(url, first.text);
@@ -5338,6 +6269,11 @@ export const DETAIL_READERS: Partial<Record<DealerProvider, DetailReader>> = {
   pewneauto: { fields: ['gearbox'], read: readPewneDetail },
   // pappas (Hongrie) : la boîte n'est pas sur la carte (« Váltó típusa » de la fiche).
   pappas: { fields: ['gearbox'], read: readPappasDetail },
+  // Groupes hongrois (19/11) : la fiche « export hasznaltauto » rend ce que la liste ne donne pas.
+  jpauto: { fields: ['km', 'gearbox'], read: readHgSpecDetail },          // occasions : km + boîte (neuves : sur la carte)
+  mbmauto: { fields: ['km', 'gearbox'], read: readHgSpecDetail },          // occasions : km ; boîte hors « 9G-TRONIC »
+  petranyi: { fields: ['km', 'gearbox'], read: readHgSpecDetail },         // occasions : km
+  leierauto: { fields: ['gearbox'], read: readHgSpecDetail },              // boîte absente de la désignation
 };
 
 /** Relève le stock d'une concession de la carte et le compare au relevé précédent. Avec `prefetched` (vitrine
