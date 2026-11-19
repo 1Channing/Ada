@@ -283,6 +283,10 @@ console.log('\n=== NEUVES KIA HONGRIE (kia.com « piacter », 19/11) ===\n');
   ok(cs.length === 2 && a.dealerId === 'C26VAHG120' && a.v.vin === 'KNAB351B5TT464429' && a.v.price === 6447000 && a.v.fuel === 'Benzin' && a.v.gearbox === 'Manuelle'
     && a.v.model === 'Picanto' && a.v.km === 0 && cs[1].dealerId === 'C26VAHG950', 'carte réelle : VIN et code concession du lien, prix TTC, énergie, « 5 MT » = manuelle, neuve', cs);
   ok(ds6.detectDealerProvider('<div data-url="/hu/buy-my-kia/piacter/piacter-lista/_jcr_content/contents_1/aggregationlist.allOffersResults/"></div>') === 'kiaosp', 'liste « piacter » reconnue');
+  // Année-modèle du VIN (10e caractère) : T = 2026, V = 2027 vendue dès novembre 2026, S = 2025 ; code « 9 » d'une 2009 ; VIN tronqué : rien.
+  const nov26 = new Date('2026-11-19T00:00:00Z');
+  ok(a.v.year === 2026 && JSON.stringify(['KNAB351B5TT464429', 'U5YH5819AVL123456', 'KNAB351B5ST464429', 'KNAFE22129K123456', 'KNAB351B5T'].map((v) => ds6.vinModelYear(v, nov26))) === '[2026,2027,2025,2009,null]',
+    'année-modèle lue dans le VIN (10e caractère, cycle de 30 ans, jamais au-delà de l\'an prochain)', [a.v.year, ['KNAB351B5TT464429', 'U5YH5819AVL123456', 'KNAB351B5ST464429', 'KNAFE22129K123456', 'KNAB351B5T'].map((v) => ds6.vinModelYear(v, nov26))]);
 }
 
 console.log('\n=== PAPPAS (Mercedes / Kia Hongrie, 19/11) ===\n');

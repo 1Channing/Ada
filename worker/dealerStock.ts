@@ -4862,8 +4862,18 @@ async function scrapeBmwUsed(url: string, firstHtml: string): Promise<DealerStoc
 //    « N Ajánlatot talált ») est lue UNE fois et gardée 30 min en mémoire, chaque fiche n'en garde que sa concession.
 //    Adresse de la fiche ADA : « …/piacter-lista/?dealerId=<code> ». Liste nationale incomplète = échec du relevé (rien de
 //    marqué disparu). Prix TTC (« áfával együtt ») en forints, modèle et finition, moteur et énergie, boîte (« MT » =
-//    manuelle), VIN ; neuves : km 0, année non publiée.
+//    manuelle), VIN ; neuves : km 0, année non publiée — année-modèle lue dans le VIN (vinModelYear).
 const KIA_OSP_FRAGMENT = '/hu/buy-my-kia/piacter/piacter-lista/_jcr_content/contents_1/aggregationlist.allOffersResults/';
+/** Année-modèle codée au 10e caractère du VIN (Kia, Hyundai : tous marchés ; PAS Mercedes, dont le VIN européen n'en a
+ *  pas). Le code revient tous les 30 ans (A = 1980 ou 2010, 1 = 2001 ou 2031) : l'année la plus récente qui ne dépasse
+ *  pas l'an prochain (un modèle 2027 est vendu dès 2026). Vérifié le 19/11 sur 662 Kia d'autres vitrines avec VIN et
+ *  année de mise en circulation : même année 486, un an de plus 121 (modèle de l'année suivante), un an de moins 47. */
+export function vinModelYear(vin: string | null | undefined, now = new Date()): number | null {
+  const i = 'ABCDEFGHJKLMNPRSTVWXY123456789'.indexOf(String(vin ?? '').toUpperCase().charAt(9));
+  if (!vin || vin.length !== 17 || i < 0) return null;
+  const y = 2010 + i;
+  return y <= now.getUTCFullYear() + 1 ? y : y - 30;
+}
 const kiaOspCache = new Map<string, { at: number; cars: Array<{ dealerId: string; v: DealerVehicle }>; total: number | null }>();
 export function parseKiaOspCards(html: string, origin: string): Array<{ dealerId: string; v: DealerVehicle }> {
   const out: Array<{ dealerId: string; v: DealerVehicle }> = [];
@@ -4879,7 +4889,7 @@ export function parseKiaOspCards(html: string, origin: string): Array<{ dealerId
     const fuel = engine.match(/\(([^,()]+),/)?.[1]?.trim() || null;
     const title = ['Kia', model, trim, engine.split('(')[0].trim()].filter(Boolean).join(' ');
     out.push({ dealerId, v: {
-      external_id: vin, url: `${origin}${unesc(href)}`, title, brand: 'Kia', model: model || null, price, currency: 'HUF', km: 0, year: null, fuel,
+      external_id: vin, url: `${origin}${unesc(href)}`, title, brand: 'Kia', model: model || null, price, currency: 'HUF', km: 0, year: vinModelYear(vin), fuel,
       gearbox: !gear ? null : /\bMT\b|manu/i.test(gear) ? 'Manuelle' : /\b(AT|DCT|e-?DCT|IVT|CVT)\b|automat/i.test(gear) ? 'Automatique' : gear,
       plate: null, vin, body: ['neuve en stock', htmlText(card.match(/<li class="color">[\s\S]*?alt="([^"]*)"/)?.[1] ?? '')].filter(Boolean).join(' · '),
       image: null, listed_at: null, status: price == null ? 'price_on_request' : null, power_ch: num(engine.match(/(\d+)\s*LE\b/)?.[1]),
