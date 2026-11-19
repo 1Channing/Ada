@@ -327,6 +327,29 @@ console.log('\n=== GROUPES HONGROIS (JP Auto, Autentik, MBM, Duna, Schiller, Pet
   ok(JSON.stringify(det7) === '["jpauto","mbmauto","dunaauto","schiller","petranyi","leierauto"]', 'JP Auto, MBM, Duna, Schiller, Petrányi, Leier reconnus par leurs marqueurs', det7);
 }
 
+console.log('\n=== SLOVAQUIE (19/11) : STOCK NEUF ŠKODA, KIA, AUTOBAZAR.EU, HEDIN, KIA OCCASIONS, TODOS ===\n');
+{
+  const dk = await import('../worker/dealerStock');
+  // Voiture réelle de l'API du stock neuf Škoda (Auto Lamač, 19/11).
+  const item = { id: 'SVK21733412966', manufactury: 'Škoda', model: 'Fabia', title: 'Extra', salePrice: { unit: 'EUR', value: 17790.0 }, listPrice: { unit: 'EUR', value: 19442.0 },
+    mileage: { unit: 'km', value: '9' }, initialReg: 'without', productionDate: '2026-10-08T00:00:00+00:00', modelYear: 2027, type: 'N', isDemoCar: false, isReserved: false,
+    vin: 'TMBER6PJ6V4067733', businessModel: 'dealer_stock', availableFrom: 'Immediately', availableFromDate: null,
+    technicalData: { fuel: 'Benzín', gear: 'Manuálna', transmissionName: '6-stup. manuál', engineName: '1.0 TSI 85,00 kW', engineShortName: '1.0 TSI', motor: { unit: 'kW', value: 85 } },
+    dealer: { id: '654-21733', name: 'Auto Lamač, Bratislava', street: 'Hodonínska 13' } };
+  const sv = dk.skodaStockToVehicle(item as never, 'https://www.skoda-auto.sk/apps/stock', '654-21733');
+  ok(sv?.external_id === 'SVK21733412966' && sv?.price === 17790 && sv?.km === 9 && sv?.year === 2026 && sv?.fuel === 'Benzín' && sv?.gearbox === 'Manuelle' && sv?.vin === 'TMBER6PJ6V4067733'
+    && sv?.power_ch === 116 && /prix catalogue 19442/.test(sv?.body ?? ''), 'stock neuf Škoda : voiture réelle (prix remisé, km, année de fabrication, boîte, VIN, puissance, prix catalogue)', sv);
+  const marks = [
+    '<script>window.SCUC = {"webAppRoute":"apps/stock","dealer":"654-21733"}</script>',
+    '<script data-page="app" type="application/json">{"component":"cars\\/Index","props":{}}</script><title>Kiaihned</title>',
+    '<script id="__NEXT_DATA__" type="application/json">{"runtimeConfig":{"host":"www.autobazar.eu"}}</script><script type="application/ld+json">{"@type": "ItemList","itemListElement":[{"@type":"Car"}]}</script>',
+    '<link href="/MotorCarGroup/Content/site.css" rel="stylesheet"><select class="x" id="predajca"></select> https://www.hedinautomotive.sk/vozidla',
+    '<script src="https://used-cars.kia.eu/ucl-bff/static/app.js"></script>',
+    '<div id="app" data-page="{&quot;component&quot;:&quot;Cars/Index&quot;}"></div><a href="https://todosjazdene.sk/ponuka">x</a>',
+  ].map((h) => dk.detectDealerProvider(h));
+  ok(JSON.stringify(marks) === '["skodastock","kiaihned","autobazareu","hedin","kiaused","todosjazdene"]', 'les six plateformes slovaques reconnues (autobazar.eu avant la règle JSON-LD « datamotive »)', marks);
+}
+
 console.log('\n=== TOYOTA HONGRIE (pewneauto, 19/11) : CARTES ET FICHES RÉELLES ===\n');
 {
   const ds3 = await import('../worker/dealerStock');

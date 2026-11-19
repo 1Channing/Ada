@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused' | 'kiaosp' | 'pappas' | 'jpauto' | 'fwcars' | 'mbmauto' | 'dunaauto' | 'schiller' | 'petranyi' | 'leierauto';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused', 'kiaosp', 'pappas', 'jpauto', 'fwcars', 'mbmauto', 'dunaauto', 'schiller', 'petranyi', 'leierauto'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused' | 'kiaosp' | 'pappas' | 'jpauto' | 'fwcars' | 'mbmauto' | 'dunaauto' | 'schiller' | 'petranyi' | 'leierauto' | 'skodastock' | 'kiaihned' | 'autobazareu' | 'hedin' | 'kiaused' | 'todosjazdene';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused', 'kiaosp', 'pappas', 'jpauto', 'fwcars', 'mbmauto', 'dunaauto', 'schiller', 'petranyi', 'leierauto', 'skodastock', 'kiaihned', 'autobazareu', 'hedin', 'kiaused', 'todosjazdene'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -401,6 +401,20 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   // cfdnext (Bierschneider, refonte du 18/11) : Next.js « cdn.cfdnext.com/fahrzeuge », stock par l'API publique
   // api.cfdnext.com ; AVANT la ligne JSON-LD générique (la nouvelle page porte aussi un ItemList de Car).
   if (/cdn\.cfdnext\.com\/fahrzeuge\//.test(html) && /"ssrCount"\s*:/.test(html)) return 'cfdnext';
+  // ── Slovaquie (19/11) : six lecteurs — AVANT la règle JSON-LD générique « datamotive » (les pages autobazar.eu portent
+  //    aussi un ItemList de Car : « datamotive », 0 voiture lue).
+  // skodastock (stock neuf Škoda) : application « Skladové vozidlá » de Škoda Auto (K2NG) — réglages window.SCUC, webAppRoute « apps/stock ».
+  if (/SCUC = \{/.test(html) && /"webAppRoute":"apps\/stock"/.test(html)) return 'skodastock';
+  // kiaihned (neuves Kia) : kiaihned.sk (Laravel + Inertia), état JSON <script data-page="app"> du composant « cars/Index ».
+  if (/<script data-page="app" type="application\/json">\{"component":"cars\\\/Index"/.test(html) && /Kiaihne/.test(html)) return 'kiaihned';
+  // autobazareu : toute page Next.js d'autobazar.eu (le lecteur n'accepte que la page vendeur « /predajca/<utilisateur>/ »).
+  if (/<script id="__NEXT_DATA__"/.test(html) && /"host":"(?:www\.)?autobazar\.eu"/.test(html)) return 'autobazareu';
+  // hedin (Hedin Automotive Slovakia) : catalogue Orchard « MotorCarGroup » (page /vozidla et son sélecteur des sites « predajca »).
+  if (/\/MotorCarGroup\/Content\//.test(html) && /<select[^>]*id="predajca"/.test(html) && /hedinautomotive\.sk/i.test(html)) return 'hedin';
+  // kiaused (occasions Kia certifiées) : Kia Used Car Locator (used-cars.kia.eu, embarqué par kia.com « stock-locator-used »).
+  if (/used-cars\.kia\.eu\/ucl-bff\//.test(html)) return 'kiaused';
+  // todosjazdene (groupe Todos) : todosjazdene.sk (Laravel + Inertia, <div id="app" data-page>), composants « Cars* ».
+  if (/<div id="app" data-page="\{&quot;component&quot;:&quot;Cars/.test(html) && /todosjazdene\.sk/.test(html)) return 'todosjazdene';
   if (/"@type":\s*"ItemList"/.test(html) && /"Car"/.test(html)) return 'datamotive';
   if (/"listerpage":\s*\{[^}]*"ajax_url"/.test(html)) return 'listerpage';
   if (/data-update-url="[^"]*\/voorraad-api\/vehiclelist\/\d+\/vehicles\.json/.test(html)) return 'dvapi';
@@ -6040,6 +6054,746 @@ async function scrapeLeier(url: string, firstHtml: string): Promise<DealerStockR
   return { provider: 'leierauto', total: vehicles.length, declared: vehicles.length, vehicles, pages: 1, warnings };
 }
 
+// ═══ SLOVAQUIE (19/11, nuit) : six vitrines de marque / de groupe ════════════════════════════════════════════════════
+//    skodastock (neuves Škoda), kiaihned (neuves Kia), autobazareu (pages vendeur autobazar.eu), hedin (Hedin Automotive),
+//    kiaused (occasions Kia certifiées), todosjazdene (groupe Todos). Une fiche Carte = une concession : chaque lecteur
+//    exige le filtre de LA concession dans l'adresse, vérifie que le site l'a appliqué (jamais la liste du pays prise pour
+//    une concession) et déclare le total annoncé (`declared`) pour qu'un relevé incomplet ne marque rien disparu.
+
+// ── skodastock (stock neuf Škoda, Slovaquie, 19/11) : application « Skladové vozidlá » de Škoda Auto (K2NG, bid 654,
+//    www.skoda-auto.sk/apps/stock) — neuves et démonstrations des concessions Škoda du pays (≈ 1 960 le 19/11, 64
+//    concessions). Adresse de la fiche ADA : la page de la concession « /apps/stock/<654-n°>/carSearch » (titre « Skladové
+//    vozidlá Škoda - <concession> », réglages window.SCUC : dealer « 654-n° », bid, culture). Données : l'API JSON publique
+//    que l'application appelle, sans clé : /apps/stock/<bid>/<culture>/api/search?Dealers=<654-n°>&PageNo=N (12 par page ;
+//    PageSize et un tri inconnu sont refusés (HTTP 400) ; total results.pageInfo.resultsCount). PIÈGE (vérifié le 19/11) :
+//    un identifiant mal formé (« 29637 »), inconnu (654-99999) ou sans stock est IGNORÉ et l'API rend la liste NATIONALE →
+//    chaque voiture est contrôlée (dealer.id) et une liste nationale fait échouer le relevé (rien marqué disparu). Ne pas
+//    envoyer CarType (l'application bascule seule N↔U quand il ne donne rien). Une concession sans voiture en stock rend une
+//    page 404 (relevé en échec, rien marqué disparu). Par voiture : prix TTC (salePrice, EUR) et prix catalogue, VIN, année
+//    (1re immatriculation d'une démo, sinon fabrication, sinon année-modèle), km (neuve sans compteur publié : 0), énergie,
+//    boîte, puissance (kW), carrosserie, couleur, transmission, démonstration, réservée, disponibilité. Pas de date de mise
+//    en ligne, pas de TVA récupérable publiée (facette « VatReportable » toujours 0). Filtre facultatif de l'adresse, transmis
+//    tel quel à l'API : « ?DemoCar=dealer_stock » (neuves seules) ou « demo_car » (démonstrations seules) — vérifié le 19/11
+//    (Galanta : 109 = 97 + 12) ; utile quand les démonstrations de la concession sont déjà lues ailleurs (ŠkodaPlus).
+type SkStockCar = {
+  id?: string; vin?: string | null; type?: string | null; title?: string | null; model?: string | null; marketingName?: string | null; manufactury?: string | null;
+  modelBody?: string | null; bodyworkName?: string | null; plate?: string | null; image?: string | null; businessModel?: string | null;
+  salePrice?: { unit?: string | null; value?: number | null } | null; listPrice?: { unit?: string | null; value?: number | null } | null;
+  mileage?: { unit?: string | null; value?: string | number | null } | null; modelYear?: number | null; productionDate?: string | null; initialReg?: string | null;
+  availableFrom?: string | null; availableFromDate?: string | null; isImporterCar?: boolean | null; isDemoCar?: boolean | null; isReserved?: boolean | null;
+  technicalData?: { motor?: { value?: number | null } | null; fuel?: string | null; gear?: string | null; engineName?: string | null; engineShortName?: string | null; transmissionName?: string | null; drive?: string | null } | null;
+  colors?: { exterior?: { text?: string | null } | null } | null; dealer?: { id?: string | null; name?: string | null; city?: string | null; street?: string | null } | null; ownerDealerId?: string | null;
+};
+/** Réglages de la page (window.SCUC) : API de recherche et concession (« 654-n° ») — sinon le chemin « /apps/stock/<654-n°>/… ». */
+export function skodaStockConfig(url: string, html: string): { api: string; base: string; dealer: string | null; demo: string | null } {
+  const u = new URL(url);
+  const route = html.match(/"webAppRoute":"([a-z/]+)"/)?.[1] ?? 'apps/stock';
+  const bid = html.match(/"bid":"(\d+)"/)?.[1] ?? '654';
+  const culture = html.match(/"culture":"([a-z]{2}-[A-Z]{2})"/)?.[1] ?? 'sk-SK';
+  const q = u.searchParams.get('Dealers') ?? '';
+  const dealer = html.match(/"dealer":"(\d+-\d+)"/)?.[1] ?? u.pathname.match(/\/apps\/stock\/(\d+-\d+)(?:\/|$)/)?.[1] ?? (/^\d+-\d+$/.test(q) ? q : null);
+  const demo = u.searchParams.get('DemoCar');
+  return { api: `${u.origin}/${route}/${bid}/${culture}/api/search`, base: `${u.origin}/${route}`, dealer, demo: demo === 'dealer_stock' || demo === 'demo_car' ? demo : null };
+}
+export function skodaStockToVehicle(c: SkStockCar, base: string, dealer: string): DealerVehicle | null {
+  if (!c.id) return null;
+  const td = c.technicalData ?? {};
+  const brand = (c.manufactury ?? '').trim() || 'Škoda';
+  const model = (c.model ?? c.marketingName ?? '').trim() || null;
+  // Puissance : celle du nom du moteur (« 1.5 TSI m-HEV 110,00 kW ») d'abord — « motor » ne donne que le moteur électrique
+  // 48 V d'une m-HEV (9 kW, vérifié le 19/11) ; « motor » en secours.
+  const kw = num(td.engineName?.match(/(\d+(?:[.,]\d+)?)\s*kW\s*$/i)?.[1]) ?? num(td.motor?.value);
+  const engine = (td.engineShortName ?? '').trim() || (td.engineName ?? '').replace(/\s*[\d.,]+\s*kW\s*$/i, '').trim();
+  const title = [brand, model, c.title, engine, kw != null ? `${Math.round(kw)} kW` : null, td.transmissionName].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+  const price = priceOrNull(c.salePrice?.value) ?? priceOrNull(c.listPrice?.value);
+  const list = priceOrNull(c.listPrice?.value);
+  const demo = !!c.isDemoCar || c.businessModel === 'demo_car';
+  const km = num(c.mileage?.value);
+  // Pas encore livrée : date de disponibilité future (« availableFrom » vide, vérifié le 19/11 : 5 voitures chez Auto Lamač).
+  const later = !!c.availableFromDate && Date.parse(c.availableFromDate) > Date.now() && !/^immediately$/i.test(c.availableFrom ?? '');
+  return {
+    external_id: c.id, url: `${base}/${dealer}/carDetail/${encodeURIComponent(c.id)}`, title, brand, model,
+    price, currency: (c.salePrice?.unit ?? 'EUR').toUpperCase(), km: km ?? (c.type === 'N' && !demo ? 0 : null),
+    year: (/^\d{4}-\d{2}/.test(c.initialReg ?? '') ? num(String(c.initialReg).slice(0, 4)) : null) ?? num(String(c.productionDate ?? '').slice(0, 4)) ?? num(c.modelYear),
+    fuel: td.fuel?.trim() || null, gearbox: gearboxOf(td.gear ?? td.transmissionName ?? null), plate: c.plate?.trim() || null, vin: c.vin?.trim() || null,
+    body: [demo ? 'démonstration' : c.type === 'N' ? 'neuve en stock' : null, c.bodyworkName ?? c.modelBody, c.colors?.exterior?.text, td.drive,
+      list != null && price != null && list > price ? `prix catalogue ${list} €` : null, c.isImporterCar ? 'stock importateur' : null].filter(Boolean).join(' · ') || null,
+    image: c.image ?? null, listed_at: null,
+    status: c.isReserved ? 'reserved' : later ? 'expected' : price == null ? 'price_on_request' : null,
+    power_ch: kw != null ? Math.round(kw * 1.35962) : null,
+    location: [c.dealer?.name, c.dealer?.street].filter(Boolean).join(', ') || null,
+  };
+}
+async function scrapeSkodaStock(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const { api, base, dealer, demo } = skodaStockConfig(url, firstHtml);
+  if (!dealer) throw new Error('adresse du stock Škoda sans concession (attendu : …/apps/stock/<654-n°>/carSearch) : le stock national n\'est pas la vitrine d\'une concession');
+  const warnings: string[] = [];
+  const own = new Map<string, SkStockCar>();
+  let declared: number | null = null;
+  let pageCount = 1, pages = 0, others = 0;
+  const mine = (c: SkStockCar) => c.dealer?.id === dealer || c.ownerDealerId === dealer;
+  const readPass = async (): Promise<boolean> => {
+    for (let p = 1; p <= Math.min(pageCount, 60); p++) {
+      await sleep(SITE_DELAY_MS);
+      const r = await getTextPatient(`${api}?Dealers=${encodeURIComponent(dealer)}${demo ? `&DemoCar=${demo}` : ''}&PageNo=${p}`, { headers: { accept: 'application/json' } });
+      if (r.status !== 200) { warnings.push(`API du stock Škoda, page ${p} : HTTP ${r.status}`); return false; }
+      let d: { results?: { cars?: SkStockCar[]; pageInfo?: { pageCount?: number; resultsCount?: number } }; criteria?: { criterias?: { Dealers?: { possibleItems?: Array<{ key?: string; number?: number }> } } } };
+      try { d = JSON.parse(r.text); } catch { warnings.push(`API du stock Škoda, page ${p} : réponse illisible`); return false; }
+      pages++;
+      const cars = d.results?.cars ?? [];
+      if (p === 1) {
+        // FILTRE IGNORÉ = liste NATIONALE (vérifié le 19/11) : jamais prise pour la concession, rien marqué disparu.
+        if (cars.some((c) => !mine(c))) {
+          const n = (d.criteria?.criterias?.Dealers?.possibleItems ?? []).find((x) => x.key === dealer)?.number ?? 0;
+          throw new Error(`API du stock Škoda : filtre « Dealers=${dealer} » ignoré, liste nationale de ${d.results?.pageInfo?.resultsCount ?? '?'} voitures reçue (${n ? `la concession en compte ${n} au pays` : 'la concession n\'a plus aucune voiture au stock national, ou son n° est inconnu'}) — relevé abandonné, rien marqué disparu`);
+        }
+        declared = num(d.results?.pageInfo?.resultsCount);
+        pageCount = num(d.results?.pageInfo?.pageCount) ?? 1;
+      }
+      for (const c of cars) {
+        if (!mine(c)) { others++; continue; }
+        if (c.id && !own.has(c.id)) own.set(c.id, c);
+      }
+      if (cars.length === 0) break;
+    }
+    return true;
+  };
+  let ok = await readPass();
+  // Pas de tri stable proposé (un tri inconnu → HTTP 400) : une voiture peut glisser d'une page à l'autre pendant la
+  // lecture → il en manque : seconde passe, réunie.
+  if (ok && declared != null && own.size < declared) ok = await readPass();
+  const vehicles = [...own.values()].map((c) => skodaStockToVehicle(c, base, dealer)).filter((v): v is DealerVehicle => !!v);
+  if (others) warnings.push(`${others} voiture(s) d'une autre concession dans la liste filtrée : écartée(s)`);
+  if (declared != null && vehicles.length < declared) warnings.push(`${vehicles.length} voiture(s) lue(s) pour ${declared} annoncée(s)${ok ? '' : ' (lecture interrompue)'}`);
+  return { provider: 'skodastock', total: declared ?? vehicles.length, declared, vehicles, pages, warnings };
+}
+
+// ── kiaihned (neuves Kia en stock, Slovaquie, 19/11) : www.kiaihned.sk (Kia Sales Slovakia, Laravel + Inertia) — les
+//    neuves de l'importateur (« Sklad importéra », ≈ 2 180) et des concessions Kia du pays (≈ 760 chez 30 concessions).
+//    Adresse de la fiche ADA : « /vozidla?predajca=<libellé exact du filtre du site> » (« Hedin Automotive (Košice) »,
+//    « Motorr Martin, s.r.o. »…) ; sans libellé, ou « Sklad importéra », refus (le pays / l'importateur n'est pas la vitrine
+//    d'une concession). La page porte son état en JSON (<script data-page="app" type="application/json">, props.cars :
+//    30 par page, « strana=N », meta.total) ; sans clé ni en-tête Inertia. Un libellé inconnu rend 0 voiture (vérifié le
+//    19/11) : 0 lu = relevé non concluant (declared null : rien marqué disparu — libellé changé ?). Les voitures de
+//    l'importateur sont écartées ; une liste qui mêle plusieurs concessions (filtre ignoré) fait échouer le relevé. Par
+//    voiture : VIN, modèle, finition, moteur, transmission (« M5 / M6 » manuelles ; « 6DCT / 7DCT / 8DCT », « A6 »,
+//    « AMT5 » automatiques ; électrique : automatique), année-modèle, énergie, puissance (kW), prix TTC, remise et prix
+//    catalogue, couleur, démonstration, concession et adresse. Neuve : km 0 (démonstration : inconnu). Pas de date de mise
+//    en ligne ni de réservation publiées.
+type KiaIhnedCar = {
+  vin?: string | null; model_name?: string | null; version_name?: string | null; engine_power_kw?: string | number | null; fuel_type?: string | null;
+  price?: string | number | null; discount?: number | null; msrp?: string | number | null; image?: string | null; url?: string | null; is_demo?: number | boolean | null;
+  dealer_name?: string | null; dealer_location?: string | null; is_importer_car?: boolean | null; external_color_name?: string | null; spec_summary?: string | null;
+};
+/** État Inertia d'une page de liste kiaihned.sk (fonction pure). */
+export function kiaIhnedPage(html: string): { cars: KiaIhnedCar[]; total: number | null; last: number; url: string | null } | null {
+  const m = html.match(/<script data-page="app" type="application\/json">([\s\S]*?)<\/script>/);
+  if (!m) return null;
+  let d: { url?: string; props?: { cars?: { data?: KiaIhnedCar[]; meta?: { total?: number; last_page?: number } } } };
+  try { d = JSON.parse(m[1]); } catch { return null; }
+  const c = d.props?.cars;
+  if (!c) return null;
+  return { cars: c.data ?? [], total: num(c.meta?.total), last: num(c.meta?.last_page) ?? 1, url: d.url ?? null };
+}
+/** Boîte d'un « spec_summary » Kia (« 1,0 T-GDi | FWD | M6 | Model 2026 ») : M5 / M6 / MT manuelles ; DCT, A6, AT, AMT, IVT, CVT automatiques. */
+export const kiaSpecGear = (spec: string, fuel: string | null): string | null => {
+  const toks = spec.split('|').map((x) => x.trim().toUpperCase());
+  if (toks.some((t) => /^(?:M\d|\d?MT\d?)$/.test(t))) return 'Manuelle';
+  if (toks.some((t) => /^(?:\d?DCT\d?|A\d|\d?AT\d?|AMT\d?|E?IVT|E?CVT)$/.test(t))) return 'Automatique';
+  return /^(ev|elektr|electr)/i.test(fuel ?? '') ? 'Automatique' : null; // électrique : un seul rapport (« Bezstupňová redukčná »)
+};
+export function kiaIhnedToVehicle(c: KiaIhnedCar): DealerVehicle | null {
+  const vin = (c.vin ?? '').trim();
+  if (!vin) return null;
+  const spec = c.spec_summary ?? '';
+  const toks = spec.split('|').map((x) => x.trim()).filter(Boolean);
+  const engine = toks[0] && !/^(FWD|AWD|RWD|4WD)$/i.test(toks[0]) && !/^model/i.test(toks[0]) ? toks[0] : null;
+  const gearTok = toks.find((t) => /^(?:M\d|\d?MT\d?|\d?DCT\d?|A\d|\d?AT\d?|AMT\d?|E?IVT|E?CVT)$/i.test(t)) ?? null;
+  const model = (c.model_name ?? '').trim() || null;
+  const fuel = (c.fuel_type ?? '').trim() || null;
+  const price = priceOrNull(c.price);
+  const msrp = priceOrNull(c.msrp);
+  const demo = !!Number(c.is_demo ?? 0);
+  const kw = num(c.engine_power_kw);
+  return {
+    external_id: vin, url: c.url ?? null, title: ['Kia', model, engine, gearTok, c.version_name].filter(Boolean).join(' '), brand: 'Kia', model,
+    price, currency: 'EUR', km: demo ? null : 0, year: num(spec.match(/Model\s*((?:19|20)\d{2})/i)?.[1]), fuel, gearbox: kiaSpecGear(spec, fuel),
+    plate: null, vin, body: [demo ? 'démonstration' : 'neuve en stock', c.external_color_name, toks.find((t) => /^(FWD|AWD|RWD|4WD)$/i.test(t)),
+      msrp != null && price != null && msrp > price ? `prix catalogue ${msrp} €` : null].filter(Boolean).join(' · ') || null,
+    image: c.image ?? null, listed_at: null, status: price == null ? 'price_on_request' : null,
+    power_ch: kw != null && kw > 0 ? Math.round(kw * 1.35962) : null, location: [c.dealer_name, c.dealer_location].filter(Boolean).join(', ') || null,
+  };
+}
+async function scrapeKiaIhned(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  const label = (u.searchParams.get('predajca') ?? '').trim();
+  if (!label) throw new Error('adresse kiaihned.sk sans concession (attendu : …/vozidla?predajca=<libellé du filtre>) : le stock national n\'est pas la vitrine d\'une concession');
+  if (/^sklad import/i.test(label)) throw new Error('« Sklad importéra » est le stock de l\'importateur (Kia Sales Slovakia), pas la vitrine d\'une concession');
+  const first = kiaIhnedPage(firstHtml);
+  if (!first) throw new Error('page kiaihned.sk sans état Inertia lisible (<script data-page="app">) : format changé ?');
+  if (!/[?&]predajca=/.test(first.url ?? '')) throw new Error('kiaihned.sk : le site n\'a pas appliqué le filtre de concession (adresse rendue sans « predajca ») — relevé abandonné');
+  const warnings: string[] = [];
+  const byVin = new Map<string, DealerVehicle>();
+  const names = new Set<string>();
+  let importer = 0, pages = 0;
+  const take = (cars: KiaIhnedCar[]) => {
+    let added = 0;
+    for (const c of cars) {
+      if (c.is_importer_car) { importer++; continue; }
+      if (c.dealer_name) names.add(c.dealer_name.trim());
+      const v = kiaIhnedToVehicle(c);
+      if (v && !byVin.has(v.external_id)) { byVin.set(v.external_id, v); added++; }
+    }
+    return added;
+  };
+  const total = first.total;
+  const last = Math.min(Math.max(first.last, 1), 40);
+  for (let p = 1; p <= last; p++) {
+    let page = p === 1 && !u.searchParams.has('strana') ? first : null;
+    if (!page) {
+      await sleep(SITE_DELAY_MS);
+      const r = await getTextPatient(withParam(url, 'strana', String(p)));
+      if (r.status !== 200) { warnings.push(`page ${p} : HTTP ${r.status}`); break; }
+      page = kiaIhnedPage(r.text);
+      if (!page) { warnings.push(`page ${p} : état Inertia illisible`); break; }
+    }
+    pages++;
+    const added = take(page.cars);
+    if (page.cars.length === 0 || added === 0 || (total != null && byVin.size >= total)) break;
+  }
+  // Filtre ignoré (liste du pays) : voitures de l'importateur ou de plusieurs concessions → rien n'est pris.
+  if (importer > 0 || names.size > 1) throw new Error(`kiaihned.sk : la liste « ${label} » mêle ${names.size} concession(s)${importer ? ` et ${importer} voiture(s) de l'importateur` : ''} — filtre ignoré, relevé abandonné (rien marqué disparu)`);
+  const vehicles = [...byVin.values()];
+  if (total === 0) {
+    warnings.push(`0 voiture pour « ${label} » : stock vide, ou libellé de concession changé sur kiaihned.sk (un libellé inconnu rend 0) — relevé non concluant, rien marqué disparu`);
+    return { provider: 'kiaihned', total: 0, declared: null, vehicles, pages, warnings };
+  }
+  if (total != null && vehicles.length < total) warnings.push(`${vehicles.length} voiture(s) lue(s) pour ${total} annoncée(s)`);
+  return { provider: 'kiaihned', total: total ?? vehicles.length, declared: total, vehicles, pages, warnings };
+}
+
+// ── autobazareu (autobazar.eu, Slovaquie, 19/11) : place de marché ; la vitrine d'une concession y est sa PAGE VENDEUR
+//    « /predajca/<utilisateur>/ » (Next.js rendu serveur : __NEXT_DATA__ → props.pageProps.initialFirmList = { data : 10
+//    annonces, total }, seller ; pages « ?page=N »). Toute autre page du site (accueil, annuaire « /predajcovia-aut/ »,
+//    fiche) est refusée ; elles portent aussi un JSON-LD ItemList de Car : détection AVANT la règle « datamotive », qui
+//    lisait 0 voiture. Sans clé, pas de page de défi (HTTP 200 le 19/11). Par annonce : titre, marque, modèle, prix TTC
+//    (priceCurrent, prix barré à part), km, année (1re immatriculation), énergie, boîte, puissance (kW), VIN, carrosserie,
+//    transmission, état (30923 neuve, 30924 occasion, 30925 démonstration — libellés « conditionValue » des fiches),
+//    réservée (extra « abm_is_reserved »), informations (31708 « Možný odpočet DPH » → TVA récupérable ; 31686 « Kúpené v
+//    SR » / 31687 « Dovezené », 1er propriétaire, sans accident, carnet, garantie — décodées sur 4 fiches le 19/11), lieu.
+//    Seules les voitures (catégorie 30900, libellée « Osobné vozidlá » ou parfois « Personal cars ») et les utilitaires
+//    ≤ 3,5 t (30901), et les voitures anciennes (« Veterány »), sont gardés ; motos (30907), pièces, pneus… écartés et
+//    retirés du total. PAGINATION INSTABLE
+//    (vérifié le 19/11 : Auto Lamač, 226 lignes servies sur 23 pages pour 226 annonces, dont 6 en double — 6 jamais
+//    montrées, à chaque passe) : s'il en manque, relecture par fenêtres de prix (« priceFrom » / « priceTo », filtres de la
+//    page vendeur appliqués par le serveur, bornes incluses) d'au plus 8 annonces connues chacune. La page vendeur
+//    ne filtre pas l'état : paramètre d'adresse lu par le LECTEUR (le site l'ignore, vérifié le 19/11) « ?stav=pouzivane »,
+//    « nove », « predvadzacie » (plusieurs : « pouzivane,predvadzacie ») — pour ne pas compter deux fois les neuves d'une
+//    concession déjà lues sur la plateforme de la marque. La date de mise en ligne n'est que sur la fiche (« createdAt ») :
+//    readAutobazarDetail (DETAIL_READERS).
+type AbeuAd = {
+  id?: string; title?: string | null; sefName?: string | null; category?: number | null; categoryValue?: string | null; brandValue?: string | null; carModelValue?: string | null;
+  bodyworkValue?: string | null; fuelValue?: string | null; gearboxValue?: string | null; driveValue?: string | null; condition?: number | null;
+  mileage?: number | null; yearValue?: string | null; monthValue?: string | null; enginePower?: number | null; price?: number | null; priceCurrent?: number | null;
+  finalPrice?: number | null; vehicleInStock?: boolean | null; additionalInformation?: number[] | null; vin?: string | null;
+  extra?: Array<{ name?: string; iValue?: number | null }> | null; location?: { name?: string | null } | null;
+  image?: { previewUrls?: Record<string, string> | null } | null; user?: { username?: string | null; displayName?: string | null } | null;
+};
+const ABEU_VAT = 31708;
+const ABEU_INFO: Record<number, string> = { 31686: 'kúpené v SR', 31687: 'dovezené', 31691: '1. majiteľ', 31690: 'nehavarované', 31692: 'servisná knižka', 31694: 'v záruke', 31695: 'úplná servisná história' };
+const ABEU_CONDITION: Record<number, string> = { 30923: 'neuve', 30924: 'occasion', 30925: 'démonstration' };
+const ABEU_STAV: Record<string, number> = { nove: 30923, pouzivane: 30924, predvadzacie: 30925 };
+const ABEU_CATEGORIES = new Set([30900, 30901]); // osobné vozidlá, úžitkové vozidlá do 3,5 t
+/** État Next.js d'une page autobazar.eu (fonction pure). */
+export function abeuState(html: string): { page: string | null; slug: string | null; seller: { username?: string; displayName?: string; offer?: { count?: number } } | null; ads: AbeuAd[] | null; total: number | null } | null {
+  const m = html.match(/<script id="__NEXT_DATA__" type="application\/json"[^>]*>([\s\S]*?)<\/script>/);
+  if (!m) return null;
+  let d: { page?: string; query?: { slug?: string }; props?: { pageProps?: { seller?: { username?: string; displayName?: string; offer?: { count?: number } } | null; initialFirmList?: { data?: AbeuAd[]; total?: number } | null } } };
+  try { d = JSON.parse(m[1]); } catch { return null; }
+  const pp = d.props?.pageProps;
+  return { page: d.page ?? null, slug: d.query?.slug ?? null, seller: pp?.seller ?? null, ads: pp?.initialFirmList?.data ?? null, total: num(pp?.initialFirmList?.total) };
+}
+export function abeuToVehicle(a: AbeuAd, origin: string): DealerVehicle | null {
+  if (!a.id) return null;
+  const info = a.additionalInformation ?? [];
+  const title = (a.title ?? '').trim() || [a.brandValue, a.carModelValue].filter(Boolean).join(' ');
+  const price = priceOrNull(a.priceCurrent) ?? priceOrNull(a.finalPrice) ?? priceOrNull(a.price);
+  const before = priceOrNull(a.price);
+  const kw = num(a.enginePower);
+  const cond = ABEU_CONDITION[a.condition ?? -1] ?? null;
+  const reserved = (a.extra ?? []).some((x) => x.name === 'abm_is_reserved' && Number(x.iValue) === 1);
+  return {
+    external_id: a.id, url: a.sefName ? `${origin}/detail/${a.sefName}/${a.id}/` : null, title: info.includes(ABEU_VAT) ? `${title} · TVA récupérable` : title,
+    brand: a.brandValue?.trim() || splitTitle(title).brand, model: a.carModelValue?.trim() || splitTitle(title).model,
+    price, currency: 'EUR', km: num(a.mileage) ?? (cond === 'neuve' ? 0 : null), year: num(a.yearValue), fuel: a.fuelValue?.trim() || null,
+    gearbox: gearboxOf(a.gearboxValue ?? null) ?? gearboxOfVersion(title), plate: null, vin: a.vin?.trim() || null,
+    body: [cond, a.bodyworkValue, a.driveValue, a.vehicleInStock ? 'skladom' : null, ...info.map((i) => ABEU_INFO[i]).filter(Boolean),
+      before != null && price != null && before > price ? `prix barré ${before} €` : null].filter(Boolean).join(' · ') || null,
+    image: a.image?.previewUrls?.record_premium ?? a.image?.previewUrls?.record_preview ?? null, listed_at: null,
+    status: reserved ? 'reserved' : price == null ? 'price_on_request' : null,
+    power_ch: kw != null && kw > 0 ? Math.round(kw * 1.35962) : powerFromText(title), location: a.location?.name ?? null,
+  };
+}
+/** Fiche « /detail/<sef>/<id>/ » : date de mise en ligne (« createdAt »), km, année, prix — __NEXT_DATA__ → advertisement. */
+export function readAutobazarDetail(html: string): DetailFields & { listed_at?: string | null } {
+  const m = html.match(/<script id="__NEXT_DATA__" type="application\/json"[^>]*>([\s\S]*?)<\/script>/);
+  if (!m) return {};
+  let a: { createdAt?: string; mileage?: number | null; yearValue?: string | null; priceCurrent?: number | null; gearboxValue?: string | null; fuelValue?: string | null } | undefined;
+  try { a = (JSON.parse(m[1]) as { props?: { pageProps?: { advertisement?: typeof a } } }).props?.pageProps?.advertisement; } catch { return {}; }
+  if (!a) return {};
+  return {
+    listed_at: a.createdAt && !Number.isNaN(Date.parse(a.createdAt)) ? new Date(a.createdAt).toISOString() : null,
+    km: num(a.mileage), year: num(a.yearValue), price: priceOrNull(a.priceCurrent), gearbox: gearboxOf(a.gearboxValue ?? null), fuel: a.fuelValue ?? null,
+  };
+}
+async function scrapeAutobazarEu(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  const st = abeuState(firstHtml);
+  if (!st || st.page !== '/predajca/[slug]') throw new Error('adresse autobazar.eu qui n\'est pas une page vendeur (attendu : https://www.autobazar.eu/predajca/<utilisateur>/) : l\'accueil, l\'annuaire ou une fiche ne sont pas la vitrine d\'une concession');
+  if (!st.seller || st.ads == null) throw new Error(`vendeur autobazar.eu introuvable (« ${st.slug ?? '?'} ») : page vendeur sans liste d'annonces`);
+  const user = (st.seller.username ?? st.slug ?? '').toLowerCase();
+  const warnings: string[] = [];
+  const stav = (u.searchParams.get('stav') ?? '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+  const bad = stav.filter((x) => !(x in ABEU_STAV));
+  if (bad.length) throw new Error(`autobazar.eu : état « ${bad.join(', ')} » inconnu dans « stav » (attendu : pouzivane, nove, predvadzacie)`);
+  const keep = new Set(stav.map((x) => ABEU_STAV[x]));
+  const declaredRaw = st.total ?? num(st.seller.offer?.count);
+  const kept = new Map<string, DealerVehicle>();
+  const seen = new Set<string>();
+  const priceOf = new Map<string, number>();
+  let skipped = 0, foreign = 0, pages = 0;
+  const skippedWhy = new Map<string, number>();
+  const take = (ads: AbeuAd[]) => {
+    let added = 0;
+    for (const a of ads) {
+      if (!a.id || seen.has(a.id)) continue;
+      seen.add(a.id); added++;
+      const pr = priceOrNull(a.priceCurrent) ?? priceOrNull(a.price);
+      if (pr != null) priceOf.set(a.id, pr);
+      if (a.user?.username && a.user.username.toLowerCase() !== user) { foreign++; continue; }
+      const car = (a.category != null ? ABEU_CATEGORIES.has(a.category) : /osobn|úžitkov|uzitkov|personal|commercial/i.test(a.categoryValue ?? 'osobné')) || /veter[aá]n/i.test(a.categoryValue ?? '');
+      const why = !car ? (a.categoryValue ?? `catégorie ${a.category}`)                                                  // motos, pièces, remorques…
+        : keep.size && !keep.has(a.condition ?? -1) ? (ABEU_CONDITION[a.condition ?? -1] ?? 'état ?') : null;            // état écarté (« stav »)
+      if (why) { skipped++; skippedWhy.set(why, (skippedWhy.get(why) ?? 0) + 1); continue; }
+      const v = abeuToVehicle(a, u.origin);
+      if (v) kept.set(v.external_id, v);
+    }
+    return added;
+  };
+  const last = Math.min(Math.max(declaredRaw != null ? Math.ceil(declaredRaw / 10) : 50, 1), 100);
+  const pass = async () => {
+    for (let p = 1; p <= last; p++) {
+      let ads: AbeuAd[] | null = p === 1 && pages === 0 && !u.searchParams.has('page') ? st.ads : null;
+      if (ads == null) {
+        await sleep(SITE_DELAY_MS);
+        // Page 1 SANS « page » : « ?page=1 » rend une 404 (vérifié le 19/11).
+        const pu = new URL(url);
+        if (p === 1) pu.searchParams.delete('page'); else pu.searchParams.set('page', String(p));
+        const r = await getTextPatient(pu.toString());
+        if (r.status !== 200) { warnings.push(`page ${p} : HTTP ${r.status}`); return; }
+        const s = abeuState(r.text);
+        if (!s || s.ads == null) { warnings.push(`page ${p} : liste illisible`); return; }
+        ads = s.ads;
+      }
+      pages++;
+      if (take(ads) === 0 && p > 1 && ads.length === 0) return;
+      if (declaredRaw != null && seen.size >= declaredRaw) return;
+    }
+  };
+  await pass();
+  // Il en manque (pagination instable du site, voir plus haut) : fenêtres de prix d'au plus 8 annonces connues, chacune lue
+  // en entier (au plus 4 pages), jusqu'à avoir vu le total annoncé.
+  if (declaredRaw != null && seen.size < declaredRaw && seen.size > 0) {
+    const before = seen.size;
+    const prices = [...priceOf.values()].sort((a, b) => a - b);
+    const windows: Array<[number, number | null]> = [];
+    let lo = 0;
+    for (let i = 7; i < prices.length; i += 8) if (prices[i] >= lo) { windows.push([lo, prices[i]]); lo = prices[i] + 1; }
+    windows.push([lo, null]);
+    for (const [from, to] of windows) {
+      for (let p = 1; p <= 4; p++) {
+        const wu = new URL(url);
+        wu.searchParams.delete('page');
+        if (from > 0) wu.searchParams.set('priceFrom', String(from));
+        if (to != null) wu.searchParams.set('priceTo', String(to));
+        if (p > 1) wu.searchParams.set('page', String(p));
+        await sleep(SITE_DELAY_MS);
+        const r = await getTextPatient(wu.toString());
+        if (r.status !== 200) { warnings.push(`fenêtre de prix ${from}–${to ?? '∞'} € : HTTP ${r.status}`); break; }
+        const s = abeuState(r.text);
+        if (!s || s.ads == null) break;
+        pages++;
+        take(s.ads);
+        if (s.ads.length < 10 || (s.total != null && p * 10 >= s.total)) break;
+      }
+      if (seen.size >= declaredRaw) break;
+    }
+    warnings.push(`pagination instable du site : ${seen.size - before} annonce(s) retrouvée(s) par ${windows.length} fenêtre(s) de prix`);
+  }
+  if (foreign) warnings.push(`${foreign} annonce(s) d'un autre vendeur dans la page : écartée(s)`);
+  if (skipped) warnings.push(`${skipped} annonce(s) écartée(s) et retirée(s) du total (${[...skippedWhy.entries()].map(([k, n]) => `${k} ${n}`).join(', ')}) : hors voitures / utilitaires${keep.size ? ` ou hors de l'état demandé (${stav.join(', ')})` : ''}`);
+  // Total annoncé : celui du site, moins ce que le lecteur écarte lui-même (seulement si toute la liste a été vue).
+  const declared = declaredRaw == null ? null : seen.size >= declaredRaw ? declaredRaw - skipped - foreign : declaredRaw;
+  const vehicles = [...kept.values()];
+  if (declared != null && vehicles.length < declared) warnings.push(`${vehicles.length} voiture(s) lue(s) pour ${declared} annoncée(s)`);
+  return { provider: 'autobazareu', total: declared ?? vehicles.length, declared, vehicles, pages, warnings };
+}
+
+// ── hedin (Hedin Automotive Slovakia, ex-Motor-Car, 19/11) : vitrine du groupe (≈ 1 945 voitures : Mercedes-Benz, Kia, MG…
+//    neuves, démonstrations, occasions ; Orchard « MotorCarGroup.CarsCatalog »). Adresse de la fiche ADA : la page du site
+//    filtrée « /vozidla?Zdroj=queryString&Typ=Osobné|Úžitkové&Status=Jazdené vozidlá&Predajca=<n°> » (ou « Mesto=<n°>;<n°> »
+//    pour un site à deux n° — Tuhovská : 4 Mercedes-Benz + 45 Kia ; « Status » facultatif). Sans n° de site, refus (tout le
+//    groupe n'est pas la vitrine d'une concession) ; un n° absent du sélecteur « predajca » de la page est refusé (un n°
+//    inconnu rendrait 0). La liste vient du formulaire que la page poste elle-même, sans jeton : POST
+//    /MotorCarGroup.CarsCatalog/ExtendedFilter/DisplayFilteredCarsCatalogPage (FilterData[…], tri « datum_pridania »,
+//    PageNumber), 20 cartes par page, totaux #CarsFilteredCount / #CarsPageCount. Carte : marque, modèle et version, état
+//    (neuve / occasion / démonstration), énergie, km, 1re immatriculation (M/AAAA), prix TTC (prix barré à part), lien.
+//    TVA récupérable : une passe « FilterData[MoznyOdpocetDph]=true » ; boîte : passes « Prevodovka » Automatická /
+//    Manuálna (vérifiées le 19/11 : 383 / 390 TVA, 356 + 16 boîtes à Tuhovská) ; reste : fiche (DETAIL_READERS — VIN,
+//    puissance et couleur n'y sont que sur la fiche). Pas de date de mise en ligne publiée (le tri du site la suit).
+export function hedinFilter(url: string): { single: string | null; ids: string[]; typ: string[]; status: string[]; fuel: string[]; gear: string[]; vat: boolean } {
+  const u = new URL(url);
+  const split = (k: string, sep: RegExp) => (u.searchParams.get(k) ?? '').split(sep).map((x) => x.trim()).filter(Boolean);
+  const single = /^\d+$/.test(u.searchParams.get('Predajca') ?? '') ? u.searchParams.get('Predajca') : null;
+  const typ = split('Typ', /\|/);
+  return { single, ids: split('Mesto', /;/).filter((x) => /^\d+$/.test(x)), typ: typ.length ? typ : ['Osobné', 'Úžitkové'], status: split('Status', /\|/), fuel: split('Palivo', /\|/), gear: split('Prevodovka', /\|/), vat: u.searchParams.get('OdpocetDph') === '1' };
+}
+const hedinBrand = (b: string): string => b.split(/([\s-]+)/).map((w) => (/^[\s-]+$/.test(w) ? w : w === 'KIA' ? 'Kia' : w.length <= 3 ? w : w.charAt(0) + w.slice(1).toLowerCase())).join('');
+/** Cartes d'une page de résultats Hedin (fonction pure) ; `card` = texte brut de la carte (étiquettes). */
+export function parseHedinCards(html: string, origin: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  for (const part of html.split('<div class="results-car"').slice(1)) {
+    const card = part.split(/<div class="cars-watchdog"/)[0];
+    const href = card.match(/window\.open\('(\/vozidla\/[a-z-]+\/([^'/]+))'/i);
+    if (!href) continue;
+    const brandRaw = htmlText(card.match(/<div class="car-info-name">\s*<span>([^<]*)<\/span>/)?.[1] ?? '');
+    const full = htmlText(card.match(/<div class="car-info-name">\s*<span>[^<]*<\/span>([\s\S]*?)<\/div>/)?.[1] ?? '');
+    const lis = [...(card.match(/<div class="car-info-basic">([\s\S]*?)<\/ul>/)?.[1] ?? '').matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => htmlText(m[1])).filter(Boolean);
+    const state = lis.find((x) => /vozidl/i.test(x)) ?? null;
+    const kmTxt = lis.find((x) => /\bkm$/i.test(x)) ?? null;
+    const reg = lis.find((x) => /^\d{1,2}\/(?:19|20)\d{2}$/.test(x)) ?? null;
+    const fuel = lis.find((x) => x !== state && x !== kmTxt && x !== reg) ?? null;
+    const price = priceOrNull(card.match(/<div class="price-total">\s*<span data-format="price">(\d+)<\/span>/)?.[1]);
+    const before = priceOrNull(card.match(/<div class="price-original">\s*<span data-format="price">(\d+)<\/span>/)?.[1]);
+    const text = htmlText(card);
+    const pretty = hedinBrand(brandRaw.toUpperCase());
+    const brand = /^mercedes/i.test(pretty) ? 'Mercedes-Benz' : pretty || null;
+    // Reprises : le nom répète parfois la marque (« Audi A6 » sous « AUDI ») — retirée du nom.
+    const name = pretty && full.toLowerCase().startsWith(`${pretty.toLowerCase()} `) ? full.slice(pretty.length).trim() : full;
+    const title = [pretty, name].filter(Boolean).join(' ');
+    const kind = /^nov/i.test(state ?? '') ? 'neuve' : /^jazden/i.test(state ?? '') ? 'occasion' : /^predv/i.test(state ?? '') ? 'démonstration' : state;
+    out.push({
+      external_id: href[2].toLowerCase(), url: `${origin}${href[1]}`, title, brand,
+      model: name.match(/^trieda\s+\S+/i)?.[0] ?? (name.split(/\s+/)[0] || null),
+      price, currency: 'EUR', km: kmTxt ? num(kmTxt.replace(/\D/g, '')) : kind === 'neuve' ? 0 : null, year: reg ? num(reg.slice(-4)) : null,
+      fuel, gearbox: gearboxOfVersion(name), plate: null, vin: null,
+      body: [kind, before != null && price != null && before > price ? `prix barré ${before} €` : null].filter(Boolean).join(' · ') || null,
+      image: card.match(/<img src="([^"]+)" class="photo-actual"/)?.[1] ? `${origin}${card.match(/<img src="([^"]+)" class="photo-actual"/)![1]}` : null,
+      listed_at: null, status: /\bpredan/i.test(text) ? 'sold' : /rezerv/i.test(text) ? 'reserved' : price == null ? 'price_on_request' : null,
+      power_ch: powerFromText(name), location: null,
+    });
+  }
+  return out;
+}
+const hedinCount = (html: string, id: string): number | null => num(html.match(new RegExp(`id="${id}" value="(\\d+)"`))?.[1]);
+/** Fiche Hedin « /vozidla/<typ>/<id> » : « Typ prevodovky », « Počet najazdených km », « Prvé prihlásenie », « Typ paliva ». */
+export function readHedinDetail(html: string): DetailFields {
+  const spec = new Map<string, string>();
+  for (const m of html.matchAll(/<span class="info-data-title">([^<]+)<\/span>\s*<strong>([\s\S]*?)<\/strong>/g)) { const k = htmlText(m[1]).toLowerCase(); if (!spec.has(k)) spec.set(k, htmlText(m[2])); }
+  return { gearbox: gearboxOf(spec.get('typ prevodovky') ?? null), km: kmOf(spec.get('počet najazdených km')), year: yearOf(spec.get('prvé prihlásenie')), fuel: spec.get('typ paliva') ?? null };
+}
+async function scrapeHedin(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  const f = hedinFilter(url);
+  const sites = f.single ? [f.single] : f.ids;
+  if (!sites.length) throw new Error('adresse Hedin sans site (attendu : …/vozidla?Zdroj=queryString&…&Predajca=<n°> ou Mesto=<n°>;<n°>) : tout le groupe n\'est pas la vitrine d\'une concession');
+  const warnings: string[] = [];
+  // n° de site : ceux du sélecteur « predajca » de la page (un n° inconnu rend 0 voiture : refus plutôt que « stock vide »).
+  const options = new Map<string, string>();
+  const sel = firstHtml.match(/<select[^>]*id="predajca"[^>]*>([\s\S]*?)<\/select>/)?.[1] ?? '';
+  for (const m of sel.matchAll(/<option value="(\d+)"[^>]*>([^<]*)<\/option>/g)) options.set(m[1], htmlText(m[2]));
+  if (options.size) {
+    const unknown = sites.filter((s) => !options.has(s));
+    if (unknown.length) throw new Error(`Hedin : n° de site inconnu (${unknown.join(', ')}) — absent du sélecteur « predajca » de la page (${[...options.entries()].map(([k, v]) => `${k} ${v}`).join(' ; ')})`);
+  } else warnings.push('sélecteur des sites absent de la page : n° de site non vérifié');
+  const location = sites.map((s) => options.get(s) ?? `site ${s}`).join(' + ');
+  const api = `${u.origin}/MotorCarGroup.CarsCatalog/ExtendedFilter/DisplayFilteredCarsCatalogPage`;
+  let pages = 0;
+  const read = async (extra: Array<[string, string]>, label: string): Promise<{ list: DealerVehicle[]; filtered: number | null; all: number | null; ok: boolean }> => {
+    const list: DealerVehicle[] = [];
+    let filtered: number | null = null, all: number | null = null, last = 1;
+    for (let p = 1; p <= Math.min(last, 60); p++) {
+      const body = new URLSearchParams();
+      for (const t of f.typ) body.append('FilterData[Typ][]', t);
+      for (const s of f.status) body.append('FilterData[Status][]', s);
+      if (f.single) body.append('FilterData[Predajca]', f.single); else for (const s of f.ids) body.append('FilterData[Mesto][]', s);
+      for (const x of f.fuel) body.append('FilterData[DruhPaliva][]', x);
+      for (const x of f.gear) body.append('FilterData[Prevodovka][]', x);
+      if (f.vat) body.append('FilterData[MoznyOdpocetDph]', 'true');
+      for (const [k, v] of extra) body.append(k, v);
+      body.append('SortField', 'datum_pridania'); body.append('SortDirection', 'desc'); body.append('PageNumber', String(p));
+      await sleep(SITE_DELAY_MS);
+      const r = await getTextPatient(api, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded; charset=UTF-8', 'x-requested-with': 'XMLHttpRequest', referer: `${u.origin}/vozidla` }, body: body.toString() });
+      if (r.status !== 200) { warnings.push(`liste Hedin (${label}), page ${p} : HTTP ${r.status}`); return { list, filtered, all, ok: false }; }
+      pages++;
+      if (p === 1) {
+        filtered = hedinCount(r.text, 'CarsFilteredCount'); all = hedinCount(r.text, 'CarsCount');
+        last = hedinCount(r.text, 'CarsPageCount') ?? 1;
+        if (filtered == null) { warnings.push(`liste Hedin (${label}) : totaux absents de la réponse`); return { list, filtered, all, ok: false }; }
+      }
+      const cards = parseHedinCards(r.text, u.origin);
+      list.push(...cards);
+      if (cards.length === 0) break;
+    }
+    return { list, filtered, all, ok: true };
+  };
+  const main = await read([], 'liste');
+  // Filtre de site ignoré : la liste du groupe entier (le plus grand site, Tuhovská 4 + 45, en a ≈ 26 %) → refus.
+  if (main.filtered != null && main.all != null && main.all > 100 && main.filtered > main.all * 0.6) throw new Error(`Hedin : ${main.filtered} voitures sur ${main.all} pour le site ${sites.join(';')} — filtre de site ignoré ? relevé abandonné (rien marqué disparu)`);
+  const byId = new Map<string, DealerVehicle>();
+  for (const v of main.list) if (!byId.has(v.external_id)) byId.set(v.external_id, { ...v, location });
+  const declared = main.filtered;
+  if (byId.size > 0) {
+    const vat = await read([['FilterData[MoznyOdpocetDph]', 'true']], 'TVA récupérable');
+    if (vat.ok && (vat.filtered ?? 0) <= (declared ?? 0)) for (const v of vat.list) { const x = byId.get(v.external_id); if (x && !/TVA récupérable/.test(x.title)) x.title = `${x.title} · TVA récupérable`; }
+    else if (vat.ok) warnings.push(`passe « TVA récupérable » incohérente (${vat.filtered} pour ${declared}) : ignorée`);
+    if (!f.gear.length) {
+      for (const [g, label] of [['Automatická', 'Automatique'], ['Manuálna', 'Manuelle']] as const) {
+        const pass = await read([['FilterData[Prevodovka][]', g]], `boîte ${g}`);
+        if (pass.ok && (pass.filtered ?? 0) < (declared ?? 0) + 1) for (const v of pass.list) { const x = byId.get(v.external_id); if (x) x.gearbox = label; }
+      }
+    }
+  }
+  const vehicles = [...byId.values()];
+  if (declared != null && vehicles.length < declared) warnings.push(`${vehicles.length} voiture(s) lue(s) pour ${declared} annoncée(s)`);
+  const noGear = vehicles.filter((v) => !v.gearbox).length;
+  if (noGear) warnings.push(`${noGear} boîte(s) non classée(s) par le filtre du site : lues sur la fiche (DETAIL_READERS)`);
+  return { provider: 'hedin', total: declared ?? vehicles.length, declared, vehicles, pages, warnings };
+}
+
+// ── kiaused (occasions Kia certifiées « Kia Used Car Locator », 19/11) : application used-cars.kia.eu (Kia Europe, Nuxt),
+//    embarquée par kia.com (« /sk/jazdene-vozidla/stock-locator-used/ ») — 87 occasions chez 15 concessions slovaques le
+//    19/11. Adresse de la fiche ADA : « https://www.kia.com/sk/jazdene-vozidla/stock-locator-used/?eddsId=<n°> » (n° du
+//    localisateur Kia ; « dealerGroupId=<n°> » pour un groupe). Lecture par l'API JSON publique de l'application, sans clé
+//    (les clés de carte Woosmap / Google de la page ne servent pas) : GET used-cars.kia.eu/ucl-bff/api/v1/catalogue/
+//    getListingsWithFilters?language=sk&country=SK&eddsId=<n°>&page=N (pages à partir de 0, 12 par page, total
+//    pageDetailsDto.totalResults) ; un n° inconnu rend 0 (vérifié le 19/11) ; chaque voiture est contrôlée (dealer.eddsId).
+//    Par voiture : VIN, titre et version, prix TTC (prix HT « priceNet » → TVA récupérable), km, 1re immatriculation,
+//    énergie, boîte, puissance, carrosserie, couleur, garantie, certification Kia, DATE DE PUBLICATION (68 / 87), statut.
+const KIA_UCL_LOCALE: Record<string, { language: string; country: string; currency: string }> = {
+  sk: { language: 'sk', country: 'SK', currency: 'EUR' }, hu: { language: 'hu', country: 'HU', currency: 'HUF' }, pl: { language: 'pl', country: 'PL', currency: 'PLN' },
+  at: { language: 'de', country: 'AT', currency: 'EUR' }, de: { language: 'de', country: 'DE', currency: 'EUR' }, it: { language: 'it', country: 'IT', currency: 'EUR' },
+  fr: { language: 'fr', country: 'FR', currency: 'EUR' }, nl: { language: 'nl', country: 'NL', currency: 'EUR' },
+};
+const KIA_UCL_FUEL: Record<string, string> = { PETROL: 'Benzín', DIESEL: 'Nafta', ELECTRIC: 'Elektrina', HYBRID: 'Hybrid', PLUG_IN_HYBRID: 'Plug-in hybrid', MILD_HYBRID: 'Mild hybrid (benzín)', LPG: 'LPG', CNG: 'CNG' };
+type KiaUclCar = {
+  id?: string; listingId?: string | null; vin?: string | null; title?: string | null; subTitle?: string | null; price?: string | number | null; priceNet?: string | number | null;
+  fuelType?: string | null; transmission?: string | null; mileage?: { mileage?: string | number | null } | null; enginePowerKw?: number | null; enginePowerHp?: number | null;
+  model?: string | null; publishDate?: string | null; firstRegistrationDate?: string | null; warrantyUntil?: string | null; isKiaCertified?: boolean | null;
+  bodyType?: string | null; color?: string | null; status?: string | null; tags?: string[] | null; numberPlate?: string | null; dealerNotes?: string | null;
+  thumbnails?: Array<{ mainImage?: boolean; url?: { jpg?: string } }> | null;
+  dealer?: { name?: string | null; eddsId?: string | null; dealerGroupId?: string | null; address?: { city?: string | null; street?: string | null } | null } | null;
+};
+export function kiaUclToVehicle(c: KiaUclCar, code: string, currency: string): DealerVehicle | null {
+  const id = (c.vin ?? '').trim() || c.listingId || c.id;
+  if (!id) return null;
+  const title = [c.title, c.subTitle].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+  const price = priceOrNull(c.price);
+  const net = priceOrNull(c.priceNet);
+  const kw = num(c.enginePowerKw);
+  const st = `${c.status ?? ''} ${(c.tags ?? []).join(' ')}`;
+  const img = (c.thumbnails ?? []).find((t) => t.mainImage)?.url?.jpg ?? c.thumbnails?.[0]?.url?.jpg ?? null;
+  return {
+    external_id: id, url: c.id ? `https://used-cars.kia.eu/${code}/detail/${c.id}` : null,
+    title: net != null && price != null && net < price ? `${title} · TVA récupérable` : title, brand: 'Kia', model: splitTitle(title).model,
+    price, currency, km: num(c.mileage?.mileage), year: num(String(c.firstRegistrationDate ?? '').slice(0, 4)),
+    fuel: KIA_UCL_FUEL[(c.fuelType ?? '').toUpperCase()] ?? c.fuelType ?? null,
+    gearbox: /^auto/i.test(c.transmission ?? '') ? 'Automatique' : /^manu/i.test(c.transmission ?? '') ? 'Manuelle' : null,
+    plate: c.numberPlate?.trim() || null, vin: c.vin?.trim() || null,
+    body: [c.bodyType, c.color, c.isKiaCertified ? 'certifiée Kia' : null, c.warrantyUntil ? `garantie jusqu'au ${c.warrantyUntil}` : null, c.dealerNotes?.trim()].filter(Boolean).join(' · ') || null,
+    image: img, listed_at: c.publishDate && !Number.isNaN(Date.parse(c.publishDate)) ? new Date(c.publishDate).toISOString() : null,
+    status: /sold|predan/i.test(st) ? 'sold' : /reserv|rezerv/i.test(st) ? 'reserved' : price == null ? 'price_on_request' : null,
+    power_ch: num(c.enginePowerHp) ?? (kw != null ? Math.round(kw * 1.35962) : null),
+    location: [c.dealer?.name, c.dealer?.address?.city].filter(Boolean).join(', ') || null,
+  };
+}
+async function scrapeKiaUsed(url: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  const edds = (u.searchParams.get('eddsId') ?? '').trim();
+  const group = (u.searchParams.get('dealerGroupId') ?? '').trim();
+  if (!/^\d{6,}$/.test(edds) && !/^\d{6,}$/.test(group)) throw new Error('adresse Kia Used Car Locator sans concession (attendu : …/stock-locator-used/?eddsId=<n°> ou ?dealerGroupId=<n°>) : le stock national n\'est pas la vitrine d\'une concession');
+  const code = u.pathname.match(/^\/([a-z]{2}(?:-[a-z]{2})?)\//)?.[1] ?? 'sk';
+  const loc = KIA_UCL_LOCALE[code] ?? KIA_UCL_LOCALE.sk;
+  const filter = /^\d{6,}$/.test(edds) ? `eddsId=${edds}` : `dealerGroupId=${group}`;
+  const mine = (c: KiaUclCar) => (/^\d{6,}$/.test(edds) ? c.dealer?.eddsId === edds : c.dealer?.dealerGroupId === group);
+  const warnings: string[] = [];
+  const byId = new Map<string, DealerVehicle>();
+  let declared: number | null = null, pages = 0, last = 1;
+  for (let p = 0; p < Math.min(last, 40); p++) {
+    await sleep(SITE_DELAY_MS);
+    const r = await getTextPatient(`https://used-cars.kia.eu/ucl-bff/api/v1/catalogue/getListingsWithFilters?language=${loc.language}&country=${loc.country}&${filter}&page=${p}`, { headers: { accept: 'application/json' } });
+    if (r.status !== 200) { warnings.push(`API Kia Used Car Locator, page ${p} : HTTP ${r.status}`); break; }
+    let d: { vehicles?: KiaUclCar[]; pageDetailsDto?: { totalResults?: number; pageSize?: number } };
+    try { d = JSON.parse(r.text); } catch { warnings.push(`API Kia Used Car Locator, page ${p} : réponse illisible`); break; }
+    pages++;
+    const cars = d.vehicles ?? [];
+    if (p === 0) {
+      declared = num(d.pageDetailsDto?.totalResults);
+      last = declared != null ? Math.ceil(declared / Math.max(1, num(d.pageDetailsDto?.pageSize) ?? 12)) : 40;
+    }
+    // Filtre ignoré (liste du pays) : une seule voiture d'une autre concession suffit à refuser le relevé.
+    const alien = cars.filter((c) => !mine(c));
+    if (alien.length) throw new Error(`API Kia Used Car Locator : ${alien.length} voiture(s) d'une autre concession pour « ${filter} » — filtre ignoré, relevé abandonné (rien marqué disparu)`);
+    for (const c of cars) { const v = kiaUclToVehicle(c, code, loc.currency); if (v && !byId.has(v.external_id)) byId.set(v.external_id, v); }
+    if (cars.length === 0 || (declared != null && byId.size >= declared)) break;
+  }
+  const vehicles = [...byId.values()];
+  if (declared != null && vehicles.length < declared) warnings.push(`${vehicles.length} voiture(s) lue(s) pour ${declared} annoncée(s)`);
+  return { provider: 'kiaused', total: declared ?? vehicles.length, declared, vehicles, pages, warnings };
+}
+
+// ── todosjazdene (vitrine du groupe Todos, Slovaquie, 19/11) : todosjazdene.sk (Laravel + Inertia) — occasions, neuves et
+//    démonstrations des pobočky Todos (Škoda, Toyota, Peugeot, CUPRA… ; ≈ 750 voitures). Adresse de la fiche ADA : la
+//    liste filtrée par pobočka « /ponuka?branch[0]=<n°> » (toutes catégories) ou « /ponuka/jazdene?branch[0]=<n°> »
+//    (occasions) ; sans pobočka, refus (tout le groupe n'est pas la vitrine d'une concession) ; une pobočka absente de la
+//    liste du site (props.branches) est refusée (un n° inconnu rend 0, vérifié le 19/11) ; un filtre ignoré (autant de
+//    voitures que sans filtre) fait échouer le relevé. Une voiture peut figurer sous deux pobočky (le site la rattache aux
+//    deux : Toyota de Trenčín Peugeot listées sous Trenčín Toyota). L'état de la page est dans
+//    <div id="app" data-page="…"> (JSON échappé) : props.cars = pagination Laravel (12 par page, « page=N », total). Par
+//    voiture : titre et version, prix et prix remisé, 1re immatriculation (jj/mm/aaaa), TVA récupérable, vendue (« sold »: 1,
+//    encore affichée SANS prix : statut « sold »), catégories (Jazdené / Nové / Predvádzacie…). Énergie et boîte : relues par les filtres du site (« fuel[0]=<id> »,
+//    « transmission[0]=<id> », listes props.filterOptions — vérifiés le 19/11 : 27 essence et 18 manuelles sur 100 à
+//    Ružomberok) ; km : fiche « /ponuka/<id>/<slug> » (DETAIL_READERS ; VIN et puissance y sont aussi). Pas de date de
+//    mise en ligne publiée.
+type TodosCar = {
+  id?: number; price?: string | number | null; price_sale?: string | number | null; registration?: string | null; registration_year?: string | null;
+  vat_deduction?: boolean | null; image?: string | null; sold?: number | boolean | null; sold_visible?: boolean | null; title_url?: string | null; title?: string | null;
+  lang?: { desc?: string | null } | null; categories?: Array<{ lang?: { title?: string | null } | null }> | null; features_lang?: Array<{ feature_id?: number }> | null;
+};
+type TodosOption = { id?: number; label?: string | null; lang?: { title?: string | null } | null };
+/** JSON d'un attribut HTML (data-page) : entités de htmlspecialchars, « &amp; » en dernier. */
+const attrJson = (s: string): unknown => JSON.parse(s.replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'));
+/** État Inertia d'une page todosjazdene.sk (fonction pure). */
+export function todosState(html: string): { component: string | null; cars: TodosCar[] | null; total: number | null; last: number; branches: Array<{ id?: number; city?: string | null; address?: string | null; lang?: { title?: string | null } | null }>; fuel: TodosOption[]; transmission: TodosOption[]; car: Record<string, unknown> | null } | null {
+  const m = html.match(/<div id="app" data-page="([^"]*)"/);
+  if (!m) return null;
+  let d: { component?: string; props?: { cars?: { data?: TodosCar[]; total?: number; last_page?: number }; branches?: Array<{ id?: number; city?: string | null; address?: string | null; lang?: { title?: string | null } | null }>; filterOptions?: { fuel?: TodosOption[]; transmission?: TodosOption[] }; car?: Record<string, unknown> } };
+  try { d = attrJson(m[1]) as typeof d; } catch { return null; }
+  const p = d.props ?? {};
+  return { component: d.component ?? null, cars: p.cars?.data ?? null, total: num(p.cars?.total), last: num(p.cars?.last_page) ?? 1, branches: p.branches ?? [], fuel: p.filterOptions?.fuel ?? [], transmission: p.filterOptions?.transmission ?? [], car: p.car ?? null };
+}
+export function todosToVehicle(c: TodosCar, origin: string, location: string | null): DealerVehicle | null {
+  if (c.id == null) return null;
+  const base = (c.title ?? '').trim();
+  const { brand, model } = splitTitle(base);
+  let desc = (c.lang?.desc ?? '').replace(/\s+/g, ' ').trim();
+  // « Škoda Octavia » + « Octavia Combi Extra… » / « Toyota Corolla cross 1.8 CVT… » : la version ne répète pas le titre.
+  for (const lead of [base, model ?? '', brand ?? '']) if (lead && desc.toLowerCase().startsWith(lead.toLowerCase())) { desc = desc.slice(lead.length).trim(); break; }
+  const title = [base, desc].filter(Boolean).join(' ');
+  const price = priceOrNull(c.price_sale) ?? priceOrNull(c.price);
+  const before = priceOrNull(c.price);
+  const cats = (c.categories ?? []).map((x) => x.lang?.title?.trim()).filter((x): x is string => !!x);
+  const feats = new Set((c.features_lang ?? []).map((x) => x.feature_id));
+  // « sold »: 1 = vendue, encore affichée (sans prix) ; « sold_visible » seul n'est que le réglage d'affichage (19/11 :
+  // 6 Lexus de démonstration en vente avec sold 0, sold_visible true).
+  const sold = Number(c.sold ?? 0) === 1 || c.sold === true;
+  // Neuve (catégorie « Nové » sans « Predvádzacie ») : 0 km ; occasion et démonstration : km de la fiche (DETAIL_READERS).
+  const isNew = cats.some((x) => /^nov/i.test(x)) && !cats.some((x) => /^predv|^jazden/i.test(x));
+  return {
+    external_id: String(c.id), url: `${origin}/ponuka/${c.id}/${c.title_url ?? ''}`.replace(/\/$/, ''), title: c.vat_deduction ? `${title} · TVA récupérable` : title,
+    brand, model, price, currency: 'EUR', km: isNew ? 0 : null, year: num(c.registration_year) ?? yearOf(c.registration ?? null), fuel: null,
+    gearbox: feats.has(18) ? 'Automatique' : feats.has(17) ? 'Manuelle' : gearboxOfVersion(desc) ?? (/\bautomat|\bDSG\b|\bCVT\b|\bDCT\b|\bAT\d?\b/i.test(desc) ? 'Automatique' : /\bmanu[áa]l|\bMT\d?\b|\d\s?MT\b/i.test(desc) ? 'Manuelle' : null),
+    plate: null, vin: null, body: [...cats, before != null && price != null && before > price ? `prix barré ${before} €` : null].filter(Boolean).join(' · ') || null,
+    image: c.image ?? null, listed_at: null, status: sold ? 'sold' : price == null ? 'price_on_request' : null, power_ch: powerFromText(desc), location,
+  };
+}
+/** Fiche « /ponuka/<id>/<slug> » : km (mileage), énergie (fuel_lang), boîte (transmission_lang), 1re immatriculation, prix. */
+export function readTodosDetail(html: string): DetailFields {
+  const car = todosState(html)?.car as { mileage?: number | null; registration?: string | null; price?: string | null; price_sale?: string | null; fuel_lang?: { title?: string | null } | null; transmission_lang?: { title?: string | null } | null } | null | undefined;
+  if (!car) return {};
+  return { km: num(car.mileage), fuel: car.fuel_lang?.title ?? null, gearbox: gearboxOf(car.transmission_lang?.title ?? null), year: yearOf(car.registration ?? null), price: priceOrNull(car.price_sale) ?? priceOrNull(car.price) };
+}
+async function scrapeTodosJazdene(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  const branchKeys = [...u.searchParams.keys()].filter((k) => /^branch\[\d*\]$/.test(k));
+  const branches = branchKeys.flatMap((k) => u.searchParams.getAll(k)).filter((x) => /^\d+$/.test(x));
+  if (!branches.length) throw new Error('adresse todosjazdene.sk sans pobočka (attendu : …/ponuka?branch[0]=<n°>) : tout le groupe Todos n\'est pas la vitrine d\'une concession');
+  const st = todosState(firstHtml);
+  if (!st || st.cars == null) throw new Error('page todosjazdene.sk sans liste Inertia lisible (<div id="app" data-page>) : format changé, ou adresse qui n\'est pas une liste « /ponuka »');
+  const known = new Map(st.branches.filter((b) => b.id != null).map((b) => [String(b.id), b]));
+  if (known.size) {
+    const unknown = branches.filter((b) => !known.has(b));
+    if (unknown.length) throw new Error(`todosjazdene.sk : pobočka inconnue (${unknown.join(', ')}) — absente de la liste du site (${[...known.entries()].map(([k, b]) => `${k} ${b.lang?.title ?? b.city ?? ''}`).join(' ; ')})`);
+  }
+  const location = branches.map((b) => { const x = known.get(b); return x ? [x.lang?.title, x.address, x.city].filter(Boolean).join(', ') : `pobočka ${b}`; }).join(' + ');
+  const warnings: string[] = [];
+  let pages = 0;
+  const read = async (extra: Array<[string, string]>, first: ReturnType<typeof todosState> | null, label: string): Promise<{ cars: TodosCar[]; total: number | null; ok: boolean }> => {
+    const out: TodosCar[] = [];
+    let total: number | null = null, last = 1;
+    for (let p = 1; p <= Math.min(last, 60); p++) {
+      let s = p === 1 ? first : null;
+      if (!s) {
+        const x = new URL(url);
+        for (const [k, v] of extra) x.searchParams.set(k, v);
+        x.searchParams.set('page', String(p));
+        await sleep(SITE_DELAY_MS);
+        const r = await getTextPatient(x.toString());
+        if (r.status !== 200) { warnings.push(`liste Todos (${label}), page ${p} : HTTP ${r.status}`); return { cars: out, total, ok: false }; }
+        s = todosState(r.text);
+        if (!s || s.cars == null) { warnings.push(`liste Todos (${label}), page ${p} : état illisible`); return { cars: out, total, ok: false }; }
+      }
+      pages++;
+      if (p === 1) { total = s.total; last = s.last; }
+      out.push(...s.cars);
+      if (s.cars.length === 0) break;
+    }
+    return { cars: out, total, ok: true };
+  };
+  const main = await read([], u.searchParams.has('page') ? null : st, 'liste');
+  // Contrôle du filtre : la même liste SANS pobočka (même chemin) doit en compter davantage — sinon le site a ignoré le
+  // filtre et rend le groupe entier. La fiche d'une voiture ne peut pas servir de preuve : une voiture peut être rattachée à
+  // deux pobočky (19/11 : des Toyota de « Todos Trenčín Peugeot », Bratislavská 1789, listées aussi sous « Todos Trenčín
+  // Toyota », Belá 7387 ; la 5 « Ružomberok Škoda/Toyota » rend aussi la 8 cachée « Ružomberok Toyota », même adresse).
+  if (main.total != null && main.total > 0 && known.size > 1) {
+    const all = new URL(url);
+    for (const k of branchKeys) all.searchParams.delete(k);
+    all.searchParams.delete('page');
+    await sleep(SITE_DELAY_MS);
+    const r = await getTextPatient(all.toString());
+    const t = r.status === 200 ? todosState(r.text)?.total ?? null : null;
+    pages++;
+    if (t != null && main.total >= t) throw new Error(`todosjazdene.sk : ${main.total} voitures pour la pobočka ${branches.join(' / ')}, autant que tout le groupe (${t}) — filtre ignoré, relevé abandonné (rien marqué disparu)`);
+    if (t == null) warnings.push(`liste de contrôle sans pobočka illisible (HTTP ${r.status}) : filtre de pobočka non vérifié`);
+  }
+  const byId = new Map<string, DealerVehicle>();
+  for (const c of main.cars) { const v = todosToVehicle(c, u.origin, location); if (v && !byId.has(v.external_id)) byId.set(v.external_id, v); }
+  const declared = main.total;
+  // Énergie et boîte : une passe par valeur des filtres du site (chaque passe ne rend que ses voitures : peu de pages).
+  if (byId.size > 0) {
+    const passes: Array<[string, TodosOption, 'fuel' | 'gearbox']> = [
+      ...(u.searchParams.has('fuel[0]') ? [] : st.fuel.map((o) => ['fuel[0]', o, 'fuel'] as [string, TodosOption, 'fuel'])),
+      ...(u.searchParams.has('transmission[0]') ? [] : st.transmission.map((o) => ['transmission[0]', o, 'gearbox'] as [string, TodosOption, 'gearbox'])),
+    ];
+    for (const [key, o, field] of passes) {
+      if (o.id == null) continue;
+      const label = (o.label ?? o.lang?.title ?? '').trim();
+      const pass = await read([[key, String(o.id)]], null, `${key}=${o.id}`);
+      if (!pass.ok || (pass.total ?? 0) > (declared ?? 0)) continue; // filtre ignoré : la passe rendrait tout
+      for (const c of pass.cars) {
+        const v = byId.get(String(c.id));
+        if (!v) continue;
+        if (field === 'fuel') v.fuel = label || v.fuel;
+        else v.gearbox = gearboxOf(label) ?? v.gearbox;
+      }
+    }
+  }
+  const vehicles = [...byId.values()];
+  if (declared != null && vehicles.length < declared) warnings.push(`${vehicles.length} voiture(s) lue(s) pour ${declared} annoncée(s)`);
+  if (vehicles.length) warnings.push('km (et VIN, puissance) seulement sur la fiche : lus par DETAIL_READERS (200 par relevé)');
+  return { provider: 'todosjazdene', total: declared ?? vehicles.length, declared, vehicles, pages, warnings };
+}
+
 export async function fetchDealerStock(url: string, onProgress?: StockProgress): Promise<DealerStockResult> {
   const first = await getTextPatient(url); // 04/11 : MotorK (Sofibrie, SIPA) répond 429 dès la première page après une rafale
   if (first.status !== 200) throw new Error(`page du stock : HTTP ${first.status}`);
@@ -6079,6 +6833,12 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'bmwused') return scrapeBmwUsed(url, first.text);
   if (provider === 'kiaosp') return scrapeKiaOsp(url);
   if (provider === 'pappas') return scrapePappas(url, first.text);
+  if (provider === 'skodastock') return scrapeSkodaStock(url, first.text);
+  if (provider === 'kiaihned') return scrapeKiaIhned(url, first.text);
+  if (provider === 'autobazareu') return scrapeAutobazarEu(url, first.text);
+  if (provider === 'hedin') return scrapeHedin(url, first.text);
+  if (provider === 'kiaused') return scrapeKiaUsed(url);
+  if (provider === 'todosjazdene') return scrapeTodosJazdene(url, first.text);
   if (provider === 'audaris') return scrapeAudaris(url, first.text);
   if (provider === 'kleynvans') return scrapeKleynVans(url, first.text);
   if (provider === 'ocasionplus') return scrapeOcasionPlus(url, first.text);
@@ -6153,10 +6913,10 @@ export async function showcaseSiblings(contactId: string, url: string): Promise<
 }
 
 /** Ce qu'une fiche détail rend : un champ absent ou null = inconnu (jamais un écrasement d'une valeur connue). */
-export interface DetailFields { gearbox?: string | null; fuel?: string | null; km?: number | null; year?: number | null; price?: number | null }
+export interface DetailFields { gearbox?: string | null; fuel?: string | null; km?: number | null; year?: number | null; price?: number | null; listed_at?: string | null }
 export type DetailField = keyof DetailFields;
 /** Un lecteur de fiche : les champs qu'il sait rendre (un véhicule n'est relu que si l'un d'eux manque), et la lecture. */
-export interface DetailReader { fields: DetailField[]; read: (html: string) => DetailFields }
+export interface DetailReader { fields: DetailField[]; read: (html: string) => DetailFields; /** fiches lues au plus par relevé pour ce lecteur (site qui limite le débit) */ max?: number }
 /** UNE ÉLECTRIQUE N'A PAS DE BOÎTE MANUELLE (18/11, Bony : 9 électriques neuves sur 24 annoncées « Manuelle » par le
  *  site — Scénic, R5, Mégane E-Tech, Spring) : rapport unique, comparée comme une automatique. */
 // 19/11 : une électrique SANS boîte publiée l'est aussi (rapport unique, aucune électrique à boîte manuelle) — 138 voitures
@@ -6279,6 +7039,15 @@ export const DETAIL_READERS: Partial<Record<DealerProvider, DetailReader>> = {
   pewneauto: { fields: ['gearbox'], read: readPewneDetail },
   // pappas (Hongrie) : la boîte n'est pas sur la carte (« Váltó típusa » de la fiche).
   pappas: { fields: ['gearbox'], read: readPappasDetail },
+  // hedin (Slovaquie) : la boîte que les passes « Prevodovka » du site n'ont pas classée (« Typ prevodovky » de la fiche),
+  // l'énergie des reprises dont la carte ne la dit pas (« Typ paliva »).
+  hedin: { fields: ['gearbox', 'fuel'], read: readHedinDetail },
+  // todosjazdene (Slovaquie) : km (seulement sur la fiche) ; énergie et boîte en secours des passes filtrées de la liste.
+  todosjazdene: { fields: ['km', 'fuel', 'gearbox'], read: readTodosDetail },
+  // autobazareu (Slovaquie) : DATE DE MISE EN LIGNE de l'annonce (« createdAt », seulement sur la fiche) — demande
+  // `listed_at` dans DetailFields (la plus ancienne date connue est gardée à l'enregistrement) ; 40 fiches au plus par
+  // relevé (`max`) : le proxy du site répond 503 après ≈ 55 requêtes rapprochées (vérifié le 19/11).
+  autobazareu: { fields: ['listed_at'], read: readAutobazarDetail, max: 40 },
   // Groupes hongrois (19/11) : la fiche « export hasznaltauto » rend ce que la liste ne donne pas.
   jpauto: { fields: ['km', 'gearbox'], read: readHgSpecDetail },          // occasions : km + boîte (neuves : sur la carte)
   mbmauto: { fields: ['km', 'gearbox'], read: readHgSpecDetail },          // occasions : km ; boîte hors « 9G-TRONIC »
@@ -6322,14 +7091,20 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
         try {
           const s2 = await fetchDealerStock(url2, onProgress);
           const ids = new Set(stock.vehicles.map((v) => v.external_id));
+          // MÊME VOITURE SUR LES DEUX VITRINES (19/11, Slovaquie : la page autobazar.eu d'une concession reprend les neuves et
+          // démonstrations de son stock neuf Škoda — Todos Bratislava : 47 VIN communs sur 82 et 47) : comptée une fois, sous
+          // la vitrine 1 ; le total annoncé de la vitrine 2 en est diminué.
+          const vins = new Set(stock.vehicles.map((v) => (v.vin ?? '').trim().toUpperCase()).filter((x) => x.length >= 11));
+          let twins = 0;
           for (const v of s2.vehicles) {
+            if (v.vin && vins.has(v.vin.trim().toUpperCase())) { twins++; continue; }
             const v2 = ids.has(v.external_id) ? { ...v, external_id: `${host2}:${v.external_id}` } : v;
             stock.vehicles.push(v2);
             providerOf.set(v2.external_id, s2.provider);
           }
           stock.pages += s2.pages;
-          if (stock.declared != null && s2.declared != null) stock.declared += s2.declared;
-          stock.warnings.push(`vitrine 2 (${host2}) : ${s2.vehicles.length} véhicules lus (${s2.provider})`, ...s2.warnings.map((w) => `vitrine 2 : ${w}`));
+          if (stock.declared != null && s2.declared != null) stock.declared += s2.declared - twins;
+          stock.warnings.push(`vitrine 2 (${host2}) : ${s2.vehicles.length} véhicules lus (${s2.provider})${twins ? `, dont ${twins} déjà sur la vitrine 1 (même VIN) : comptés une fois` : ''}`, ...s2.warnings.map((w) => `vitrine 2 : ${w}`));
         } catch (e) {
           keepHosts.push(host2);
           stock.warnings.push(`vitrine 2 non lue (${url2}) : ${e instanceof Error ? e.message : String(e)} — ses véhicules du relevé précédent sont gardés`);
@@ -6416,11 +7191,19 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
         .map((v) => ({ v, r: DETAIL_READERS[providerOf.get(v.external_id) ?? stock.provider] }))
         .filter((x): x is { v: DealerVehicle; r: DetailReader } => !!x.r && !!x.v.url && missing(x.v, x.r))
         .sort((a, b) => Number(prev.has(a.v.external_id)) - Number(prev.has(b.v.external_id)));
-      const batch = queue.slice(0, DETAIL_MAX_PER_RUN);
+      // PLAFOND PAR LECTEUR ET ARRÊT SUR REFUS (19/11, autobazar.eu : son proxy répond 503 après ≈ 55 requêtes rapprochées) :
+      // un lecteur de fiche peut limiter ses lectures par relevé (`max`) ; au premier 429 / 503 d'un hôte, plus aucune fiche
+      // de cet hôte n'est demandée pendant ce relevé (le reste au relevé suivant, nouveaux d'abord).
+      const perReader = new Map<DetailReader, number>();
+      const batch = queue.filter((x) => { const n = perReader.get(x.r) ?? 0; if (x.r.max != null && n >= x.r.max) return false; perReader.set(x.r, n + 1); return true; }).slice(0, DETAIL_MAX_PER_RUN);
+      const refused = new Set<string>();
       let read = 0, filled = 0;
       for (const { v, r } of batch) {
+        const host = (() => { try { return new URL(v.url!).hostname; } catch { return ''; } })();
+        if (refused.has(host)) continue;
         try {
           const page = await getText(v.url!, undefined, { noZyte: true });
+          if (page.status === 429 || page.status === 503) { refused.add(host); stock.warnings.push(`Fiches détail : ${host} refuse (HTTP ${page.status}) — arrêt pour ce relevé, reprise au suivant.`); continue; }
           if (page.status === 200) {
             read++;
             const got = r.read(page.text);
