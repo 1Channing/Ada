@@ -2015,8 +2015,11 @@ const isGearFr = (x: string) => x.length <= 30 && /^(manuelle|automatique|s[ée]
 // 18/11 (soir) : « full hybrid », « E-Tech » (Renault / Dacia : électrique, hybride et rechargeable, toujours à boîte
 // automatique), « e-Power » (Nissan) et une puissance suivie de « auto » (« Eco-G 120 auto ») disent aussi la boîte —
 // jamais « clim auto » ni « phares auto » (pas de puissance devant).
+// 19/11 (SIPA, Sofibrie, Bony : 1 767 voitures sans boîte) : aussi « TCT7 » (Alfa, Fiat, Jeep), « S tronic » (espace),
+// « Geartronic » (Volvo), « BVR6 » (robotisée = sans pédale d'embrayage), « AT8 », « e-DCS6 » (Citroën), Honda
+// « i-MMD » / « e:HEV », MG « Hybrid+ », « DHT », et l'hybride RECHARGEABLE (aucune n'a de boîte manuelle).
 export const gearboxOfVersion = (v: string | null | undefined): string | null =>
-  /\b(BVA\d?|DSG\d?|EAT\d|DCT\d?|EDC\d?|e-?CVT|CVT|automatique|automatic|powershift|S-?tronic|steptronic|tiptronic|full ?hybrid|e-?tech|e-?power)\b|\b\d{2,3}(?:\s?ch)?\s+auto\b/i.test(v ?? '') ? 'Automatique' : /\bBVM\d?\b/i.test(v ?? '') ? 'Manuelle' : null;
+  /\b(BVA\d?|BVR\d?|DSG\d?|EAT\d|DCT\d?|TCT\d?|DCS\d?|EDC\d?|DHT|AT\d|e-?CVT|CVT|automatique|automatic|powershift|S[- ]?tronic|steptronic|tiptronic|geartronic|full ?hybrid|e-?tech|e-?power|i-MMD|PHEV|plug-?in|e-?hybrid)\b|\be:HEV\b|\bhybrid\+|\bhybride rechargeable\b|\b\d{2,3}(?:\s?ch)?\s+auto\b/i.test(v ?? '') ? 'Automatique' : /\bBVM\d?\b/i.test(v ?? '') ? 'Manuelle' : null;
 
 /** JSON-LD des pages webspark (18/11) : chaque page de liste porte un ItemList Yoast de « Vehicle », un par carte
  *  (sku = data-id) avec boîte (vehicleTransmission), énergie, km, année, prix et VIN — y compris sur les cartes
@@ -6151,8 +6154,10 @@ export type DetailField = keyof DetailFields;
 export interface DetailReader { fields: DetailField[]; read: (html: string) => DetailFields }
 /** UNE ÉLECTRIQUE N'A PAS DE BOÎTE MANUELLE (18/11, Bony : 9 électriques neuves sur 24 annoncées « Manuelle » par le
  *  site — Scénic, R5, Mégane E-Tech, Spring) : rapport unique, comparée comme une automatique. */
+// 19/11 : une électrique SANS boîte publiée l'est aussi (rapport unique, aucune électrique à boîte manuelle) — 138 voitures
+// de SIPA et Bony restaient sans boîte.
 export const evGearbox = (gearbox: string | null, fuel: string | null): string | null =>
-  gearbox && fuelFamily(fuel) === 'electric' && gearboxFamily(gearbox) === 'manual' ? 'Automatique' : gearbox;
+  fuelFamily(fuel) === 'electric' && (!gearbox || gearboxFamily(gearbox) === 'manual') ? 'Automatique' : gearbox;
 /** Un prix inférieur à ce ratio du nouveau prix lu était une lecture fausse (remise, mensualité), pas un prix (18/11). */
 export const MISREAD_PRICE_RATIO = 0.35;
 /** Relevé partiel (18/11) : moins de 95 % du total que le site annonce — aucune voiture n'est alors marquée disparue. */

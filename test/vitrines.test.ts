@@ -574,8 +574,17 @@ ok(autoVersions.every((v) => ds.gearboxOfVersion(v) === 'Automatique') && quietV
   [...autoVersions, ...quietVersions].map((v) => `${v} → ${ds.gearboxOfVersion(v)}`));
 ok(ds.readDmdDetail('<span>Boîte de vitesse</span>\n <span>A Var Continu</span>').gearbox === 'Automatique', 'DMD : « A Var Continu » = Automatique');
 
-ok(ds.evGearbox('Manuelle', 'Électrique') === 'Automatique' && ds.evGearbox('Manuelle', 'Hybride') === 'Manuelle' && ds.evGearbox('Manuelle', 'Essence') === 'Manuelle' && ds.evGearbox(null, 'Électrique') === null,
-  'une électrique annoncée « Manuelle » est comparée comme une automatique (hybride et essence inchangées)');
+ok(ds.evGearbox('Manuelle', 'Électrique') === 'Automatique' && ds.evGearbox('Manuelle', 'Hybride') === 'Manuelle' && ds.evGearbox('Manuelle', 'Essence') === 'Manuelle'
+  && ds.evGearbox(null, 'Électrique') === 'Automatique' && ds.evGearbox(null, 'Essence') === null,
+  'une électrique, annoncée « Manuelle » ou sans boîte, est comparée comme une automatique (hybride et essence inchangées)');
+// 19/11 : versions réelles de SIPA, Sofibrie, Bony restées sans boîte.
+const autoMore = ['Alfa Romeo Tonale 1.5 Hybrid 160 ch VGT TCT7 Sprint 5p', 'Audi Q3 Sportback 45 TFSIe 245 ch S tronic 6 S line 5p', 'Volvo XC60 T6 AWD Hybride rechargeable 253 ch+145 ch Geartronic 8 Start 5p',
+  'Jeep Renegade 1.3 Turbo T4 150 ch BVR6 80th Anniversary 5p', 'Alfa Romeo Stelvio 2.2 190 ch Q4 AT8 Sprint 5p', 'Citroën C5 Aircross Hybride 145 ch e-DCS6 Plus 5p', 'Honda ZR-V e:HEV 2.0 i-MMD Sport 5p',
+  'MG ZS HYBRID+ 197 LUXURY', 'MG EHS 1.5T GDI PHEV Luxury'];
+const quietMore = ['Dacia Bigster Hybrid-G 150 4x4 Journey', 'Renault Clio Blue dCi 100 ch GSR2 Evolution', 'Fiat Panda 1.0 70 ch Hybride BSG S/S'];
+ok(autoMore.every((v) => ds.gearboxOfVersion(v) === 'Automatique') && quietMore.every((v) => ds.gearboxOfVersion(v) === null),
+  'version : « TCT7 », « S tronic », « Geartronic », « BVR6 », « AT8 », « e-DCS6 », « i-MMD », « Hybrid+ », PHEV = automatique ; hybrides légères et dCi sans signal',
+  [...autoMore, ...quietMore].map((v) => `${v} → ${ds.gearboxOfVersion(v)}`));
 
 console.log(`\n${fails === 0 ? 'Tout est bon.' : `${fails} échec(s).`}`);
 if (fails) process.exit(1);
