@@ -348,6 +348,26 @@ console.log('\n=== OCCASIONS BMW HONGRIE (ajanlatok.bmw.hu, 19/11) ===\n');
   const phev = ds5.bmwUsedToVehicle({ ...item, id: 290685, title: 'BMW 225e xDrive Active Tourer', fuel: { label: 'Hibrid (elektromos/benzines)' } }, 'https://ajanlatok.bmw.hu');
   ok(phev?.fuel === 'Plug-in Hibrid (elektromos/benzines)', '« Hibrid » sur une 225e = hybride rechargeable', phev?.fuel);
   ok(ds5.detectDealerProvider('<form><select name="dealer[$or]"></select><select name="series[$or]"></select></form>') === 'bmwused', 'plateforme reconnue par son formulaire (dealer[$or], series[$or])');
+  // Slovaquie (bezcakania.bmw.sk/jazdene, 19/11) : même API sous « /jazdene/ », index sk_SK déduit du pays, euros, « BMW radu 3 ».
+  const form = '<form><select name="dealer[$or]"></select><select name="series[$or]"></select></form>';
+  pages['https://bmw.test.sk/jazdene/?perm_dealer_id=87'] = form;
+  const skItem = (id: number, title: string, series: string, fuel: string) => ({ ...item, id, title, series: { label: series }, fuel: { label: fuel }, transmission: { label: 'Automatická' },
+    transactionalPrice: 64990, dealer: { id: 87, name: 'MD-Bavaria', city: 'Žilina' } });
+  const skList = [skItem(291239, 'BMW 520d xDrive Sedan', 'BMW radu 5', 'Diesel'), skItem(291240, 'BMW X1 xDrive25e', 'BMW X', 'Hybrid (elektrina/benzín)'), skItem(291241, 'BMW i4 eDrive40', 'BMW i', 'Elektrina')];
+  const bodies: string[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const u = String(input instanceof Request ? input.url : input);
+    if (u === 'https://bmw.test.sk/jazdene/api/v1/ems/bmw-used-sk_SK/search') { bodies.push(String(init?.body)); return new Response(JSON.stringify({ $list: skList, $count: { $total: 3 } }), { status: 200 }); }
+    return realFetch(input, init);
+  }) as typeof fetch;
+  try {
+    const st = await ds5.fetchDealerStock('https://bmw.test.sk/jazdene/?perm_dealer_id=87');
+    const g = (id: string) => st.vehicles.find((x) => x.external_id === id);
+    ok(st.vehicles.length === 3 && JSON.parse(bodies[0] ?? '{}').$match?.dealer === 87 && g('291239')?.currency === 'EUR' && g('291239')?.url === 'https://bmw.test.sk/jazdene/vyhladavanie/detail/291239'
+      && g('291239')?.model === 'Série 5' && g('291240')?.model === 'X1' && g('291241')?.model === 'i4' && g('291240')?.fuel === 'Plug-in Hybrid (elektrina/benzín)',
+      'Slovaquie : API « /jazdene/…/bmw-used-sk_SK », euros, fiche « vyhladavanie/detail », « BMW radu 5 » = Série 5, X1, i4, hybride rechargeable', st.vehicles.map((x) => [x.external_id, x.model, x.fuel, x.currency, x.url]));
+  } finally { globalThis.fetch = realFetch; }
 }
 
 console.log('\n=== NEUVES KIA HONGRIE (kia.com « piacter », 19/11) ===\n');

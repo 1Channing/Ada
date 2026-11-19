@@ -4866,6 +4866,13 @@ async function scrapeVwgMarket(url: string): Promise<DealerStockResult> {
 //    hu_HU>/search, corps {"$match":{"dealer":n°},"$skip":k,"$limit":100}, total dans $count.$total ; un filtre vide rend 0
 //    (pas de recherche élargie, vérifié le 18/11). Chaque voiture : prix TTC (forints), TVA récupérable, km, 1re
 //    immatriculation, énergie, boîte, VIN, puissance, couleur, garantie (mois), réservation, campagnes, DATE DE MISE EN LIGNE.
+//    Slovaquie (19/11, bezcakania.bmw.sk/jazdene, même application) : chemin « /jazdene/ », index « bmw-used-sk_SK » (absent
+//    de la page de la concession : déduit du pays), fiche « /jazdene/vyhladavanie/detail/<id> », euros, gamme « BMW radu 3 ».
+const BMW_USED_LOCALE: Record<string, { ems: string; detail: string; currency: string }> = {
+  hu: { ems: 'hu_HU', detail: 'kereses/reszletek', currency: 'HUF' },
+  sk: { ems: 'sk_SK', detail: 'vyhladavanie/detail', currency: 'EUR' },
+};
+type BmwUsedLocale = { root: string; detail: string; currency: string };
 type BmwUsedItem = {
   id?: number | string; vin17?: string | null; title?: string | null; brand?: { label?: string } | null; series?: { label?: string } | null;
   bodyType?: { label?: string } | null; productionYear?: number | null; registration?: string | null; mileage?: number | null;
@@ -4873,18 +4880,22 @@ type BmwUsedItem = {
   warranty?: number | null; vatReclaimable?: boolean | null; transactionalPrice?: number | null; reserved?: boolean | null;
   reservationStatus?: string | null; campaigns?: Array<{ text?: string }> | null; created?: string | null; dealer?: { id?: number; name?: string; city?: string } | null;
 };
-export function bmwUsedToVehicle(it: BmwUsedItem, origin: string): DealerVehicle | null {
+export function bmwUsedToVehicle(it: BmwUsedItem, origin: string, loc: BmwUsedLocale = { root: '/hasznalt', detail: 'kereses/reszletek', currency: 'HUF' }): DealerVehicle | null {
   if (it.id == null) return null;
   const price = priceOrNull(it.transactionalPrice);
   const title = (it.title ?? '').trim() || [it.brand?.label, it.series?.label].filter(Boolean).join(' ');
-  const series = (it.series?.label ?? '').trim();
+  // Gamme : « 3 » (HU), « BMW radu 3 » (SK) = Série 3 ; « BMW X », « BMW i », « BMW M » (SK) → le modèle du titre (X1, i4, M3).
+  const series = (it.series?.label ?? '').trim().replace(/^(bmw|mini)\s+/i, '');
+  const serie = series.match(/^(?:radu\s+)?(\d)$/i)?.[1];
+  const model = serie ? `Série ${serie}` : /^[a-z]$/i.test(series) ? title.match(/^(?:BMW|MINI)\s+([A-Za-z]{1,2}\d{0,3}[a-z]{0,2})\b/)?.[1] ?? series : series || splitTitle(title).model;
   const gear = it.transmission?.label ?? '';
   return {
-    external_id: String(it.id), url: `${origin}/hasznalt/kereses/reszletek/${it.id}`, title: it.vatReclaimable ? `${title} · TVA récupérable` : title,
-    brand: it.brand?.label ?? splitTitle(title).brand, model: /^\d$/.test(series) ? `Série ${series}` : series || splitTitle(title).model,
-    price, currency: 'HUF', km: num(it.mileage), year: num(String(it.registration ?? '').slice(0, 4)) ?? num(it.productionYear),
-    // « Hibrid (elektromos/benzines) » sur une BMW « 225e / 330e / xDrive50e » = hybride RECHARGEABLE (BMW n'a pas d'hybride simple).
-    fuel: /hibrid/i.test(it.fuel?.label ?? '') && /\b\d{2,3}e\b|xdrive\d{2}e\b/i.test(title) ? `Plug-in ${it.fuel?.label}` : it.fuel?.label ?? null,
+    external_id: String(it.id), url: `${origin}${loc.root}/${loc.detail}/${it.id}`, title: it.vatReclaimable ? `${title} · TVA récupérable` : title,
+    brand: it.brand?.label ?? splitTitle(title).brand, model,
+    price, currency: loc.currency, km: num(it.mileage), year: num(String(it.registration ?? '').slice(0, 4)) ?? num(it.productionYear),
+    // « Hibrid (elektromos/benzines) », « Hybrid (elektrina/benzín) » sur une BMW « 225e / 330e / xDrive50e » = hybride
+    // RECHARGEABLE (BMW n'a pas d'hybride simple).
+    fuel: /h[iy]brid/i.test(it.fuel?.label ?? '') && /\b\d{2,3}e\b|xdrive\d{2}e\b/i.test(title) ? `Plug-in ${it.fuel?.label}` : it.fuel?.label ?? null,
     gearbox: !gear ? null : /automat|steptronic|dkg|dct/i.test(gear) ? 'Automatique' : /manu|k[ée]zi/i.test(gear) ? 'Manuelle' : gear,
     plate: null, vin: it.vin17 || null,
     body: [it.bodyType?.label, it.color?.label, it.warranty ? `garantie ${it.warranty} mois` : null, ...(it.campaigns ?? []).map((c) => c.text)].filter(Boolean).join(' · ') || null,
@@ -4896,9 +4907,12 @@ export function bmwUsedToVehicle(it: BmwUsedItem, origin: string): DealerVehicle
 async function scrapeBmwUsed(url: string, firstHtml: string): Promise<DealerStockResult> {
   const u = new URL(url);
   const dealer = num(u.searchParams.get('perm_dealer_id') ?? u.searchParams.get('dealer'));
-  if (dealer == null) throw new Error('adresse BMW használtautó sans concession (attendu : …/hasznalt/?perm_dealer_id=<n°>) : tout le pays n\'est pas la vitrine d\'une concession');
-  const ems = firstHtml.match(/\/ems\/([a-z]+-used-[a-z]{2}_[A-Z]{2})\//)?.[1] ?? (/mini/.test(u.hostname) ? 'mini-used-hu_HU' : 'bmw-used-hu_HU');
-  const api = `${u.origin}/hasznalt/api/v1/ems/${ems}/search`;
+  if (dealer == null) throw new Error('adresse des occasions BMW sans concession (attendu : …/hasznalt/?perm_dealer_id=<n°> ou …/jazdene/?perm_dealer_id=<n°>) : tout le pays n\'est pas la vitrine d\'une concession');
+  const tld = u.hostname.split('.').pop() ?? 'hu';
+  const country = BMW_USED_LOCALE[tld] ?? BMW_USED_LOCALE.hu;
+  const loc: BmwUsedLocale = { root: u.pathname.match(/^\/[^/]+/)?.[0] ?? '/hasznalt', detail: country.detail, currency: country.currency };
+  const ems = firstHtml.match(/\/ems\/([a-z]+-used-[a-z]{2}_[A-Z]{2})\//)?.[1] ?? `${/mini/.test(u.hostname) ? 'mini' : 'bmw'}-used-${country.ems}`;
+  const api = `${u.origin}${loc.root}/api/v1/ems/${ems}/search`;
   const warnings: string[] = [];
   const byId = new Map<string, DealerVehicle>();
   let declared: number | null = null;
@@ -4912,7 +4926,7 @@ async function scrapeBmwUsed(url: string, firstHtml: string): Promise<DealerStoc
     pages++;
     declared = declared ?? num(d.$count?.$total);
     const got = (d.$list ?? []).filter((it) => it.dealer?.id == null || it.dealer.id === dealer);
-    for (const it of got) { const v = bmwUsedToVehicle(it, u.origin); if (v && !byId.has(v.external_id)) byId.set(v.external_id, v); }
+    for (const it of got) { const v = bmwUsedToVehicle(it, u.origin, loc); if (v && !byId.has(v.external_id)) byId.set(v.external_id, v); }
     if ((d.$list ?? []).length < 100 || (declared != null && byId.size >= declared)) break;
   }
   const vehicles = [...byId.values()];
