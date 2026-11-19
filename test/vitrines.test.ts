@@ -265,6 +265,33 @@ console.log('\n=== TOYOTA HONGRIE (pewneauto, 19/11) : CARTES ET FICHES RÉELLES
   ok(c('446980')?.gearbox === null, 'version muette (Opel 1.2 T) : boîte laissée à la fiche', c('446980'));
   const fiche = '<li><span>Gyártási év</span><span>2026</span></li><li><span>Első forgalomba helyezés dátuma</span><span>-</span></li><li><span>Futásteljesítmény</span><span>27 670 km</span></li><li><span>Üzemanyagtípus</span><span>Hibrid</span></li><li><span>Váltó</span><span>Automata</span></li>';
   ok(JSON.stringify(ds3.readPewneDetail(fiche)) === JSON.stringify({ gearbox: 'Automatique', fuel: 'Hibrid', km: 27670, year: 2026 }), 'fiche : « Váltó », énergie, km, année (immatriculation « - » → année de fabrication)', ds3.readPewneDetail(fiche));
+  // Slovaquie (19/11) : occasions usedcars.toyota.sk (même gabarit, euros, « Odpočet DPH ») et neuves nove.toyota.sk (gabarit récent).
+  const usedSk = `<div class="o-bx" aria-label="Toyota PROACE VERSO: ponuka s ID 444937" offer-id="444937"> <div class="o-bx__gallery"> <a href="/ponuka/toyota-proace-verso/444937" aria-label="x"> <img src="https://panel.pewneauto.pl/media/x.jpg" alt="x"> </a> </div>
+    <div class="o-bx__title"> <a href="/ponuka/toyota-proace-verso/444937" tabindex="-1"><strong>Toyota PROACE VERSO</strong></a> <span>MY26 - L1 - 2.2L Diesel 180k - 8 AT Family 8 miest webasto</span> <div class="o-bx__tags"> <span class="tag tag--primary">Odpočet DPH</span> </div> </div>
+    <div class="o-bx__info"> <b>A.A.Service, spol. s r.o.</b> <ul> <li><span>2026</span></li> <li><span>490 km</span></li> <li><strong>Diesel</strong></li> <li><span>2 184 cm<sup>3</sup></span></li> </ul> </div>
+    <div class="o-bx__price"> <p class="retail-price--old">Cena pred zľavou: <s>48 745 €</s></p> <p class="retail-price"> <small>Aktuálna cena:</small> <strong>40 900 €</strong> </p> </div> </div>`;
+  const newSk = `<div class="o-bx"> <a href="/ponuka/toyota-yaris/447315" class="o-bx__image gaServeEvent" data-pjax="0"> <div class="o-bx__image__location semi-trans-background-light"> <i class="t-icon-tr-pin"></i><strong>Prievidza</strong> </div> </a>
+    <div class="o-bx__data"> <div class="o-bx__header"> <div class="o-bx__header__name"> <a href="/ponuka/toyota-yaris/447315" class="o-bx__header__name__title gaServeEvent" data-pjax="0"> Toyota Yaris </a> <span class="o-bx__header__name__subtitle"> 1.5 HEV 130k - eCVT GR Sport </span> </div>
+    <div class="o-bx__header__extras"> <div class="o-bx__header__extras__tag o-bx__header__extras__tag--primary">Odpočet DPH</div> <div class="o-bx__header__extras__tag o-bx__header__extras__tag--secondary">NOVÉ</div> </div> </div>
+    <div class="o-bx__price"> <span>28 090 €</span> <strong>25 590 €&nbsp;<small>s DPH</small></strong> <small>357 €&nbsp;s DPH/mes.</small> </div>
+    <button type="button" data-click="compareToggleCar" data-used_car_id="447315"></button> <ul class="o-bx__spec__list"> <li class="o-bx__spec__list__element"> <b>Rok výroby</b><span>2026</span> </li> <li class="o-bx__spec__list__element"> <b>Najazdené km</b><span>5&nbsp;km</span> </li>
+    <li class="o-bx__spec__list__element o-bx__spec__list__element--hybrid"> <b>Druh paliva</b><span>Hybrid</span> </li> <li class="o-bx__spec__list__element"> <b>Prevodovka</b><span>Automatická (eCVT)</span></li> <li class="o-bx__spec__list__element"> <b>Výkon</b><span>96&nbsp;kW</span> </li> </ul> </div> </div>`;
+  const [u1] = ds3.parsePewneCards(usedSk, 'https://usedcars.toyota.sk');
+  const [n1] = ds3.parsePewneCards(newSk, 'https://nove.toyota.sk');
+  ok(u1?.external_id === '444937' && u1?.price === 40900 && u1?.currency === 'EUR' && u1?.km === 490 && u1?.year === 2026 && u1?.fuel === 'Diesel' && u1?.gearbox === 'Automatique'
+    && /TVA récupérable$/.test(u1?.title ?? '') && u1?.url === 'https://usedcars.toyota.sk/ponuka/toyota-proace-verso/444937' && u1?.location === 'A.A.Service, spol. s r.o.',
+    'occasion slovaque : prix en euros (pas l\'ancien prix barré), « 8 AT » automatique, « Odpočet DPH » = TVA récupérable, fiche « /ponuka/ »', u1);
+  ok(n1?.external_id === '447315' && n1?.title === 'Toyota Yaris 1.5 HEV 130k - eCVT GR Sport · TVA récupérable' && n1?.price === 25590 && n1?.currency === 'EUR' && n1?.km === 5 && n1?.year === 2026
+    && n1?.fuel === 'Hybrid' && n1?.gearbox === 'Automatique' && n1?.power_ch === 131 && n1?.location === 'Prievidza',
+    'neuve slovaque (gabarit récent) : nom, version, prix remisé, km, année, énergie, boîte, puissance, lieu', n1);
+  const [u2] = ds3.parsePewneCards(usedSk.replace(/444937/g, '446895').replace('MY26 - L1 - 2.2L Diesel 180k - 8 AT Family 8 miest webasto', '2.0D 8AT L2 5D Tailgate VIP 6S Webasto'), 'https://usedcars.toyota.sk');
+  ok(u2?.gearbox === 'Automatique', '« 8AT » (rapports collés) = automatique', u2?.gearbox);
+  const [h1] = ds3.parsePewneCards(usedSk.replace('Odpočet DPH', '').replace('MY26 - L1 - 2.2L Diesel 180k - 8 AT Family 8 miest webasto', '1.8 Hybrid Style e-CVT Mo.-i. 1 tulajdonos! Garanciális! ÁFA-s!'), 'https://x.hu');
+  ok(/TVA récupérable$/.test(h1?.title ?? ''), '« ÁFA-s! » (Hongrie, trait d\'union) = TVA récupérable', h1?.title);
+  ok(ds3.pewneDeclared('<title>Zobraziť ponuky vozidiel - 48 ponúk | Toyota Overené jazdené vozidlá</title>') === 48 && ds3.pewneDeclared('<title>Zobraziť ponuky vozidiel - 0 ponúk | Toyota</title>') === 0
+    && ds3.detectDealerProvider('<title>Zobraziť ponuky vozidiel - 48 ponúk</title><link href="/toyotapl/resources/app.css">') === 'pewneauto', 'total « N ponúk », gabarit récent reconnu');
+  const ficheSk = '<li><span>Rok výroby</span><span>2022</span></li><li><span>Dátum prvej registrácie</span><span>09-09-2022</span></li><li><span>Najazdené kilometre</span><span>116 988 km</span></li><li><span>Typ paliva</span><span>Hybrid</span></li><li><span>Prevodovka</span><span>Automatická (eCVT)</span></li>';
+  ok(JSON.stringify(ds3.readPewneDetail(ficheSk)) === JSON.stringify({ gearbox: 'Automatique', fuel: 'Hybrid', km: 116988, year: 2022 }), 'fiche slovaque : « Prevodovka », « Typ paliva », « Najazdené kilometre », 1re registrácia', ds3.readPewneDetail(ficheSk));
 }
 
 console.log('\n=== PLACE DE MARCHÉ DES NEUVES DU GROUPE VW (turbo-stream, 19/11) ===\n');

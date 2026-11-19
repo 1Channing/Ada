@@ -354,8 +354,9 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/<script id="(?:app-root-state|ng-state|serverApp-state)" type="application\/json">/.test(html) && /rms\/carmarket\/b2c\/vehicleads/.test(html)) return 'carmarketb2c';
   // dasweltauto (Das WeltAuto HU, 19/11) : Angular rendu serveur (« ng-state ») + configuration « /api/locales/<xx_XX>/dwa/ ».
   if (/<script id="ng-state"/.test(html) && /\/api\/locales\/[a-z]{2}_[A-Z]{2}\/dwa\/configuration/.test(html)) return 'dasweltauto';
-  // pewneauto (Toyota / Lexus Hongrie, 19/11) : moteur pewneauto (panel.pewneauto.pl), total « N ajánlat » dans le titre.
-  if (/pewneauto\.pl\//.test(html) && /<title>[^<]*\d\s*aj[áa]nlat/.test(html)) return 'pewneauto';
+  // pewneauto (Toyota / Lexus Hongrie et Slovaquie, 19/11) : moteur pewneauto (panel.pewneauto.pl ; gabarit récent des
+  // neuves slovaques : ressources « /toyotapl/resources/ »), total « N ajánlat » / « N ponúk » dans le titre.
+  if ((/pewneauto\.pl\//.test(html) || /\/toyotapl\/resources\//.test(html)) && /<title>[^<]*\d\s*(?:aj[áa]nlat|pon[úu]k)/.test(html)) return 'pewneauto';
   // vwgmarket (neuves du groupe VW, azonnalelviheto.<marque>.hu, 19/11) : React Router (turbo-stream), « storedByImporter ».
   if (/__reactRouterContext/.test(html) && /routes\/search\/search\.route/.test(html) && /storedByImporter/.test(html)) return 'vwgmarket';
   // bmwused (occasions BMW / MINI Hongrie, 19/11) : application « használtautó-kereső » (mcon-group) — formulaire Vue
@@ -4629,46 +4630,61 @@ async function scrapeDasWeltAuto(url: string, firstHtml: string): Promise<Dealer
 //    offer-id> : marque / modèle, version, concession, année, km, énergie, cylindrée, prix brut (Ft). Boîte : la version
 //    (CVT, Automata, DSG…), une hybride Toyota / Lexus (toujours e-CVT), sinon la fiche (« Váltó », DETAIL_READERS).
 //    « ÁFÁS » (TVA récupérable) dans la version ou les étiquettes : noté dans le titre. Pas de date de mise en ligne publiée.
+//    Slovaquie (19/11) : usedcars.toyota.sk (occasions, même gabarit), nove.toyota.sk (neuves, gabarit récent : nom et
+//    version dans o-bx__header__name, lieu sur la photo, liste « Rok výroby / Najazdené km / Druh paliva / Prevodovka /
+//    Výkon ») ; chemins « /ponuky/station-id/<n°> » et « /ponuka/… », total « N ponúk », prix en euros, « Odpočet DPH » =
+//    TVA récupérable.
 const PEWNE_PER = 20;
 const pewneGear = (version: string, brand: string | null, fuel: string | null): string | null =>
   gearboxOfVersion(version)
-  ?? (/\b(automata|multidrive|e-?cvt|cvt|dct|dsg|edc|eat\d?|at|a\/t|s-?tronic|steptronic|tiptronic)\b/i.test(version) ? 'Automatique'
-    : /\b(manu[áa]lis|k[ée]zi|mt|m\/t|6mt|5mt)\b/i.test(version) ? 'Manuelle'
+  // « 8AT », « 6-MT » : nombre de rapports collé (Slovaquie, 19/11).
+  ?? (/\b(automata|multidrive|e-?cvt|cvt|dct|dsg|edc|eat\d?|at|a\/t|s-?tronic|steptronic|tiptronic)\b|\b\d-?at\b/i.test(version) ? 'Automatique'
+    : /\b(manu[áa]lis|k[ée]zi|mt|m\/t|6mt|5mt)\b|\b\d-?mt\b/i.test(version) ? 'Manuelle'
     : /^(toyota|lexus)$/i.test(brand ?? '') && /hibrid|hybrid/i.test(`${fuel ?? ''} ${version}`) && !/plug-?in|phev/i.test(`${fuel ?? ''} ${version}`) ? 'Automatique' : null);
 export function parsePewneCards(html: string, origin: string): DealerVehicle[] {
   const out: DealerVehicle[] = [];
-  for (const part of html.split(/<div class="o-bx" /).slice(1)) {
-    const card = part.split(/<div class="o-bx" /)[0];
-    const id = card.match(/offer-id="(\d+)"/)?.[1];
+  for (const card of html.split(/<div class="o-bx"(?=[ >])/).slice(1)) {
+    const href = card.match(/<a href="(\/(?:ajanlat|ponuka)\/[^"]+)"/)?.[1];
+    const id = card.match(/offer-id="(\d+)"/)?.[1] ?? card.match(/data-used_car_id="(\d+)"/)?.[1] ?? href?.match(/\/(\d+)\/?$/)?.[1];
     if (!id) continue;
-    const href = card.match(/<a href="(\/ajanlat\/[^"]+)"/)?.[1];
+    // Gabarit récent (neuves slovaques) : nom, version, liste libellé / valeur, lieu sur la photo.
+    const recent = /o-bx__header__name__title/.test(card);
+    const spec = new Map<string, string>();
+    for (const m of card.matchAll(/<b>([^<]{2,30})<\/b>\s*<span>([\s\S]*?)<\/span>/g)) spec.set(htmlText(m[1]).toLowerCase(), htmlText(m[2]));
     const t = card.match(/<strong>([^<]+)<\/strong><\/a>\s*<span>([^<]*)<\/span>/);
-    const makeModel = htmlText(t?.[1] ?? '');
-    const version = htmlText(t?.[2] ?? '');
+    const makeModel = htmlText(recent ? card.match(/o-bx__header__name__title[^>]*>([^<]+)<\/a>/)?.[1] ?? '' : t?.[1] ?? '');
+    const version = htmlText(recent ? card.match(/o-bx__header__name__subtitle">([^<]*)</)?.[1] ?? '' : t?.[2] ?? '');
     const info = card.match(/<div class="o-bx__info">([\s\S]*?)<\/ul>/)?.[1] ?? '';
-    const dealer = htmlText(info.match(/<b>([^<]+)<\/b>/)?.[1] ?? '') || null;
+    const dealer = htmlText(recent ? card.match(/o-bx__image__location[\s\S]*?<strong>([^<]+)<\/strong>/)?.[1] ?? '' : info.match(/<b>([^<]+)<\/b>/)?.[1] ?? '') || null;
     const items = [...info.matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => htmlText(m[1]));
-    const fuel = htmlText(info.match(/<li>\s*<strong[^>]*>([^<]+)<\/strong>\s*<\/li>/)?.[1] ?? '') || null; // <strong class="color-hybrid"> sur une partie des cartes
-    const year = num(items.find((x) => /^(19|20)\d{2}$/.test(x)) ?? null);
-    const km = num(items.find((x) => /\bkm$/i.test(x))?.replace(/\D/g, '') ?? null);
-    const price = priceOrNull((card.match(/retail-price">[\s\S]*?<strong>([\d\s ]+)Ft<\/strong>/)?.[1] ?? '').replace(/[\s ]/g, ''));
-    const tags = htmlText(card.match(/<div class="o-bx__tags">([\s\S]*?)<\/div>/)?.[1] ?? '');
+    // <strong class="color-hybrid"> sur une partie des cartes
+    const fuel = (recent ? spec.get('druh paliva') : htmlText(info.match(/<li>\s*<strong[^>]*>([^<]+)<\/strong>\s*<\/li>/)?.[1] ?? '')) || null;
+    const year = recent ? yearOf(spec.get('rok výroby')) : num(items.find((x) => /^(19|20)\d{2}$/.test(x)) ?? null);
+    const km = recent ? kmOf(spec.get('najazdené km')) : num(items.find((x) => /\bkm$/i.test(x))?.replace(/\D/g, '') ?? null);
+    const priceTxt = recent ? card.match(/<div class="o-bx__price">[\s\S]*?<strong>([\d\s  ]+)(Ft|€)/) : card.match(/retail-price">[\s\S]*?<strong>([\d\s  ]+)(Ft|€)\s*<\/strong>/);
+    const price = priceOrNull((priceTxt?.[1] ?? '').replace(/[\s  ]/g, ''));
+    const tags = recent ? [...card.matchAll(/o-bx__header__extras__tag[^"]*">([^<]+)</g)].map((m) => htmlText(m[1])).join(' ') : htmlText(card.match(/<div class="o-bx__tags">([\s\S]*?)<\/div>/)?.[1] ?? '');
     const { brand, model } = splitTitle(makeModel);
-    // « ÁFÁS! » : \b ne voit pas de limite de mot devant « Á » (lettre hors ASCII) → limites en lettres Unicode.
-    const vat = /(^|[^\p{L}])[áa]f[áa]s([^\p{L}]|$)|[áa]fa ?27|[áa]fa visszaig/iu.test(`${version} ${tags}`);
+    // « ÁFÁS! », « ÁFA-s! » : \b ne voit pas de limite de mot devant « Á » (lettre hors ASCII) → limites en lettres Unicode.
+    // « Odpočet DPH » (SK).
+    const vat = /(^|[^\p{L}])[áa]f[áa]-?s([^\p{L}]|$)|[áa]fa ?27|[áa]fa visszaig|odpo[čc]et dph/iu.test(`${version} ${tags}`);
     const title = `${makeModel} ${version}`.trim();
+    const gear = spec.get('prevodovka') ?? '';
+    const kw = num(spec.get('výkon')?.match(/(\d{2,3})\s*kW/i)?.[1]);
     out.push({
       external_id: id, url: href ? `${origin}${href}` : null, title: vat ? `${title} · TVA récupérable` : title, brand, model,
-      price, currency: 'HUF', km, year, fuel, gearbox: pewneGear(version, brand, fuel), plate: null, vin: null,
+      price, currency: priceTxt?.[2] === '€' ? 'EUR' : 'HUF', km, year, fuel,
+      gearbox: (/automat|cvt|dsg|dct/i.test(gear) ? 'Automatique' : /manu/i.test(gear) ? 'Manuelle' : null) ?? pewneGear(version, brand, fuel), plate: null, vin: null,
       body: tags || null, image: card.match(/<img src="([^"]+)"/)?.[1] ?? null, listed_at: null,
-      status: statusFromText(tags) ?? (/foglalt|lefoglalt/i.test(tags) ? 'reserved' : price == null ? 'price_on_request' : null),
-      power_ch: powerFromText(version), location: dealer,
+      status: statusFromText(tags) ?? (/foglalt|lefoglalt|rezervovan/i.test(tags) ? 'reserved' : /predan/i.test(tags) ? 'sold' : price == null ? 'price_on_request' : null),
+      power_ch: kw != null ? Math.round(kw * 1.35962) : powerFromText(version), location: dealer,
     });
   }
   return out;
 }
+/** Total annoncé dans le <title> : « - 155 ajánlat » (HU), « - 48 ponúk », « 1 ponuka », « 3 ponuky » (SK). */
 export const pewneDeclared = (html: string): number | null => {
-  const m = html.match(/<title>[^<]*?(\d[\d\s ]*)\s*aj[áa]nlat/);
+  const m = html.match(/<title>[^<]*?(\d[\d\s ]*)\s*(?:aj[áa]nlat|pon[úu]k)/);
   return m ? Number(m[1].replace(/\D/g, '')) : null;
 };
 /** Fiche « /ajanlat/<modèle>/<n°> » : liste libellé / valeur (« Váltó », « Üzemanyagtípus », « Első forgalomba helyezés dátuma »…). */
@@ -4678,19 +4694,22 @@ export function readPewneDetail(html: string): { gearbox?: string | null; fuel?:
     const k = htmlText(m[1]).toLowerCase(); const v = htmlText(m[2]);
     if (!spec.has(k) && v && v !== '-') spec.set(k, v);
   }
-  const gear = spec.get('váltó') ?? spec.get('sebességváltó') ?? '';
-  const reg = spec.get('első forgalomba helyezés dátuma') ?? '';
+  // Hongrie : « Váltó », « Üzemanyagtípus », « Futásteljesítmény » ; Slovaquie : « Prevodovka », « Typ paliva »,
+  // « Najazdené kilometre », « Dátum prvej registrácie » (09-09-2022), « Rok výroby ».
+  const gear = spec.get('váltó') ?? spec.get('sebességváltó') ?? spec.get('prevodovka') ?? '';
+  const reg = spec.get('első forgalomba helyezés dátuma') ?? spec.get('dátum prvej registrácie') ?? '';
   return {
     gearbox: !gear ? null : /automat|cvt|dsg|dct/i.test(gear) ? 'Automatique' : /manu|kézi/i.test(gear) ? 'Manuelle' : gear,
-    fuel: spec.get('üzemanyagtípus') ?? null, km: kmOf(spec.get('futásteljesítmény')),
-    year: yearOf(reg) ?? num(spec.get('gyártási év') ?? null),
+    fuel: spec.get('üzemanyagtípus') ?? spec.get('typ paliva') ?? spec.get('druh paliva') ?? null,
+    km: kmOf(spec.get('futásteljesítmény') ?? spec.get('najazdené kilometre') ?? spec.get('najazdené km')),
+    year: yearOf(reg) ?? num(spec.get('gyártási év') ?? spec.get('rok výroby') ?? null),
   };
 }
 async function scrapePewne(url: string, firstHtml: string): Promise<DealerStockResult> {
   const u = new URL(url);
-  const station = u.pathname.match(/\/ajanlatok\/station-id\/(\d+)/)?.[1];
-  if (!station) throw new Error('adresse pewneauto sans station (attendu : …/ajanlatok/station-id/<n°>) : tout le réseau Toyota n\'est pas la vitrine d\'une concession');
-  const base = `${u.origin}/ajanlatok/station-id/${station}`;
+  const sm = u.pathname.match(/\/(ajanlatok|ponuky)\/station-id\/(\d+)/);
+  if (!sm) throw new Error('adresse pewneauto sans station (attendu : …/ajanlatok/station-id/<n°> ou …/ponuky/station-id/<n°>) : tout le réseau Toyota n\'est pas la vitrine d\'une concession');
+  const base = `${u.origin}/${sm[1]}/station-id/${sm[2]}`;
   const warnings: string[] = [];
   const declared = pewneDeclared(firstHtml);
   const byId = new Map<string, DealerVehicle>();
