@@ -136,4 +136,99 @@ Sur les 64 : 34 l'étaient déjà, 30 le sont devenues (15 complétées, 15 jama
 
 ## 7. Relevé de nuit du 19/11 (production)
 
-À compléter après le relevé de 1 h (Paris) : audit après, fiche par fiche.
+Audit du 19/11 à 3 h 32 (UTC), après le relevé de 1 h (Paris). Il compte 236 vitrines inscrites dans la Carte, dont 141 hongroises ajoutées la veille au soir :
+- 226 vitrines relevées au moins une fois ;
+- 153 complètes, c'est-à-dire prix, km, année, énergie et boîte à 95 % ou plus ;
+- 153 570 voitures en stock.
+
+Sur **les 95 fiches de la mission**, les complètes passent de 34 (audit du 13/11) à 52. La liste ci-dessous en compte 51, car les deux fiches BYMYCAR lisent la même vitrine.
+
+| Pays | Vitrines | Relevées | Complètes | En échec cette nuit | Jamais relevées | Voitures en stock |
+|---|---:|---:|---:|---:|---:|---:|
+| BE | 1 | 1 | 0 | 1 | 0 | 0 |
+| DE | 11 | 11 | 3 | 4 | 0 | 17 639 |
+| DK | 1 | 1 | 1 | 0 | 0 | 107 |
+| ES | 15 | 15 | 9 | 6 | 0 | 35 920 |
+| FI | 1 | 1 | 1 | 0 | 0 | 4 520 |
+| FR | 31 | 31 | 14 | 11 | 0 | 46 285 |
+| GE | 1 | 0 | 0 | 0 | 1 | 0 |
+| HU | 141 | 132 | 101 | 0 | 9 | 4 432 |
+| IT | 4 | 4 | 3 | 0 | 0 | 4 433 |
+| LT | 1 | 1 | 0 | 1 | 0 | 0 |
+| NL | 25 | 25 | 20 | 3 | 0 | 39 880 |
+| SE | 1 | 1 | 0 | 1 | 0 | 0 |
+| SK | 3 | 3 | 1 | 0 | 0 | 354 |
+
+La colonne « En échec » compte aussi des fiches arrêtées depuis le 04/11 ou le 09/11, dont le dernier relevé était un échec.
+
+### Les 95 fiches de la mission, sur ce relevé
+
+#### Complètes (51)
+
+Interstrip Auto GmbH (12), Rævhede Auto (107), Flexicar (23 565), FLEXICAR ASTURIAS. (191), FLEXICAR GRUPO BARCELONA. (3 765), FLEXICAR MADRID GRUPO (5 064), FLEXICAR MÁLAGA. (790), FLEXICAR MURCIA. (194), GRUPO FLEXICAR SEVILLA. (934), GRUPO FLEXICAR VALENCIA. (1 212), Kamux (4 520), AUTOSTYLE / COBREDIA (195), BYMYCAR (6 830), MUSTIÈTE AUTOMOBILES (1 146), vpn angers (263), VPN auto pro (1 522), Autobedrijf Wijnne (93), Bochane Groep (2 188), Dewaal autogroep (1 443), Hedin Automotive (4 419), Koojman Tiel (1 413), Oostendorp Autogroep (1 148), Regge autogroep (172), Van der Wal Vans (389), Van Dijk Automotive (18), Van Mossel (6 634), Wassink Autogroep (1 084), Wensink Automotive (1 440), Zeeuw & Zeeuw (1 875), C.A.R (171), Mengelers Groep (746), Broekhuis Groep (4 899), Autopolis Ford Hyundai (117), Louwman Dealer Group (3 852), Century Autogroep (1 164), Emil Frey Nederland (4 489), Pon Automotive (664), Jazzoni Appia - Gruppo IVA SpA (42), Romana Auto - Gruppo IVA Spa (11), DUTCH Vans (358), Gruppo Ghedini Automobili (228), Eden auto Anglet (49), Škoda Nantes – Seat Skoda Orvault (120), Groupe Hecquet (288), J.W. Handelsgesellschaft mbH (765), Autohaus Keller GmbH & Co. KG (347), OCASIONPLUS LA MAQUINISTA II (205), Groupe Sellens (1 582), SCALA (1 107), Le Bon Plan Auto (515), Emil frey / Autosphère Mercedes (17 026).
+
+#### Lues en partie (15) — ce qui manque et pourquoi
+
+| Fiche | Voitures | Manque | Pourquoi | Fait / à faire |
+|---|---:|---|---|---|
+| SIPA AUTOMOBILES | 1 662 | boîte 83 % | relevé arrêté à 1 377 voitures sur 1 650, même cause ; boîte vide surtout sur les voitures non relues | corrigé le 19/11 ; la version donne la boîte de 145 des 289 restantes, 40 sont électriques |
+| SOFIBRIE/ECO DES NATIONS | 524 | boîte 90 % | relevé arrêté sur un HTTP 502 passager à la page 41 (520 voitures sur 1 316) | corrigé le 19/11 : 502 et 504 réessayés |
+| BONY AUTOMOBILES/COBA | 2 024 | km 81 %, boîte 29 % | relevé arrêté page 40 (596 voitures lues sur 3 385) : une page qui reprenait une voiture déjà vue était prise pour la dernière ; les voitures non relues gardent leur ancienne boîte vide | corrigé le 19/11 (fin de liste = nombre de cartes) ; boîte lue dans plus de versions, électriques = automatiques |
+| MFH Mehrmarken-Fahrzeughandel / Osna-Autos | 3 785 | prix 0 %, km 0 %, année 0 %, énergie 0 %, boîte 0 % | relevé hebdomadaire du 17/11, fait AVANT le nouveau lecteur autrado du 18/11 (champs alors non lus) | prochain relevé ≥ 23/11 — « Relever maintenant » conseillé (≈ 40 min, 17 726 voitures) |
+| Autexx | 714 | prix 0 % | le site réserve le prix aux comptes connectés (« Nach Login ») ; il est pourtant dans le code de la fiche | km, année, énergie, boîte 100 % (714 / 714) ; DÉCISION : lire ou non le prix caché |
+| Voets Gruppe | 2 261 | année 79 % | neuves non immatriculées (pas d'Erstzulassung, fiche comprise) ; hybrides rechargeables sans boîte publiée | 2 261 / 2 261 (20 avant) ; prix, km, énergie 100 % |
+| Autohaus Bleker GmbH | 3 437 | année 88 % | Lagerwagen neuves : « Erstzulassung - » sur la carte et la fiche | 3 438 / 3 438 (305 avant) ; prix, km, énergie, boîte 100 % |
+| Gruppo Bossoni | 4 152 | km 49 %, année 55 % | 45 % du stock est neuf (« nuovo » : le site masque km et année) ; des « km 0 » sans km publié | voitures « in arrivo » en attendue ; le bilan du relevé le dit |
+| bavaria bratislava | 182 | prix 86 %, année 54 % | 26 « prix sur demande » (nouveau X5) ; 78 neuves non immatriculées et 5 démonstrations sans date | rien à lire de plus |
+| Auto palace bratislava | 55 | année 91 % | neuves « nové vozidlo », non immatriculées | rien à lire de plus |
+| Auto Smeeing | 1 053 | prix 64 % | « Op aanvraag » : prix sur demande sur le site | dit dans le bilan du relevé |
+| Auto Centrum Krimpenerwaard | 339 | énergie 59 %, boîte 59 % | la liste ne les donne pas, la fiche oui | fiches détail, 200 par nuit : complet en 2 nuits |
+| Vikings occasion | 1 801 | boîte 87 % | la ligne de la carte ne la donne pas toujours | fiches détail, 200 par nuit : ≈ 3 nuits |
+| DE WILLERMIN | 885 | année 83 %, boîte 23 % | la carte ne les donne pas | fiches détail, 200 par nuit : ≈ 5 nuits |
+| Auto Brass | 1 745 | année 91 % | neuves non immatriculées (« - » sur le site) | 1 724 / 1 724 ; prix, km, énergie, boîte 100 % |
+
+#### Non lues cette nuit (11) — adresse à changer ou relevé à réactiver
+
+- **OCASIONPLUS LAS ROZAS II** : dernier relevé : failed (site vitrine non reconnu (ni dvnl, ni dvapi, ni datamotive, ni dmapi, ni autodata, ni listerpage, ni cmsms, ni) — ADRESSE à changer
+- **OCASIONPLUS SEVILLA CENTRO II** : dernier relevé : failed (adresse OcasionPlus sans concession (accueil = tout le réseau, 14 000 voitures) : mettre la page de la concess) — ADRESSE à changer (centre à confirmer)
+- **Van Mossel Volkswagen Skoda Dendermonde** : dernier relevé : failed (site vitrine non reconnu (ni dvnl, ni dvapi, ni datamotive, ni dmapi, ni autodata, ni listerpage, ni cmsms, ni) — ADRESSE à changer
+- **Bestelbus.nl** : dernier relevé : failed (site vitrine non reconnu (ni dvnl, ni dvapi, ni datamotive, ni dmapi, ni autodata, ni listerpage, ni cmsms, ni) — ADRESSE à changer ; prix hors TVA
+- **Kleyn Vans B.V. | bestelbus.nl** : dernier relevé : failed (page du stock : HTTP 522) — ADRESSE à changer (kleynvans.nl en erreur 522)
+- **Ayvens France** : dernier relevé : failed (site vitrine non reconnu (ni dvnl, ni dvapi, ni datamotive, ni dmapi, ni autodata, ni listerpage, ni cmsms, ni) — ADRESSE à changer, RÉACTIVER
+- **Volkswagen Group Retail France (VGRF)** : dernier relevé : failed (site vitrine non reconnu (ni dvnl, ni dvapi, ni datamotive, ni dmapi, ni autodata, ni listerpage, ni cmsms, ni) — ADRESSE à changer, RÉACTIVER (hebdomadaire conseillé)
+- **Bennie Wilmink Autobedrijven** : dernier relevé : failed (site vitrine non reconnu (ni dvnl, ni dvapi, ni datamotive, ni dmapi, ni autodata, ni listerpage, ni cmsms, ni) — RÉACTIVER (hebdomadaire conseillé)
+- **Bierschneider** : dernier relevé : failed (page du stock : HTTP 404) — site refait : ADRESSE à changer ; 6 416 / 6 416 ; 5 631 voitures retrouvées sous leur nouveau numéro
+- **DOMINGO ALONSO OCASIÓN TENERIFE** : dernier relevé : failed (site vitrine non reconnu (ni dvnl, ni dvapi, ni datamotive, ni dmapi, ni autodata, ni listerpage, ni cmsms, ni) — même stock que la fiche Domingo Alonso ; ADRESSE à changer, RÉACTIVER
+- **DOMINGO ALONSO OCASIÓN** : dernier relevé : failed (site vitrine non reconnu (ni dvnl, ni dvapi, ni datamotive, ni dmapi, ni autodata, ni listerpage, ni cmsms, ni) — 1 872 / 1 872 ; ADRESSE à changer, RÉACTIVER
+
+#### Non lisibles (17) — la raison
+
+- **DB Autohaus Maintal** : le stock vient d'un moteur Elastic Cloud que la page interroge avec une clé « ApiKey » écrite dans la page ; sans clé : HTTP 401. DÉCISION : autoriser cette clé publique (la règle l'interdit)
+- **DOSCH AUTOMOBILE GMBH** : pas de site propre (dosch-automobile.de renvoie vers mobile.de) et mobile.de répond 403 (anti-robot). DÉCISION : sa page AutoScout24 (163 voitures) se lit sans clé — c'est une plateforme
+- **Gw-Deutschland.de** : portail réservé aux revendeurs : « Zugriff verweigert », connexion obligatoire.
+- **AUTO1.com España** : plateforme de gros réservée aux professionnels inscrits (renvoi vers la connexion).
+- **HESS AUTOMOBILES** : stock servi par Algolia avec une clé de recherche écrite dans la page. DÉCISION : autoriser les clés de recherche publiques
+- **Groupe Chopard** : stock servi par Algolia avec une clé de recherche écrite dans la page. DÉCISION : idem
+- **CARIZY** : stock servi par Algolia (clé dans la page) ou par une API GraphQL à jeton signé. DÉCISION : idem
+- **MEKRE LLC official importer of Citroen and Opel** : aucune adresse de site dans la fiche, aucun site de stock trouvé. adresse à fournir
+- **AUTOLITY** : pas une vitrine : place de marché entre professionnels, stock visible après inscription.
+- **Internal cars** : pas une vitrine : éditeur de logiciel ; sa place de marché Handlarbudet exige un compte de négociant.
+- **Fleetcom** : pas une vitrine : société de services (gestion de flotte, remarketing), aucune annonce.
+- **Ribes** : pas une vitrine : exportateur « exclusivamente al sector profesional », espace sous identifiants.
+- **Agilauto** : pas une vitrine de vente : location LLD / LOA seulement, en loyers mensuels.
+- **Rent A Car France** : pas une vitrine : loueur courte durée, aucune vente.
+- **First Location Auto** : pas une vitrine : loueur courte et longue durée, aucune vente en ligne.
+- **FlexiFleet** : pas une vitrine : location de véhicules VTC à la semaine, vente « sur simple demande ».
+- **Avis France** : pas une vitrine : ses occasions sont vendues aux seuls professionnels, par soumission (Arval Remarketing).
+
+**Corrigé le 19/11 au matin, après ce relevé :**
+- **Bony, SIPA** : la lecture s'arrêtait dès qu'une page reprenait une voiture déjà vue (le stock bouge pendant la demi-heure de lecture) ; la fin de liste se juge maintenant au nombre de cartes de la page.
+- **Sofibrie** : un HTTP 502 passager arrêtait le relevé ; 502 et 504 sont maintenant réessayés, comme 429 et 503.
+- **Boîte** : lue dans plus de versions (« TCT7 », « S tronic », « Geartronic », « BVR6 », « AT8 », « e-DCS6 », « i-MMD », « Hybrid+ », hybride rechargeable) ; une électrique sans boîte publiée est automatique.
+- **Sites BMW** (autopalace) : les neuves « …-neue-klasse » se recouvraient sous un seul numéro ; elles prennent maintenant le numéro de leur carte (MD-Bavaria 158 sur 158 au lieu de 144).
+- **Kia neuves de Hongrie** : l'année était à 0 % ; c'est maintenant l'année-modèle codée dans le VIN.
+
+**Hongrie et Slovaquie, le 19/11 au matin :**
+- **Hongrie** : 7 lecteurs pour les sites de groupe (JP Auto, Autentik, MBM, Duna, Schiller, Petrányi, Leier) ; 14 fiches remises sur leur vraie vitrine, dont 9 qui étaient arrêtées.
+- **Slovaquie** : 139 concessions ajoutées. 37 sont lues chaque nuit dès maintenant ; 102 restent en « off » en attendant leur lecteur (ŠkodaPlus, stock neuf Škoda, autobazar.eu, Hedin, Kia, Todos, sites propres).
+- Détail dans le BACKLOG.
