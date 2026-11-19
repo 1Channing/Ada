@@ -2195,10 +2195,12 @@ async function scrapeWebspark(url: string, firstHtml: string): Promise<DealerSto
   const warnings: string[] = [];
   const out: DealerVehicle[] = [];
   const seen = new Set<string>();
+  let onPage = 0; // cartes de la dernière page lue, déjà vues ou non
   const parse = (html: string): number => {
     let added = 0;
     const ld = websparkLdById(html); // boîte, énergie, km, année, prix, VIN de chaque carte (sku = data-id)
     const parts = html.split(/<div class="card [^"]*\bvcard\b[^"]*" data-id="/).slice(1);
+    onPage = parts.length;
     for (const part of parts) {
       const id = part.match(/^(\d+)"/)?.[1];
       if (!id || seen.has(id)) continue;
@@ -2247,20 +2249,27 @@ async function scrapeWebspark(url: string, firstHtml: string): Promise<DealerSto
     return added;
   };
   let pages = 1;
-  let added = parse(firstHtml);
-  const perPage = added;
+  parse(firstHtml);
+  const perPage = onPage;
   // Total annoncé et liens « &amp;page=99 » décodés (18/11 : Sofibrie ne voyait que « &page=2 » → 22 pages, 286 voitures
   // sur 1 316 ; Bony plafonnée à MAX_PAGES = 150 pages, 1 950 voitures sur 3 193).
   const declared = websparkDeclared(firstHtml);
   const lastLinked = Math.max(0, ...[...firstHtml.replace(/&amp;/g, '&').matchAll(/[?&]page=(\d+)/g)].map((m) => Number(m[1])));
-  const cap = declared != null && perPage > 0 ? Math.min(400, Math.ceil(declared / perPage) + 1) : Math.min(MAX_PAGES, Math.max(lastLinked, 1) + 20);
-  // Une page plus courte que la première est la dernière (au-delà, l'origine répond 429 et non 404).
-  for (let p = 2; p <= cap && added >= perPage && added > 0; p++) {
+  // +3 pages : le stock bouge pendant la lecture (une voiture entrée en tête décale tout d'une carte vers la fin).
+  const cap = declared != null && perPage > 0 ? Math.min(400, Math.ceil(declared / perPage) + 3) : Math.min(MAX_PAGES, Math.max(lastLinked, 1) + 20);
+  // Une page plus courte que la première est la dernière (au-delà, l'origine répond 429 et non 404). Plus courte en
+  // CARTES, pas en voitures nouvelles (19/11 : Bony arrêtée à la page 40, 596 voitures sur 3 385 — la page reprenait des
+  // cartes déjà lues, décalées par les entrées du jour). Trois pages de suite sans aucune nouvelle = la liste tourne en rond.
+  let idle = 0;
+  for (let p = 2; p <= cap && onPage >= perPage && onPage > 0 && idle < 3 && (declared == null || out.length < declared); p++) {
     await sleep(10_000); // rythme toléré par l'origine : une page hors cache toutes les ~10 s
     const r = await getTextPatient(withParam(url, 'page', String(p)));
     if (r.status !== 200) { if (r.status !== 404) warnings.push(`page ${p} : HTTP ${r.status}`); break; }
-    added = parse(r.text); if (added > 0) pages = p;
+    const added = parse(r.text);
+    if (onPage > 0) pages = p;
+    idle = added > 0 ? 0 : idle + 1;
   }
+  if (idle >= 3) warnings.push(`pages ${pages - 2} à ${pages} : aucune voiture nouvelle, lecture arrêtée`);
   if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
   return { provider: 'webspark', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
 }

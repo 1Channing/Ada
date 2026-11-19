@@ -170,6 +170,34 @@ console.log('\n=== DAS WELTAUTO (HONGRIE, 19/11) : LA CONCESSION, RIEN QUE LA CO
     'n° de concession : page concession, page de groupe (identifiant en lettres), recherche filtrée');
 }
 
+console.log('\n=== WEBSPARK (BONY, 19/11) : UNE PAGE QUI REPREND DES CARTES N\'EST PAS LA DERNIÈRE ===\n');
+{
+  const dsw = await import('../worker/dealerStock');
+  const card = (id: number) => `<div class="card vcard" data-id="${id}"><a href="https://ws.test/voiture/${id}" class="vcard--link"><span class="vcard-main-info__make-model">Renault Clio</span></a>`
+    + `<h3 class="vcard-main-info__version-heading">TCe 90</h3><p class="vcard-consumption__title">03/2022 - 25 000 Km - Essence</p><span class="vcard-price__price">14 990 €</span></div>`;
+  const list = (ids: number[], total: number | null) => (total == null ? '' : `<span class="stock-listing__results-counter" x-ref="resultsFoundText"><strong>${total}</strong> résultats trouvés</span>`) + ids.map(card).join('');
+  // Trois pages de 4 ; une voiture entrée en tête pendant la lecture décale tout : la page 2 reprend la dernière de la page 1.
+  pages['https://ws.test/stock/'] = list([1, 2, 3, 4], 10);
+  pages['https://ws.test/stock/?page=2'] = list([4, 5, 6, 7], 10);
+  pages['https://ws.test/stock/?page=3'] = list([8, 9, 10], 10);
+  // Site qui rend la page 1 quel que soit « page=N », sans total annoncé : la lecture ne tourne pas en rond.
+  pages['https://ws2.test/stock/'] = list([1, 2], null);
+  for (let p = 2; p <= 6; p++) pages[`https://ws2.test/stock/?page=${p}`] = list([1, 2], null);
+  const realTimeout = globalThis.setTimeout; // 10 s entre deux pages chez webspark : sans attente pour le test
+  globalThis.setTimeout = ((fn: () => void) => realTimeout(fn, 0)) as typeof setTimeout;
+  try {
+    ok(dsw.detectDealerProvider(pages['https://ws.test/stock/']) === 'webspark', 'webspark reconnu (cartes vcard)');
+    const st = await dsw.fetchDealerStock('https://ws.test/stock/');
+    ok(st.vehicles.length === 10 && st.pages === 3 && !st.warnings.some((w) => /lu\(s\) pour/.test(w)),
+      'page 2 avec une carte déjà lue : la lecture continue jusqu\'à la page 3, 10 voitures sur 10', [st.vehicles.length, st.pages, st.warnings]);
+    const before = fetched.length;
+    const loop = await dsw.fetchDealerStock('https://ws2.test/stock/');
+    const asked = fetched.slice(before).filter((u) => u.startsWith('https://ws2.test/'));
+    ok(loop.vehicles.length === 2 && !asked.includes('https://ws2.test/stock/?page=5') && loop.warnings.some((w) => /aucune voiture nouvelle/.test(w)),
+      'page 1 rendue pour toute page : arrêt après trois pages sans nouvelle, signalé', [loop.vehicles.length, asked, loop.warnings]);
+  } finally { globalThis.setTimeout = realTimeout; }
+}
+
 console.log('\n=== TOYOTA HONGRIE (pewneauto, 19/11) : CARTES ET FICHES RÉELLES ===\n');
 {
   const ds3 = await import('../worker/dealerStock');
