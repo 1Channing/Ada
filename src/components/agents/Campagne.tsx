@@ -113,12 +113,25 @@ export function Campagne({ settings, isAdmin, userId, refreshKey, onError, onInf
     }
     return [...m.values()].sort((x, y) => y.contacts - x.contacts);
   }, [inCountry, brands]);
-  const already = useCallback((c: NetworkContact) => inThreads.ids.has(c.id) || inThreads.emails.has((c.email ?? '').toLowerCase()), [inThreads]);
+  const inDiscussion = useCallback((c: NetworkContact) => inThreads.ids.has(c.id) || inThreads.emails.has((c.email ?? '').toLowerCase()), [inThreads]);
   const listed = useMemo(() => {
     const keys = new Set(picked.map(brandKey));
     return inCountry.filter((c) => keys.size === 0 || (brands.get(c.id) ?? []).some((b) => keys.has(brandKey(b.brand))))
-      .sort((x, y) => Number(already(x)) - Number(already(y)) || x.name.localeCompare(y.name));
-  }, [inCountry, picked, brands, already]);
+      .sort((x, y) => Number(inDiscussion(x)) - Number(inDiscussion(y)) || (y.stock_total ?? 0) - (x.stock_total ?? 0) || x.name.localeCompare(y.name));
+  }, [inCountry, picked, brands, inDiscussion]);
+  // Une même adresse sur plusieurs fiches (un groupe, ses sites : Hedin ×5) : un seul mail, à la fiche au plus gros stock ; les autres le disent.
+  const sameAs = useMemo(() => {
+    const first = new Map<string, NetworkContact>(), out = new Map<string, NetworkContact>();
+    for (const c of listed) {
+      if (inDiscussion(c)) continue;
+      const e = (c.email ?? '').toLowerCase();
+      const f = first.get(e);
+      if (f) out.set(c.id, f); else first.set(e, c);
+    }
+    return out;
+  }, [listed, inDiscussion]);
+  const already = useCallback((c: NetworkContact) => inDiscussion(c) || sameAs.has(c.id), [inDiscussion, sameAs]);
+  const whyNot = useCallback((c: NetworkContact) => (inDiscussion(c) ? 'déjà en discussion' : sameAs.has(c.id) ? `même adresse que ${sameAs.get(c.id)!.name}` : ''), [inDiscussion, sameAs]);
   const selectable = useMemo(() => listed.filter((c) => !already(c)), [listed, already]);
   // Un changement de pays ou de marques : tout ce qui est proposé est coché (sauf les contacts déjà en discussion).
   useEffect(() => { setChecked(new Set(selectable.map((c) => c.id))); }, [selectable]);
@@ -195,7 +208,7 @@ export function Campagne({ settings, isAdmin, userId, refreshKey, onError, onInf
 
       {step === 'choisir' && (
         <Choose loading={loading} brandsLoading={brandsLoading} countries={countries} country={country} setCountry={(c) => { setCountry(c); setPicked([]); }}
-          brandChoices={brandChoices} picked={picked} setPicked={setPicked} listed={listed} brands={brands} already={already}
+          brandChoices={brandChoices} picked={picked} setPicked={setPicked} listed={listed} brands={brands} already={already} whyNot={whyNot}
           checked={checked} setChecked={setChecked} consignes={consignes} setConsignes={setConsignes} busy={busy} isAdmin={isAdmin} onPrepare={() => void prepare()} />
       )}
       {step === 'relire' && (
@@ -254,7 +267,7 @@ export function Campagne({ settings, isAdmin, userId, refreshKey, onError, onInf
 function Choose(p: {
   loading: boolean; brandsLoading: boolean; countries: Array<[string, number]>; country: string; setCountry: (c: string) => void;
   brandChoices: Array<{ brand: string; contacts: number }>; picked: string[]; setPicked: (b: string[]) => void;
-  listed: NetworkContact[]; brands: Map<string, Array<{ brand: string; n: number }>>; already: (c: NetworkContact) => boolean;
+  listed: NetworkContact[]; brands: Map<string, Array<{ brand: string; n: number }>>; already: (c: NetworkContact) => boolean; whyNot: (c: NetworkContact) => string;
   checked: Set<string>; setChecked: (s: Set<string>) => void; consignes: string; setConsignes: (s: string) => void;
   busy: boolean; isAdmin: boolean; onPrepare: () => void;
 }) {
@@ -308,7 +321,7 @@ function Choose(p: {
                   </td>
                   <td className="px-3 py-1.5">
                     <div className={`font-medium ${done ? '' : 'text-slate-900'}`}>{c.name}</div>
-                    <div className="text-xs text-slate-500">{[KIND_LABEL[c.kind], c.city].filter(Boolean).join(' · ')}{done ? ' · déjà en discussion' : ''}</div>
+                    <div className="text-xs text-slate-500">{[KIND_LABEL[c.kind], c.city].filter(Boolean).join(' · ')}{done ? ` · ${p.whyNot(c)}` : ''}</div>
                   </td>
                   <td className="px-3 py-1.5">{c.contact_name || <span className="text-slate-400">— (salutation générale)</span>}</td>
                   <td className="px-3 py-1.5 text-xs">{c.email}</td>

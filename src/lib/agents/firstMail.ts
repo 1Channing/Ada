@@ -633,6 +633,11 @@ export function carteCampaignPrompt(m: CarteCampaignMaterial): string {
 const MEETING_WORDS = /\b(appel|appeler|téléphon|telefon|rendez-vous|rendezvous|visio|teams|zoom|meeting|call\b|hívás|telefonál|találkoz|hovor|zavolá|stretnut|schůzk|rozmow|spotkan|chamada|reunião|apel|întâlnire|bellen|telefoon|afspraak|anruf|termin|llamada|reunión|chiamata|incontro|opkald|møde)/i;
 export function checkCampaignMail(out: FirstMailOutput, material: string): DraftCheck {
   const c = checkDanaMail(out, material);
+  // « PROACE », « WELTAUTO » : des majuscules qui viennent de ses propres données (modèles, enseignes) ne sont pas un ton vendeur.
+  const caps = (out.corps ?? '').match(/[A-ZÀ-Ü]{6,}/g) ?? [];
+  if (caps.length && caps.every((w) => material.includes(w)) && !/!/.test(out.objet ?? '')) {
+    c.warnings = c.warnings.filter((w) => !w.startsWith('Majuscules'));
+  }
   if (MEETING_WORDS.test(`${out.objet ?? ''} ${out.corps ?? ''} ${out.traduction_fr ?? ''}`)) c.warnings.push('Propose un appel ou un rendez-vous : la campagne n\'ouvre que la discussion par mail (Channing, 19/11).');
   return c;
 }
