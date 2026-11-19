@@ -11,6 +11,7 @@
  * Accès : comptes MC Export avec le droit `agents` (sur autorisation).
  */
 import { supabase } from '../lib/supabase';
+import { brandKey } from '../lib/agents/opportunity';
 import { replySubject } from '../lib/agents/mail';
 import type { AgentTargets } from '../lib/agents/qualification';
 import type { DanaTargets, LotFact } from '../lib/agents/sourcing';
@@ -49,6 +50,9 @@ export interface AgentSettings {
 }
 export type EditableSettings = Pick<AgentSettings, 'sender_name' | 'signature' | 'daily_first_contact_cap' | 'send_days' | 'send_from' | 'send_to' | 'min_gap_seconds' | 'max_gap_seconds' | 'owner_id'>;
 
+/** Une campagne depuis la Carte (19/11) : son identifiant, le pays, les marques choisies, les consignes données à Dana. */
+export interface Campaign { id: string; pays: string; marques: string[]; consignes: string }
+
 export interface AgentThread {
   id: string; agent: AgentKey; mailbox: string; gmail_thread_id: string | null; subject: string;
   counterpart_email: string | null; counterpart_name: string | null; network_contact_id: string | null;
@@ -84,6 +88,8 @@ export interface AgentMessage {
     personne?: string | null;
     /** 19/10 : une copie de l'équipe — les contacts qu'elle donne, son sujet. */
     contacts?: Array<{ nom: string | null; fonction: string | null; entreprise: string | null; email: string | null; telephone: string | null }>; sujet?: string;
+    /** 19/11 : le mail d'une campagne depuis la Carte — la campagne, et les marques du contact vues sur sa vitrine. */
+    campagne?: Campaign & { marques_contact?: string[] };
   } | null;
 }
 /** La fiche d'appel d'un grand compte, préparée pour Channing. */
@@ -363,7 +369,9 @@ export interface AgentTask {
     notes?: string; segments?: string[]; limite_usd?: number; lot?: string;
     /** 19/10 : le banc d'essai ; le bon contact donné sur une fiche ; une copie de l'équipe ; le premier mail après un aiguillage ou à l'adresse probable. */
     banc?: boolean; n?: number; modele?: 'haiku' | 'opus'; contact_ids?: string[]; bon_contact?: RightContact; copie?: string; apres_aiguillage?: boolean;
-    adresse_probable?: { email: string; motif: string } };
+    adresse_probable?: { email: string; motif: string };
+    /** 19/11 : la campagne depuis la Carte (tâche « premier_mail » avec contact_ids = contacts de network_contacts). */
+    campagne?: Campaign };
   status: 'en_attente' | 'en_cours' | 'terminee' | 'echec' | 'annulee';
   result: {
     annonces?: number; avec_garage?: number; concessions?: number; nouvelles?: number; url?: string; site?: string; garages?: number; comptes?: number | string[]; qualifies?: number; ecartes?: number; echecs?: number; carte?: number;
@@ -1035,4 +1043,93 @@ export async function listBenchRuns(agent: AgentKey): Promise<{ rows: AgentTask[
   const { data, error } = await sb.from('agent_tasks').select('*').eq('agent', agent).eq('kind', 'qualification').eq('params->>banc', 'true').order('created_at', { ascending: false }).limit(30);
   if (error) return { rows: [], error: error.message };
   return { rows: (data ?? []) as AgentTask[], error: null };
+}
+
+// --- La campagne depuis la Carte (19/11) ---------------------------------------------------------
+
+/** Lance la rédaction : une tâche de Dana par 5 contacts, toutes marquées de la même campagne. */
+export async function queueCampaign(contactIds: string[], campagne: Campaign, userId: string | null): Promise<string | null> {
+  const ids = [...new Set(contactIds)];
+  for (let i = 0; i < ids.length; i += 5) {
+    const { error } = await sb.from('agent_tasks').insert({ agent: 'dana', kind: 'premier_mail', params: { campagne, contact_ids: ids.slice(i, i + 5) }, created_by: userId });
+    if (error) return errMails(error.message);
+  }
+  return null;
+}
+
+export interface CampaignMessage extends AgentMessage {
+  thread: Pick<AgentThread, 'id' | 'counterpart_name' | 'counterpart_email' | 'network_contact_id' | 'last_direction' | 'last_classification' | 'unread'> | null;
+  /** La première réponse reçue dans le fil (hors rebond, absence, anti-spam), ou le premier retour quel qu'il soit. */
+  reply: { classification: string | null; received_at: string | null; intention: string | null } | null;
+}
+
+/** Les mails de toutes les campagnes de Dana, avec leur fil et le retour reçu. */
+export async function listCampaignMessages(): Promise<{ rows: CampaignMessage[]; error: string | null }> {
+  const { data, error } = await sb.from('agent_messages')
+    .select('*, thread:agent_threads(id, counterpart_name, counterpart_email, network_contact_id, last_direction, last_classification, unread)')
+    .eq('agent', 'dana').eq('direction', 'out').not('ai_notes->campagne', 'is', null)
+    .order('created_at', { ascending: true }).limit(2000);
+  if (error) return { rows: [], error: errMails(error.message) };
+  const rows = ((data ?? []) as Array<AgentMessage & { thread: CampaignMessage['thread'] }>).map((m) => ({ ...m, reply: null as CampaignMessage['reply'] }));
+  const ids = [...new Set(rows.map((m) => m.thread_id))];
+  const replies = new Map<string, NonNullable<CampaignMessage['reply']>>();
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data: ins } = await sb.from('agent_messages').select('thread_id, classification, received_at, ai_notes')
+      .eq('direction', 'in').in('thread_id', ids.slice(i, i + 200)).order('received_at', { ascending: true }).limit(2000);
+    for (const r of (ins ?? []) as Array<{ thread_id: string; classification: string | null; received_at: string | null; ai_notes: { intention?: string } | null }>) {
+      const real = !['rebond', 'absence', 'antispam'].includes(r.classification ?? '');
+      const prev = replies.get(r.thread_id);
+      if (!prev || (real && ['rebond', 'absence', 'antispam'].includes(prev.classification ?? ''))) {
+        replies.set(r.thread_id, { classification: r.classification, received_at: r.received_at, intention: r.ai_notes?.intention ?? null });
+      }
+    }
+  }
+  // L'intention lue par Dana dans sa réponse préparée (ai_notes.resume/intention sur le message sortant suivant).
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data: outs } = await sb.from('agent_messages').select('thread_id, ai_notes').eq('direction', 'out').eq('kind', 'reponse')
+      .in('thread_id', ids.slice(i, i + 200)).limit(2000);
+    for (const r of (outs ?? []) as Array<{ thread_id: string; ai_notes: { intention?: string } | null }>) {
+      const rep = replies.get(r.thread_id);
+      if (rep && !rep.intention && r.ai_notes?.intention) rep.intention = r.ai_notes.intention;
+    }
+  }
+  for (const m of rows) m.reply = replies.get(m.thread_id) ?? null;
+  return { rows: rows as CampaignMessage[], error: null };
+}
+
+/** Les contacts de la Carte déjà en conversation (un fil avec leur fiche ou leur adresse), pour ne pas leur écrire deux fois à froid. */
+export async function contactsInThreads(): Promise<{ ids: Set<string>; emails: Set<string> }> {
+  const { data } = await sb.from('agent_threads').select('network_contact_id, counterpart_email').limit(5000);
+  const ids = new Set<string>(), emails = new Set<string>();
+  for (const t of (data ?? []) as Array<{ network_contact_id: string | null; counterpart_email: string | null }>) {
+    if (t.network_contact_id) ids.add(t.network_contact_id);
+    if (t.counterpart_email) emails.add(t.counterpart_email.toLowerCase());
+  }
+  return { ids, emails };
+}
+
+/** Les marques en stock aujourd'hui de chaque contact (vitrines relevées), du plus présent au moins présent. */
+export async function brandsOfContacts(contactIds: string[]): Promise<Map<string, Array<{ brand: string; n: number }>>> {
+  const out = new Map<string, Map<string, { brand: string; n: number }>>();
+  const key = brandKey;
+  const chunks: string[][] = [];
+  for (let i = 0; i < contactIds.length; i += 40) chunks.push(contactIds.slice(i, i + 40));
+  await Promise.all(chunks.map(async (chunk) => {
+    for (let from = 0; from < 20_000; from += 1000) {
+      const { data, error } = await sb.from('network_stock_vehicles').select('contact_id, brand').in('contact_id', chunk).is('gone_at', null).range(from, from + 999);
+      if (error) return;
+      const rows = (data ?? []) as Array<{ contact_id: string; brand: string | null }>;
+      for (const r of rows) {
+        const b = (r.brand ?? '').trim();
+        if (!b) continue;
+        const m = out.get(r.contact_id) ?? out.set(r.contact_id, new Map()).get(r.contact_id)!;
+        const k = key(b);
+        (m.get(k) ?? m.set(k, { brand: b, n: 0 }).get(k)!).n++;
+      }
+      if (rows.length < 1000) break;
+    }
+  }));
+  const res = new Map<string, Array<{ brand: string; n: number }>>();
+  for (const [id, m] of out) res.set(id, [...m.values()].sort((x, y) => y.n - x.n));
+  return res;
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Bot, Inbox, Workflow as WorkflowIcon, Settings2, RefreshCw, Building2, Layers, Search, Activity, BookOpen, Pause, Play } from 'lucide-react';
+import { Bot, Inbox, Workflow as WorkflowIcon, Settings2, RefreshCw, Building2, Layers, Search, Activity, BookOpen, Pause, Play, Megaphone } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { canSeeTab } from '../lib/appTabs';
 import {
@@ -16,6 +16,7 @@ import type { WfColumn } from '../lib/agents/workflow';
 import { Reglages } from '../components/agents/Reglages';
 import { Prospects } from '../components/agents/Prospects';
 import { Sourcing } from '../components/agents/Sourcing';
+import { Campagne } from '../components/agents/Campagne';
 import { Comptes } from '../components/agents/Comptes';
 import { Live } from '../components/agents/Live';
 import { Savoir } from '../components/agents/Savoir';
@@ -45,12 +46,14 @@ import { Savoir } from '../components/agents/Savoir';
  * Messagerie.
  */
 
-type Tab = 'live' | 'messagerie' | 'valider' | 'prospects' | 'sourcing' | 'comptes' | 'savoir' | 'reglages';
+type Tab = 'live' | 'messagerie' | 'valider' | 'prospects' | 'sourcing' | 'campagne' | 'comptes' | 'savoir' | 'reglages';
 const TAB: Record<Tab, { label: string; icon: ReactNode }> = {
   live: { label: 'Live', icon: <Activity className="w-4 h-4" /> },
   messagerie: { label: 'Messagerie', icon: <Inbox className="w-4 h-4" /> },
   prospects: { label: 'Acheteurs', icon: <Building2 className="w-4 h-4" /> },
   sourcing: { label: 'Sourcing', icon: <Layers className="w-4 h-4" /> },
+  // 19/11 (Channing : « contacter à grande échelle, chaque e-mail adapté, on appuie sur envoyer à la chaîne ») : la campagne depuis la Carte.
+  campagne: { label: 'Campagne', icon: <Megaphone className="w-4 h-4" /> },
   // 18/10 (Channing : « l'onglet comptes je veux le nommer recherche ») : l'adresse reste ?onglet=comptes.
   comptes: { label: 'Recherche', icon: <Search className="w-4 h-4" /> },
   valider: { label: 'Workflow', icon: <WorkflowIcon className="w-4 h-4" /> },
@@ -61,7 +64,7 @@ const TAB: Record<Tab, { label: string; icon: ReactNode }> = {
 /** Les fonctions de chacune : Ada vend (l'annuaire des acheteurs), Dana achète (le sourcing des lots). */
 const TABS_OF: Record<AgentKey, Tab[]> = {
   ada: ['live', 'messagerie', 'prospects', 'comptes', 'valider', 'savoir', 'reglages'],
-  dana: ['live', 'messagerie', 'sourcing', 'comptes', 'valider', 'savoir', 'reglages'],
+  dana: ['live', 'messagerie', 'sourcing', 'campagne', 'comptes', 'valider', 'savoir', 'reglages'],
 };
 const SIDE: Record<AgentKey, string> = { ada: 'acheteurs', dana: 'fournisseurs' };
 /** L'onglet d'une agente vu depuis l'autre (Acheteurs ↔ Sourcing). */
@@ -273,6 +276,9 @@ export function Agents() {
       )}
       {tab === 'sourcing' && agent === 'dana' && (
         <Sourcing userId={userId} canEditMap={canEditMap} refreshKey={refreshKey} onError={onError} onInfo={onInfo} onOpenThread={openFromQueue} />
+      )}
+      {tab === 'campagne' && agent === 'dana' && (
+        <Campagne settings={s} isAdmin={isAdmin} userId={userId} refreshKey={refreshKey} onError={onError} onInfo={onInfo} onOpenThread={openFromQueue} />
       )}
       {tab === 'comptes' && (
         <Comptes key={agent} agent={agent} userId={userId} refreshKey={refreshKey} onError={onError} onInfo={onInfo} onOpenThread={openFromQueue} />

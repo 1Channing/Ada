@@ -56,6 +56,7 @@ import { researchAccounts } from './research';
 import { refreshSoon } from './indexRefresh';
 import { researchPairs, nextResearchPair, segmentOf, RESEARCH_COUNTRIES, COUNTRY_FR, type ResearchParams } from '../../src/lib/agents/research';
 import { draftFirstMail, nextDraftCandidates } from './firstMail';
+import { runCarteCampaign } from './carteCampaign';
 import { deepResearch } from './deep';
 import { preparedThreads } from './prepared';
 import { draftReply } from './reply';
@@ -309,6 +310,15 @@ export async function runNextTask(): Promise<void> {
         await liveDone(t.id);
         await sb.from('agent_tasks').update({ status: 'terminee', result, finished_at: new Date().toISOString() }).eq('id', t.id);
         await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: deep ? 'recherche_approfondie_serie' : 'qualification_serie', summary: `${summary}${auto}`, details: result });
+      } else if (t.kind === 'premier_mail' && t.params.campagne) {
+        // 19/11 : la campagne depuis la Carte (./carteCampaign.ts) — une tâche « premier_mail » avec params.campagne et contact_ids.
+        const a = await agentRow(t.agent);
+        if (!a) throw new Error('agente introuvable');
+        if (!aiConfigured()) throw new AiUnavailable(NO_KEY);
+        const { result, summary } = await runCarteCampaign(t, a);
+        await liveDone(t.id);
+        await sb.from('agent_tasks').update({ status: 'terminee', result, finished_at: new Date().toISOString() }).eq('id', t.id);
+        await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: 'campagne_carte_serie', summary, details: result });
       } else if (t.kind === 'premier_mail') {
         const reply = !!t.params.reponse_a;
         const { result, summary } = reply ? await runReply(t) : await runDrafts(t);
@@ -335,7 +345,7 @@ export async function runNextTask(): Promise<void> {
       const msg = (e instanceof Error ? e.message : String(e)).slice(0, 500);
       await liveDone(t.id);
       await sb.from('agent_tasks').update({ status: 'echec', error: msg, finished_at: new Date().toISOString() }).eq('id', t.id);
-      const what = t.kind === 'qualification' ? (t.params.banc ? 'Banc d\'essai' : t.params.bon_contact ? 'Le bon contact' : t.params.copie ? 'Copie de l\'équipe' : t.params.approfondie ? 'Recherche approfondie' : 'Préparation des fiches') : t.kind === 'premier_mail' ? (t.params.reponse_a ? 'Préparation d\'une réponse' : 'Rédaction des premiers mails')
+      const what = t.kind === 'premier_mail' && t.params.campagne ? 'Campagne depuis la Carte' : t.kind === 'qualification' ? (t.params.banc ? 'Banc d\'essai' : t.params.bon_contact ? 'Le bon contact' : t.params.copie ? 'Copie de l\'équipe' : t.params.approfondie ? 'Recherche approfondie' : 'Préparation des fiches') : t.kind === 'premier_mail' ? (t.params.reponse_a ? 'Préparation d\'une réponse' : 'Rédaction des premiers mails')
         : t.kind === 'recherche_comptes' ? `Recherche ${researchLabel(t.agent, t.params)}` : `Découverte ${label(t.params)}`;
       await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: `${t.kind === 'decouverte_concessions' ? 'decouverte' : t.kind}_echec`, summary: `${what}${auto} en échec : ${msg}` });
       // Une recherche d'un lancement qui échoue (budget, IA) : le bilan du lancement le dit, avec ce qui reste à faire.
