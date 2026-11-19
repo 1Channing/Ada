@@ -6518,11 +6518,30 @@ export async function runDealerStock(contactId: string, url: string, submittedBy
     if (partial) {
       stock.warnings.push(`Relevé partiel : ${stock.vehicles.length} voitures lues pour ${stock.declared} annoncées par le site — aucune voiture marquée disparue.`);
     } else {
-      let goneQuery = sb.from('network_stock_vehicles').update({ gone_at: startedAt, gone_run_id: runId })
-        .eq('contact_id', contactId).is('gone_at', null).lt('last_seen_at', startedAt);
-      for (const h of keepHosts) goneQuery = goneQuery.not('url', 'ilike', `%${h}%`);
-      const { data: gone } = await goneQuery.select('id');
-      goneCount = ((gone ?? []) as unknown[]).length;
+      // DISPARUE = PAS VUE PAR CE RELEVÉ (19/11) : la règle « vue avant le départ de ce relevé » ne suffit pas quand deux
+      // relevés de la même fiche se croisent — passage de rattrapage après un déploiement et « Relever maintenant » partis
+      // à la même seconde : le premier parti réécrit « vue le » avec son heure, plus ancienne, et le second marquait
+      // disparues les 92 voitures de BMW Lion Car qu'il venait de voir. Une voiture n'est marquée disparue que si son
+      // numéro n'est pas dans CE relevé.
+      const seenIds = new Set(stock.vehicles.map((v) => v.external_id));
+      const candidates: Array<{ external_id: string }> = [];
+      for (let o = 0; ; o += 1000) {
+        let q = sb.from('network_stock_vehicles').select('external_id').eq('contact_id', contactId).is('gone_at', null).lt('last_seen_at', startedAt);
+        for (const h of keepHosts) q = q.not('url', 'ilike', `%${h}%`);
+        const { data: page, error: candErr } = await q.order('external_id', { ascending: true }).range(o, o + 999);
+        if (candErr) throw new Error(`lecture des voitures non revues : ${candErr.message}`);
+        candidates.push(...((page ?? []) as Array<{ external_id: string }>));
+        if ((page ?? []).length < 1000) break;
+      }
+      // Clé unique de la table : (fiche, numéro) — la mise à jour ne touche que cette fiche.
+      const goneIds = candidates.filter((r) => !seenIds.has(r.external_id)).map((r) => r.external_id);
+      for (let i = 0; i < goneIds.length; i += 200) {
+        const { error: goneErr } = await sb.from('network_stock_vehicles').update({ gone_at: startedAt, gone_run_id: runId })
+          .eq('contact_id', contactId).is('gone_at', null).in('external_id', goneIds.slice(i, i + 200));
+        if (goneErr) throw new Error(`marquage des disparues : ${goneErr.message}`);
+      }
+      goneCount = goneIds.length;
+      if (candidates.length > goneIds.length) stock.warnings.push(`${candidates.length - goneIds.length} voiture(s) vue(s) par ce relevé réécrite(s) par un autre relevé de la même fiche, en même temps : gardée(s) (non marquées disparues)`);
     }
     await sb.from('network_stock_runs').update({ status: 'done', provider: stock.provider, total: stock.vehicles.length, new_count: newCount, gone_count: goneCount, price_changes: priceChanges, pages: stock.pages, warnings: stock.warnings, finished_at: new Date().toISOString() }).eq('id', runId);
     await sb.from('network_contacts').update({ stock_total: stock.vehicles.length }).eq('id', contactId);

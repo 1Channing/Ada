@@ -137,6 +137,41 @@ const again = await runDealerStock('c3', 'https://refonte.test/fahrzeuge/', 'tes
 ok(!again.warnings.some((w) => /Numéros de la vitrine/.test(w)) && again.newCount === 0 && again.goneCount === 0, 'relevé suivant, numéros revus : aucune reprise, rien de nouveau ni de sorti', [again.newCount, again.goneCount, again.warnings]);
 ok(!fullRun.warnings.some((w) => /Numéros de la vitrine/.test(w)), 'moins de 20 voitures connues (Van Mossel test) : la règle ne joue pas');
 
+console.log('\n=== DEUX RELEVÉS DE LA MÊME FICHE EN MÊME TEMPS : AUCUNE FAUSSE DISPARITION (19/11, BMW Lion Car) ===\n');
+{
+  // Le relevé parti juste avant réécrit « vue le » avec son heure, plus ancienne, juste après notre écriture : nos
+  // voitures paraissent « vues avant notre départ ». Elles ne doivent pas sortir ; une vraie absente, si.
+  db.network_contacts.push({ id: 'c5', name: 'Lion test', website: 'https://lion.test/ponuka', website2: null });
+  db.network_stock_vehicles.push({ contact_id: 'c5', external_id: 'old1', price: 9000, first_seen_at: old, last_seen_at: old, gone_at: null });
+  const fake = fakeSupabase(db);
+  const early = new Date(Date.now() - 60_000).toISOString();
+  setSharedSupabase({ ...fake, from: (t: string) => {
+    const q = fake.from(t) as unknown as { upsert: (r: unknown[], o: unknown) => unknown; then: (a: unknown, b?: unknown) => Promise<unknown> };
+    if (t !== 'network_stock_vehicles') return q;
+    const up = q.upsert.bind(q);
+    q.upsert = (rows: unknown[], o: unknown) => {
+      up(rows, o);
+      const then = q.then.bind(q);
+      q.then = (ok1: unknown, ko?: unknown) => then((res: unknown) => {
+        for (const r of rows as Array<Record<string, unknown>>) {
+          const row = db.network_stock_vehicles.find((x) => x.contact_id === r.contact_id && x.external_id === r.external_id);
+          if (row) row.last_seen_at = early;
+        }
+        return res;
+      }).then(ok1 as never, ko as never);
+      return q;
+    };
+    return q;
+  } } as never);
+  const crossed = await runDealerStock('c5', 'https://lion.test/ponuka', 'test', { provider: 'autopalace', total: 3, declared: 3, pages: 1, warnings: [],
+    vehicles: [car({ external_id: 'L1', price: 50000 }), car({ external_id: 'L2', price: 60000 }), car({ external_id: 'L3', price: 70000 })] });
+  setSharedSupabase(fake as never);
+  const r5 = (id: string) => db.network_stock_vehicles.find((x) => x.contact_id === 'c5' && x.external_id === id) as Record<string, unknown>;
+  ok(['L1', 'L2', 'L3'].every((id) => r5(id)?.gone_at === null) && r5('old1')?.gone_at != null && crossed.goneCount === 1
+    && crossed.warnings.some((w) => /réécrite\(s\) par un autre relevé/.test(w)),
+    'relevés croisés : les 3 voitures vues restent en stock, seule la vraie absente sort, et le bilan le dit', [crossed.goneCount, ['L1', 'L2', 'L3', 'old1'].map((id) => r5(id)?.gone_at), crossed.warnings]);
+}
+
 console.log('\n=== LECTEURS DE FICHE ===\n');
 ok(readDmdDetail(box('Rob Double Embray')).gearbox === 'Automatique' && readDmdDetail(box('Manuelle')).gearbox === 'Manuelle'
   && readDmdDetail('<p>rien</p>').gearbox === null, 'DMD : robotisée double embrayage = Automatique, Manuelle, rien = inconnu');
