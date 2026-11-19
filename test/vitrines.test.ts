@@ -37,9 +37,11 @@ const pages: Record<string, string> = {
 };
 const fetched: string[] = [];
 const statuses: Record<string, number> = {}; // code HTTP d'une page simulée, quand ce n'est pas 200
+const flaky: Record<string, number> = {};    // nombre de réponses 502 avant la bonne (erreur de passerelle passagère)
 globalThis.fetch = (async (input: string | URL | Request) => {
   const u = String(input instanceof Request ? input.url : input);
   fetched.push(u);
+  if ((flaky[u] ?? 0) > 0) { flaky[u]--; return new Response('Bad Gateway', { status: 502 }); }
   const body = pages[u];
   return new Response(body ?? 'introuvable', { status: body ? statuses[u] ?? 200 : 404 });
 }) as typeof fetch;
@@ -204,9 +206,10 @@ console.log('\n=== WEBSPARK (BONY, 19/11) : UNE PAGE QUI REPREND DES CARTES N\'E
   globalThis.setTimeout = ((fn: () => void) => realTimeout(fn, 0)) as typeof setTimeout;
   try {
     ok(dsw.detectDealerProvider(pages['https://ws.test/stock/']) === 'webspark', 'webspark reconnu (cartes vcard)');
+    flaky['https://ws.test/stock/?page=3'] = 1; // Sofibrie, 19/11 : un 502 passager à la page 41 arrêtait le relevé
     const st = await dsw.fetchDealerStock('https://ws.test/stock/');
-    ok(st.vehicles.length === 10 && st.pages === 3 && !st.warnings.some((w) => /lu\(s\) pour/.test(w)),
-      'page 2 avec une carte déjà lue : la lecture continue jusqu\'à la page 3, 10 voitures sur 10', [st.vehicles.length, st.pages, st.warnings]);
+    ok(st.vehicles.length === 10 && st.pages === 3 && !st.warnings.some((w) => /lu\(s\) pour|HTTP 502/.test(w)),
+      'page 2 avec une carte déjà lue : la lecture continue ; un 502 passager en page 3 est réessayé : 10 voitures sur 10', [st.vehicles.length, st.pages, st.warnings]);
     const before = fetched.length;
     const loop = await dsw.fetchDealerStock('https://ws2.test/stock/');
     const asked = fetched.slice(before).filter((u) => u.startsWith('https://ws2.test/'));

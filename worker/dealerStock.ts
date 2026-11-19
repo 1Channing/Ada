@@ -1990,7 +1990,8 @@ const htmlText = (s: string) => decode(s.replace(/<[^>]+>/g, ' ')).replace(/&#(\
 async function getTextPatient(url: string, init?: RequestInit): Promise<{ status: number; text: string; headers: Headers }> {
   let r = await getText(url, init);
   // 5 reprises (5 s → 80 s, 155 s en tout) : SIPA a tenu 41 pages puis 429 persistant pendant qu'une autre vitrine MotorK était lue.
-  for (let i = 0; i < 5 && (r.status === 429 || r.status === 503); i++) { await sleep(5000 * 2 ** i); r = await getText(url, init); }
+  // 19/11 : aussi les erreurs de passerelle passagères (502, 504) — Sofibrie abandonnée à la page 41 sur un 502 (520 lues sur 1 316).
+  for (let i = 0; i < 5 && [429, 502, 503, 504].includes(r.status); i++) { await sleep(5000 * 2 ** i); r = await getText(url, init); }
   return r;
 }
 /** Même URL avec un paramètre de requête changé. */
