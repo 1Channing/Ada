@@ -14,15 +14,17 @@
  * Rien ne part sans validation d'un administrateur.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Inbox, Plus, Archive, ArchiveRestore, MailWarning, Ban, Send, X, Reply, PenLine, Linkedin } from 'lucide-react';
+import { Inbox, Plus, Archive, ArchiveRestore, MailWarning, Ban, Send, X, Reply, PenLine, Linkedin, Store } from 'lucide-react';
 import {
   listMailbox, getThread, startConversation, addToThread, setThreadFlags, addSuppression, replyDraft, withSignature,
   type AgentKey, type AgentThread, type AgentMessage, type AgentSettings, type AgentCounts, type Draft, type MailboxThread,
+  contactOfThread, type ThreadContact,
 } from '../../services/agents';
 import { folderThreads, folderOf, isRealAnswer, type MailFolder } from '../../lib/agents/mailbox';
 import { ClassificationChip, DraftEditor } from './shared';
 import { draftProblem, cleanDraft, fmtRelative } from './helpers';
 import { MessageCard } from './MessageCard';
+import { ShowcaseModal } from '../ShowcaseModal';
 
 interface Props {
   agent: AgentKey;
@@ -97,6 +99,16 @@ export function Messagerie({ agent, settings, counts, isAdmin, userId, openThrea
   const count = (f: MailFolder) => folderThreads(all, f).length;
   const unread = folderThreads(all, 'reception').filter((t) => t.unread).length;
   const t = detail.thread;
+  // 19/11 (Channing : « avoir accès à leur vitrine via un petit bouton à côté des mails ») : la fiche de la Carte du fil.
+  const [contact, setContact] = useState<ThreadContact | null>(null);
+  const [showcase, setShowcase] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    setContact(null); setShowcase(false);
+    if (!t) return;
+    void contactOfThread(t).then((c) => { if (alive) setContact(c); });
+    return () => { alive = false; };
+  }, [t?.id, t?.network_contact_id, t?.counterpart_email]); // eslint-disable-line react-hooks/exhaustive-deps
   const s = t ? byAgent[t.agent] : undefined;
   const mine = byAgent[agent];
   const name = mine?.display_name ?? (agent === 'dana' ? 'Dana' : 'Ada');
@@ -232,12 +244,20 @@ export function Messagerie({ agent, settings, counts, isAdmin, userId, openThrea
               <button onClick={() => void setThreadFlags(t.id, { archived: !t.archived }).then((e) => { if (e) onError(e); else { setSelected(null); void loadList(); } })} className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800" title={t.archived ? 'Désarchiver' : 'Archiver'}>
                 {t.archived ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />} {t.archived ? 'Désarchiver' : 'Archiver'}
               </button>
+              {contact && (
+                <button onClick={() => setShowcase(true)} className="inline-flex items-center gap-1 text-xs text-brand-ocean hover:text-brand-encre" title={`La vitrine de ${contact.name} (Carte)`}>
+                  <Store className="w-4 h-4" /> Vitrine{contact.stock_total != null ? ` (${contact.stock_total})` : ''}
+                </button>
+              )}
               {t.counterpart_email && (
                 <button onClick={() => void blockCounterpart()} className="inline-flex items-center gap-1 text-xs text-rose-600 hover:text-rose-800" title="Ajouter à « ne plus contacter »">
                   <Ban className="w-4 h-4" /> Ne plus contacter
                 </button>
               )}
             </div>
+            {showcase && contact && (
+              <ShowcaseModal contactId={contact.id} name={contact.name} url={contact.website} url2={contact.website2 ?? null} country={contact.country} frequency={contact.stock_frequency ?? null} unreadable={contact.showcase_unreadable ?? null} onClose={() => setShowcase(false)} />
+            )}
             <div className="space-y-2">
               {detail.messages.map((m) => (
                 <MessageCard key={`${m.id}-${m.updated_at}`} m={m} settings={s} counts={counts[t.agent]} isAdmin={isAdmin} onChanged={() => void refreshAll()} onError={onError} onInfo={onInfo} />

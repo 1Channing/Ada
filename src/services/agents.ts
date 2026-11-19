@@ -1133,3 +1133,27 @@ export async function brandsOfContacts(contactIds: string[]): Promise<Map<string
   for (const [id, m] of out) res.set(id, [...m.values()].sort((x, y) => y.n - x.n));
   return res;
 }
+
+/**
+ * LE CONTACT DE LA CARTE D'UN FIL (19/11, Channing, sur la première réponse d'une campagne : « j'aimerais pouvoir
+ * avoir accès à leur vitrine via un petit bouton à côté des mails ») : la fiche rattachée au fil, sinon celle qui porte
+ * l'adresse du correspondant (ou son domaine, quand plusieurs sites d'un groupe partagent la boîte).
+ */
+export interface ThreadContact { id: string; name: string; website: string | null; website2?: string | null; country: string | null; stock_frequency?: 'daily' | 'weekly' | 'off' | null; showcase_unreadable?: string | null; stock_total: number | null }
+export async function contactOfThread(t: Pick<AgentThread, 'network_contact_id' | 'counterpart_email'>): Promise<ThreadContact | null> {
+  // Tout (« * ») : les colonnes du 03/11 (stock_frequency), du 09/11 (showcase_unreadable) et du 12/11 (website2) manquent tant que leur SQL n'est pas collé.
+  const cols = '*';
+  if (t.network_contact_id) {
+    const { data } = await sb.from('network_contacts').select(cols).eq('id', t.network_contact_id).maybeSingle();
+    if (data) return data as ThreadContact;
+  }
+  const email = (t.counterpart_email ?? '').trim().toLowerCase();
+  if (!email) return null;
+  const { data } = await sb.from('network_contacts').select(cols).ilike('email', email).order('stock_total', { ascending: false, nullsFirst: false }).limit(1);
+  const byMail = ((data ?? []) as ThreadContact[])[0];
+  if (byMail) return byMail;
+  const domain = email.split('@')[1];
+  if (!domain || /gmail|outlook|hotmail|yahoo|icloud|proton/.test(domain)) return null;
+  const { data: d2 } = await sb.from('network_contacts').select(cols).or(`email.ilike.%@${domain},website.ilike.%${domain}%`).order('stock_total', { ascending: false, nullsFirst: false }).limit(1);
+  return ((d2 ?? []) as ThreadContact[])[0] ?? null;
+}
