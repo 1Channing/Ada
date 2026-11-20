@@ -4,7 +4,9 @@ import { MyTabsPanel } from './MyTabs';
 import { MySignaturePanel } from './MySignature';
 import { permittedNavItems, type NavItem } from '../lib/navChoices';
 import { listLearningCases } from '../services/learningCases';
-import { countMyOpenTasks } from '../services/userTasks';
+import { countMyOpenTasks, REMINDERS_CHANGED } from '../services/userTasks';
+import { countNewLeads } from '../services/siteLeads';
+import { canSeeTab } from '../lib/appTabs';
 import { loadCapacityAlerts, ackCapacity, onCapacityChange, type CapacityAlert } from '../services/capacity';
 import { useActiveUsersCount } from '../hooks/useActiveUsersCount';
 import { useOpenSpaceUnseen } from '../hooks/useOpenSpaceUnseen';
@@ -70,6 +72,33 @@ function useMyOpenTasks(): number {
   return n;
 }
 
+/**
+ * DEMANDES DU SITE À TRAITER (20/11, l'équipe : « des notifs sur l'onglet Demandes lorsqu'il y a des demandes faites sur
+ * le site qui ne sont pas traitées ») : pastille sur l'entrée « Demandes », relue toutes les 60 s, à chaque navigation,
+ * au retour sur l'onglet du navigateur et dès qu'une demande change de statut — pour les comptes qui ont le droit « demandes ».
+ */
+function useNewLeadsCount(enabled: boolean): number {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    if (!enabled) { setN(0); return; }
+    let alive = true;
+    const refresh = () => { void countNewLeads().then((c) => { if (alive) setN(c); }).catch(() => undefined); };
+    refresh();
+    const t = setInterval(refresh, 60_000);
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh(); };
+    window.addEventListener('locationchange', refresh);
+    window.addEventListener('focus', refresh);
+    window.addEventListener(REMINDERS_CHANGED, refresh);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      alive = false; clearInterval(t);
+      window.removeEventListener('locationchange', refresh); window.removeEventListener('focus', refresh); window.removeEventListener(REMINDERS_CHANGED, refresh);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [enabled]);
+  return n;
+}
+
 export function Layout({ children }: LayoutProps) {
   const activeCount = useActiveUsersCount();
   // Nouveautés Open space (21/09) : pastille sur l'entrée Workflow, visible
@@ -79,7 +108,11 @@ export function Layout({ children }: LayoutProps) {
   // Tâches confiées par l'admin (02/10) : pastille sur « Accueil », relue
   // toutes les 60 s et à chaque navigation — la personne la voit où qu'elle soit.
   const myTasks = useMyOpenTasks();
-  const navBadge = (it: { workflow?: boolean; path?: string }) => (it.workflow && openSpaceNew > 0
+  const auth = useAuth();
+  const newLeads = useNewLeadsCount(canSeeTab(auth.allowedTabs, auth.isAdmin, 'demandes'));
+  const navBadge = (it: { workflow?: boolean; path?: string }) => (it.path === '/demandes' && newLeads > 0
+    ? <span title={`${newLeads} demande${newLeads > 1 ? 's' : ''} du site à traiter`} className="min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold grid place-items-center shadow">{newLeads > 99 ? '99+' : newLeads}</span>
+    : it.workflow && openSpaceNew > 0
     ? <span title={`${openSpaceNew} nouveauté${openSpaceNew > 1 ? 's' : ''} dans l'Open space`} className="min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold grid place-items-center shadow">{openSpaceNew > 99 ? '99+' : openSpaceNew}</span>
     : it.path === '/' && myTasks > 0
       ? <span title={`${myTasks} tâche${myTasks > 1 ? 's' : ''} à faire`} className="min-w-[18px] h-[18px] px-1 rounded-full bg-amber-400 text-slate-900 text-[10px] font-bold grid place-items-center shadow">{myTasks > 99 ? '99+' : myTasks}</span>

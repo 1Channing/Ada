@@ -1,4 +1,4 @@
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { DocumentData, signatureLocationOf } from '../templateEngine';
 import {
   fillFieldSafely,
@@ -32,6 +32,12 @@ export async function renderDeclarationAchat(
   fillSellerFields(form, data, errors);
 
   form.flatten();
+
+  // 20/11 (l'équipe : « dans MC Export vend, ajouter la déclaration d'achat, avec MC Export en vendeur et l'acheteur en
+  // acheteur ») : côté vente, le déclarant « Je soussigné(e) » n'est plus MC Export — imprimé en dur sur le modèle —
+  // mais le client ; on blanchit le bloc imprimé et on écrit l'acheteur par-dessus. Le certificat de vente (bas de page)
+  // porte MC Export : c'est le vendeur de la transaction, rempli par fillSellerFields.
+  if (data.transaction?.transaction_type === 'sale') await drawBuyerAsDeclarant(pdfDoc, data);
 
   const warningCount = errors.filter(e => !e.includes('Required')).length;
   const errorCount = errors.filter(e => e.includes('Required')).length;
@@ -178,3 +184,43 @@ function fillSellerFields(form: any, data: DocumentData, errors: string[]): void
   }
 }
 
+
+/**
+ * Le bloc « Je soussigné(e) » du cerfa 13751, mesuré sur le modèle (pdftotext -bbox, page 595 × 842) : MC EXPORT en
+ * x 107–143 / y 719–729 ; « 88 BIS AVENUE JEAN BOUTTON » en y 694–706 (n° x 103, extension x 156, type x 204,
+ * voie x 283) ; code postal en cases à x 92, 106, 119, 132, 147 (y 674) ; commune x 180 (y 672) ; les neuf cases
+ * du SIREN à x 471 + 11,4 × i (y 720).
+ */
+async function drawBuyerAsDeclarant(pdfDoc: PDFDocument, data: DocumentData): Promise<void> {
+  const b = data.buyer;
+  if (!b) { console.warn('[DECL_ACHAT_ACROFORM_WARN] Côté vente sans acheteur : le déclarant reste MC Export'); return; }
+  const page = pdfDoc.getPage(0);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const white = rgb(1, 1, 1);
+  const size = 9;
+  // Helvetica (WinAnsi) ne connaît pas toutes les lettres (ł, ő…) : sans accents, en capitales, comme le cerfa.
+  const text = (t: string, x: number, y: number) => {
+    const clean = t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7E]/g, '').toUpperCase().trim();
+    if (clean) page.drawText(clean, { x, y, size, font, color: rgb(0, 0, 0) });
+  };
+  // Blanchir le bloc imprimé (entre les traits de base des cases, jamais dessus).
+  page.drawRectangle({ x: 103, y: 718.5, width: 350, height: 11.5, color: white });
+  page.drawRectangle({ x: 102, y: 694, width: 460, height: 12, color: white });
+  page.drawRectangle({ x: 88, y: 671.5, width: 470, height: 12, color: white });
+  const main = b.company_name || (b.first_name && b.last_name ? `${b.first_name} ${b.last_name}`.trim() : b.full_name || '');
+  const co = data.buyer2 ? (data.buyer2.company_name || `${data.buyer2.first_name || ''} ${data.buyer2.last_name || ''}`.trim()) : '';
+  text(normalizeForAcroForm([main, co].filter(Boolean).join(' / '), 'generic').slice(0, 70), 107, 720);
+  const siren = (b.siren ?? '').replace(/\D/g, '').slice(0, 9);
+  for (let i = 0; i < siren.length; i++) text(siren[i], 468 + 11.4 * i, 720);
+  if (b.address_line1) {
+    const parts = parseAddressLine(b.address_line1);
+    text(parts.number, 103, 696);
+    text(parts.extension, 156, 696);
+    text(parts.type, 204, 696);
+    text(normalizeForAcroForm(parts.name, 'generic').slice(0, 55), 283, 696);
+  }
+  const cp = (b.postal_code ?? '').replace(/\D/g, '').slice(0, 5);
+  const cpX = [92.3, 105.6, 119, 132.3, 147.3];
+  for (let i = 0; i < cp.length; i++) text(cp[i], cpX[i], 674.5);
+  if (b.city) text(normalizeForAcroForm(b.city, 'generic').slice(0, 40), 180, 673);
+}

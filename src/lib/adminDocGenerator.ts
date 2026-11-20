@@ -49,6 +49,10 @@ const DOC_FIELD_SPECS: Record<string, FieldSpec[]> = {
     ['Adresse vendeur', (d) => d.seller?.address_line1],
     ['CP vendeur', (d) => d.seller?.postal_code],
     ['Ville vendeur', (d) => d.seller?.city],
+    // 20/11 : côté vente, le client est le déclarant (écrit à la place de MC Export en tête du cerfa).
+    ['Déclarant (acheteur)', (d) => (d.transaction.transaction_type === 'sale' ? contactIdentity(d.buyer) : 'MC Export')],
+    ['Adresse déclarant', (d) => (d.transaction.transaction_type === 'sale' ? d.buyer?.address_line1 : '88 B avenue Jean Boutton')],
+    ['SIREN déclarant', (d) => (d.transaction.transaction_type === 'sale' ? d.buyer?.siren : undefined)],
     ['Date transaction', (d) => d.transaction.transaction_date],
     ['Heure transaction', (d) => d.transaction.transaction_time],
   ],

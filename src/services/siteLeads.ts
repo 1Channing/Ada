@@ -22,6 +22,12 @@ export async function listSiteLeads(): Promise<{ leads: SiteLeadRow[]; error: st
 }
 
 /** Change le statut ; « traitée » ou « écartée » coche aussi le rappel de la cloche (s'il est visible par ce compte). */
+/** Les demandes à traiter (pastille du bandeau, 20/11). Compte seul : la liste n'est pas relue. */
+export async function countNewLeads(): Promise<number> {
+  const { count, error } = await untyped.from('site_leads').select('id', { count: 'exact', head: true }).eq('status', 'nouvelle');
+  return error ? 0 : (count ?? 0);
+}
+
 export async function setLeadStatus(id: string, status: LeadStatus): Promise<string | null> {
   const { error } = await untyped.from('site_leads').update({ status }).eq('id', id);
   if (error) return error.message;
