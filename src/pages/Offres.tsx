@@ -21,6 +21,7 @@ import { buildOfferWorkbook, downloadBlob, slugFile, fmtEur, fmtKm, fmtDate, fue
 import { buildOfferPdf } from '../lib/offers/exportOfferPdf';
 import { useOfferFiches, OfferFichesBanner, OfferFichesModal } from '../components/OfferFiches';
 import { SingleUnitModal, type SingleUnitOptions } from '../components/SingleUnitModal';
+import { IntraPhotoPicker } from '../components/IntraPhotoPicker';
 import { unitToVehicle, type SingleUnit } from '../lib/offers/singleUnit';
 import { publishUnitDossier } from '../services/unitPhotos';
 import { mergeOffers } from '../lib/offers/mergeOffers';
@@ -149,6 +150,8 @@ export function Offres() {
   const [manualBusy, setManualBusy] = useState(false);
   /** Menu ⋯ d'une bonne affaire, et véhicule en cours de correction (14/10, Channing : « modifier les critères via les trois petits points »). */
   const [dealMenu, setDealMenu] = useState<string | null>(null);
+  /** Photos d'inspection à choisir pour ces bonnes affaires (21/11) : ouvert après une publication, ou depuis le menu ⋯. */
+  const [photoPick, setPhotoPick] = useState<IntraItem[] | null>(null);
   const [editDeal, setEditDeal] = useState<{ id: string; v: OfferVehicle } | null>(null);
   const [editDealBusy, setEditDealBusy] = useState(false);
   const startEditDeal = (it: IntraItem) => {
@@ -704,6 +707,14 @@ export function Offres() {
     const items = list.map(intraDraftOf).filter((x): x is IntraDraft => !!x);
     const err = await publishToShowcase(items);
     if (err) { fail(err); return; }
+    // 21/11 : les photos de l'inspection sont proposées tout de suite, cochées, à publier d'un clic.
+    const r = await listShowcase();
+    if (!r.error) {
+      setShowcase(r.rows);
+      const ids = new Set(items.map((x) => x.vehicle_id));
+      const just = r.rows.filter((x) => x.offer_id === draft.id && ids.has(x.vehicle_id));
+      if (just.length) setPhotoPick(just);
+    }
     info(`${items.length} véhicule${items.length > 1 ? 's' : ''} publié${items.length > 1 ? 's' : ''} dans les bonnes affaires de l'Accueil (véhicule, prix MC Export HT et relevé de marché photographiés maintenant).`);
     void reloadShowcase();
   };
@@ -1034,6 +1045,8 @@ export function Offres() {
   return (
     <div className="space-y-4">
       <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.pdf" multiple className="hidden" onChange={(e) => { const l = e.target.files; if (l && l.length) void onFiles(l); e.currentTarget.value = ''; }} />
+
+      {photoPick && <IntraPhotoPicker items={photoPick} onClose={() => setPhotoPick(null)} onDone={(added, errors) => { setPhotoPick(null); if (errors.length) fail(errors.join(' · ')); else info(`${added} photo${added > 1 ? 's' : ''} publiée${added > 1 ? 's' : ''} — visible${added > 1 ? 's' : ''} sur l'Accueil et sur mc-export.com.`); void reloadShowcase(); }} />}
 
       {(unitOpen || unitBusy) && <SingleUnitModal busy={unitBusy} status={unitStatus} hidden={!unitOpen} onAdd={(units, opts) => { void addUnits(units, opts); }} onClose={() => setUnitOpen(false)} />}
       {unitBusy && !unitOpen && (
@@ -1915,6 +1928,7 @@ export function Offres() {
                               {dealMenu === it.id && (
                                 <div role="menu" className="absolute right-0 top-7 z-30 w-60 bg-white border border-slate-200 rounded-xl shadow-lg py-1 text-xs text-left">
                                   <button role="menuitem" onClick={() => startEditDeal(it)} className="w-full flex items-center gap-2 px-3 py-2 text-slate-700 hover:bg-slate-50"><Pencil className="w-3.5 h-3.5 text-brand-ocean" /> Modifier les caractéristiques…</button>
+                                  <button role="menuitem" onClick={() => { setDealMenu(null); setPhotoPick([it]); }} className="w-full flex items-center gap-2 px-3 py-2 text-slate-700 hover:bg-slate-50"><ImagePlus className="w-3.5 h-3.5 text-brand-ocean" /> Photos de l'inspection…</button>
                                   <button role="menuitem" onClick={() => { setDealMenu(null); setOpenDeal(it.id); }} className="w-full flex items-center gap-2 px-3 py-2 text-slate-700 hover:bg-slate-50"><SlidersHorizontal className="w-3.5 h-3.5 text-brand-ocean" /> Prix, mot, réglages</button>
                                   <button role="menuitem" onClick={() => { setDealMenu(null); void unpublishVehicles([it.id]); }} className="w-full flex items-center gap-2 px-3 py-2 text-red-700 hover:bg-red-50"><X className="w-3.5 h-3.5" /> Retirer des bonnes affaires</button>
                                 </div>
