@@ -938,7 +938,7 @@ export function Offres() {
                       <td key={c.id} className="py-1.5 pr-3"><input aria-label={`${c.label} — ${v.brand} ${v.model}`} value={v.custom?.[c.id] ?? ''} onChange={(e) => setCustomValue(v.id, c.id, e.target.value)} className="w-28 px-2 py-1 rounded border border-blue-200 bg-blue-50/40" /></td>
                     ))}
                     <td className="py-1.5 pr-3">{v.report_url ? <a href={v.report_url} target="_blank" rel="noreferrer" className="text-brand-ocean inline-flex" aria-label="Ouvrir le rapport"><ExternalLink className="w-3.5 h-3.5" /></a> : '—'}</td>
-                    <td className="py-1.5 pr-3"><button onClick={() => setEditVehicle(editVehicle === v.id ? null : v.id)} aria-label={`Corriger ${v.brand} ${v.model}`} aria-expanded={editVehicle === v.id} className={`p-1 rounded ${editVehicle === v.id ? 'bg-blue-100 text-brand-encre' : 'text-slate-400 hover:text-brand-ocean hover:bg-slate-100'}`}><Pencil className="w-3.5 h-3.5" /></button></td>
+                    <td className="py-1.5 pr-3"><button onClick={() => { const closing = editVehicle === v.id; setEditVehicle(closing ? null : v.id); if (closing && modelPopup && modelKeyOf(v) !== modelPopup) setModelPopup(modelKeyOf(v)); }} aria-label={`Corriger ${v.brand} ${v.model}`} aria-expanded={editVehicle === v.id} className={`p-1 rounded ${editVehicle === v.id ? 'bg-blue-100 text-brand-encre' : 'text-slate-400 hover:text-brand-ocean hover:bg-slate-100'}`}><Pencil className="w-3.5 h-3.5" /></button></td>
                   </tr>
                   {editVehicle === v.id && (
                     <tr className="bg-blue-50/40">
@@ -1374,7 +1374,10 @@ export function Offres() {
               {modelPopup && (() => {
                 // Sous les mêmes filtres que les cartes (18/11, Channing : « j'ai filtré électrique mais la fenêtre du
                 // modèle montre encore des diesels ») — « Modifier pour tous » aussi : les filtrés seulement.
-                const whole = draft.vehicles.filter((v) => modelKeyOf(v) === modelPopup);
+                // Le véhicule en cours de correction reste dans la fenêtre même si sa marque ou son modèle change
+                // (21/11, Channing : « dès que j'ajoute une lettre ça quitte la modif ») ; à la fermeture du crayon, la
+                // fenêtre suit le véhicule vers son nouveau modèle.
+                const whole = draft.vehicles.filter((v) => modelKeyOf(v) === modelPopup || v.id === editVehicle);
                 const list = whole.filter(matchesSelFilters);
                 const units = list.reduce((a, v) => a + qtyOf(v), 0);
                 const sel = list.filter((v) => v.selected).reduce((a, v) => a + qtyOf(v), 0);
