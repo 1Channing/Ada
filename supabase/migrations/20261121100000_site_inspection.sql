@@ -2,7 +2,8 @@
   # L'inspection sur le site mc-export.com (21/11, Channing : « notre vitrine va être scrappée par JP Cars… il
   #   faudrait que sur le site il y ait l'inspection de jointe »)
 
-  site_good_deals() rend un champ de plus, `inspection_url` : la fiche d'inspection PDF MC Export de la bonne affaire
+  site_good_deals() rend deux champs de plus. `vat_margin` : vrai quand le prix publié est en TVA sur marge (TTC, sans TVA
+  récupérable) — le site l'affiche ainsi et ne lui ajoute pas la TVA dans la comparaison au marché. `inspection_url` : la fiche d'inspection PDF MC Export de la bonne affaire
   (bucket public fyc-fiches), quand le lien de rapport du véhicule publié en est une. Un rapport FOURNISSEUR (DEKRA,
   VTI…) n'est jamais exposé : il nommerait le fournisseur et son dossier ; « Fiches MC Export » dans l'onglet Export
   d'une offre en fait une fiche à nous, qui devient le lien du véhicule. Additif, idempotent ; le reste de la fonction
@@ -33,6 +34,8 @@ language sql stable security definer set search_path = public as $$
     'photos', coalesce(i.photos, '[]'::jsonb),
     -- 21/11 : la fiche d'inspection MC Export (PDF public), jamais un rapport fournisseur.
     'inspection_url', case when i.vehicle->>'report_url' like '%/storage/v1/object/public/fyc-fiches/%' then i.vehicle->>'report_url' end,
+    -- 21/11 : régime de la TVA sur marge — le prix publié est un prix TTC sans TVA récupérable, pas un prix HT.
+    'vat_margin', coalesce((i.vehicle->>'vat_recoverable') = 'false', false),
     'market', (
       select coalesce(jsonb_object_agg(e.key, jsonb_build_object(
         'median', e.value->'medianTtc', 'attack', e.value->'attackTtc', 'competitors', e.value->'competitors', 'at', e.value->'at',
@@ -51,5 +54,5 @@ language sql stable security definer set search_path = public as $$
   limit 200;
 $$;
 
-select (select pg_get_functiondef('public.site_good_deals(text)'::regprocedure) like '%inspection_url%')
+select (select pg_get_functiondef('public.site_good_deals(text)'::regprocedure) like '%inspection_url%' and pg_get_functiondef('public.site_good_deals(text)'::regprocedure) like '%vat_margin%')
    and has_function_privilege('anon', 'public.site_good_deals(text)', 'execute') as tout_est_bon;

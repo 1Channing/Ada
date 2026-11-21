@@ -698,7 +698,9 @@ export function Offres() {
     return {
       offer_id: draft.id, offer_title: draft.title, vehicle_id: v.id, lot_key: lot?.key ?? null,
       // Dommages en euros dans la vitrine (fichier en couronnes, 13/10).
-      vehicle: snapshotVehicle({ ...v, damages: dmgEur(v) }), price_ht: draft.price_rule.mode === 'none' ? null : v.sale_price ?? null,
+      // 21/11 (Channing : « j'ai mis la single unit en TVA sur marge, mais elle s'affiche toujours en prix HT ») : le
+      // régime de la marge, qu'il vienne des Paramètres de l'offre ou du véhicule, voyage avec la bonne affaire.
+      vehicle: snapshotVehicle({ ...v, damages: dmgEur(v), vat_recoverable: isMarginScheme(v, S) ? false : v.vat_recoverable }), price_ht: draft.price_rule.mode === 'none' ? null : v.sale_price ?? null,
       market: lot ? draft.market?.[lot.key] ?? null : null, note: publishedHere.get(v.id)?.note ?? '',
     };
   };
@@ -1919,7 +1921,7 @@ export function Offres() {
                               onBlur={async (e) => { const t = e.target.value.trim(); if (t === (it.title ?? '').trim()) return; const err = await setShowcaseTitle(it.id, t); if (err) fail(err); else void reloadShowcase(); }}
                               className="w-56 px-2 py-1 rounded border border-slate-200 font-medium text-slate-800 placeholder:text-slate-800 placeholder:font-medium hover:border-slate-400 focus:border-brand-ocean" />
                             <span className="text-slate-500 truncate">{it.vehicle.engine || it.vehicle.version}</span>
-                            <span className="tabular-nums font-semibold text-brand-encre shrink-0">{it.price_ht != null ? fmtEur(it.price_ht) + ' HT' : 'sur proposition'}</span>
+                            <span className="tabular-nums font-semibold text-brand-encre shrink-0">{it.price_ht != null ? fmtEur(it.price_ht) + (it.vehicle.vat_recoverable === false ? ' TTC · TVA sur marge' : ' HT') : 'sur proposition'}</span>
                             <span className="text-slate-400 shrink-0">{it.offer_title || 'offre'} · {it.published_by_name} · {new Date(it.published_at).toLocaleDateString('fr-FR')}</span>
                             {it.note && <span className="text-slate-600 truncate">« {it.note} »</span>}
                             {/* Trois petits points (14/10) : corriger les caractéristiques, retirer. */}
