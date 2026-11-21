@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused' | 'kiaosp' | 'pappas' | 'jpauto' | 'fwcars' | 'mbmauto' | 'dunaauto' | 'schiller' | 'petranyi' | 'leierauto' | 'skodastock' | 'kiaihned' | 'autobazareu' | 'hedin' | 'kiaused' | 'todosjazdene';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused', 'kiaosp', 'pappas', 'jpauto', 'fwcars', 'mbmauto', 'dunaauto', 'schiller', 'petranyi', 'leierauto', 'skodastock', 'kiaihned', 'autobazareu', 'hedin', 'kiaused', 'todosjazdene'];
+export type DealerProvider = 'estorik' | 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused' | 'kiaosp' | 'pappas' | 'jpauto' | 'fwcars' | 'mbmauto' | 'dunaauto' | 'schiller' | 'petranyi' | 'leierauto' | 'skodastock' | 'kiaihned' | 'autobazareu' | 'hedin' | 'kiaused' | 'todosjazdene';
+const PROVIDERS_KNOWN: DealerProvider[] = ['estorik', 'dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused', 'kiaosp', 'pappas', 'jpauto', 'fwcars', 'mbmauto', 'dunaauto', 'schiller', 'petranyi', 'leierauto', 'skodastock', 'kiaihned', 'autobazareu', 'hedin', 'kiaused', 'todosjazdene'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -263,6 +263,10 @@ export function splitTitle(title: string): { brand: string | null; model: string
 
 // ── Détection ───────────────────────────────────────────────────────────────
 export function detectDealerProvider(html: string): DealerProvider | null {
+  // ESTORIK (21/11, Espace H — BMW/MINI Strasbourg) : la liste des occasions est un contrôleur Stimulus « vo-listing »
+  // vide, rempli par l'API JSON /cms/front/request/products (marque, modèle, version, prix, km, année, énergie, boîte,
+  // châssis, photos, carrosserie) — tout y est, sans fiche à ouvrir.
+  if (/data-controller="[a-z0-9-]+--vo-listing"/.test(html) && /data-detail-page="/.test(html)) return 'estorik';
   if (/id="vehicle-overview-initial-state"/.test(html)) return 'dvnl';
   if (/find-autodata-vehicle-data/.test(html)) return 'autodata';
   // Avant datamotive : ces pages portent AUSSI un JSON-LD ItemList, mais aux
@@ -3321,6 +3325,91 @@ async function scrapeEveho(url: string, firstHtml: string): Promise<DealerStockR
 //    sont pas la liste (« 43 lues pour 35 annoncées » à Trnava) ; lieu « stockName » (BA, TT, ZA, TN, KE, PO…) ; étiquettes
 //    « Rezervované » = réservée, « Predané » = vendue.
 const AUTOPALACE_SITES: Record<string, string> = { BA: 'Bratislava', TT: 'Trnava', ZA: 'Žilina', TN: 'Trenčín', KE: 'Košice', PO: 'Prešov', NR: 'Nitra', BB: 'Banská Bystrica', DS: 'Dunajská Streda' };
+/**
+ * ESTORIK (21/11, Channing : « ajoute dans la carte ce revendeur avec un scrappe quotidien de la vitrine :
+ * https://espaceh.fr/fr/vehicules/occasion avec pagination »). Plateforme de sites de concessions (seau S3
+ * « estorik-platform ») : la page porte data-category (la catégorie VO), data-page-size et data-detail-page ; le
+ * navigateur appelle /cms/front/request/products?categories[]=…&pageNumber=…&pageSize=… et reçoit total_count et
+ * products (brand, name = modèle, url, category = carrosserie, prices, images, featureValues : version, kilometer,
+ * year, mise-en-circulation, energy, gearbox, power, chassis, color, soumis-tva…). Lu par pages de 100, politesse
+ * du site respectée (getTextPatient). Fiche : <detail>/<marque>/<url>/<id>. Date de mise en ligne : <lastmod> du
+ * plan du site par fiche, comme Auto Palace (en ligne au moins depuis).
+ */
+async function scrapeEstorik(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const warnings: string[] = [];
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const cat = firstHtml.match(/data-category="(\d+)"/)?.[1] ?? null;
+  const detail = (firstHtml.match(/data-detail-page="([^"]+)"/)?.[1] ?? '/fr/vehicule/occasion').replace(/\/+$/, '');
+  const PAGE = 100;
+  let declared: number | null = null;
+  let pages = 0;
+  type Feature = { feature?: { name?: string } | null; value?: unknown };
+  type Product = {
+    id?: number | string; name?: string; url?: string; status?: string; brand?: { name?: string } | null; category?: { name?: string } | null;
+    prices?: Array<{ amount?: unknown; startDate?: string | null; endDate?: string | null }>; images?: Array<{ externalUrl?: string | null; url?: string | null }>; featureValues?: Feature[];
+  };
+  const slug = (x: string) => x.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  for (let p = 1; p <= MAX_PAGES; p++) {
+    const q = new URLSearchParams();
+    if (cat) q.append('categories[]', cat);
+    q.set('pageNumber', String(p)); q.set('pageSize', String(PAGE)); q.append('orders[]', 'created_at#desc');
+    const r = await getTextPatient(`${origin}/cms/front/request/products?${q.toString()}`, { headers: { accept: 'application/json' } });
+    if (r.status !== 200) { warnings.push(`API produits : HTTP ${r.status} à la page ${p}`); break; }
+    let data: { total_count?: unknown; products?: Product[] };
+    try { data = JSON.parse(r.text) as typeof data; } catch { warnings.push(`API produits : réponse illisible à la page ${p}`); break; }
+    pages++;
+    declared ??= num(data.total_count);
+    const products = Array.isArray(data.products) ? data.products : [];
+    for (const pr of products) {
+      const id = String(pr.id ?? '');
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const feats = Array.isArray(pr.featureValues) ? pr.featureValues : [];
+      const fv = (k: string): string => { const v = feats.find((x) => x?.feature?.name === k)?.value; return v == null ? '' : String(v).trim(); };
+      const brand = (pr.brand?.name ?? '').trim() || null;
+      const model = (pr.name ?? '').trim() || null;
+      const version = fv('version');
+      const title = [brand, model, version].filter(Boolean).join(' ');
+      // Le prix du jour : une ligne sans dates, sinon celle dont la période couvre aujourd'hui, sinon la première.
+      const today = new Date().toISOString().slice(0, 10);
+      const prices = Array.isArray(pr.prices) ? pr.prices : [];
+      const cur = prices.find((x) => !x.startDate && !x.endDate) ?? prices.find((x) => x.startDate && x.endDate && x.startDate.slice(0, 10) <= today && x.endDate.slice(0, 10) >= today) ?? prices[0];
+      const price = priceOrNull(cur?.amount);
+      const gb = fv('gearbox');
+      const gearbox = !gb ? null : /manu/i.test(gb) ? 'Manuelle' : /auto|robot|dsg|dkg|embray|s[ée]quent|steptronic|cvt/i.test(gb) ? 'Automatique' : gb;
+      const mec = fv('mise-en-circulation').match(/(\d{2})-(\d{2})-(\d{4})/);
+      const year = num(fv('year')) ?? (mec ? Number(mec[3]) : null);
+      const power = num(version.match(/\b(\d{2,3})\s?ch\b/i)?.[1]) ?? num(fv('power'));
+      const vin = fv('chassis').replace(/[^A-Z0-9]/gi, '').toUpperCase();
+      const img = (Array.isArray(pr.images) ? pr.images : []).map((i) => i.externalUrl || i.url).find(Boolean) ?? null;
+      out.push({
+        external_id: id, url: `${origin}${detail}/${slug(brand ?? 'vehicule')}/${pr.url || slug(model ?? '')}/${id}`, title, brand, model,
+        price, km: num(fv('kilometer')), year, fuel: fv('energy') || null, gearbox, plate: null, vin: vin.length === 17 ? vin : null,
+        body: (pr.category?.name ?? '').trim() || null, image: img && /^https?:/.test(img) ? img : img ? origin + img : null, listed_at: null,
+        status: price == null ? 'price_on_request' : pr.status && !/publish/i.test(pr.status) ? 'reserved' : null, currency: 'EUR', power_ch: power, location: null,
+      });
+    }
+    if (products.length < PAGE || (declared != null && out.length >= declared)) break;
+  }
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  // Date de mise en ligne : <lastmod> par fiche dans le plan du site (dernière modification = en ligne au moins depuis).
+  try {
+    const sm = await getTextPatient(`${origin}/sitemap.xml`);
+    if (sm.status === 200) {
+      const byId = new Map<string, string>();
+      const esc = detail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      for (const m of sm.text.matchAll(new RegExp(`<loc>[^<]*${esc}/[^<]*/(\\d+)</loc>\\s*<lastmod>(\\d{4}-\\d{2}-\\d{2})`, 'g'))) byId.set(m[1], m[2]);
+      const today = new Date().toISOString().slice(0, 10);
+      let dated = 0;
+      for (const v of out) { const d = byId.get(v.external_id); if (d && d < today) { v.listed_at = `${d}T00:00:00Z`; dated++; } }
+      if (dated) warnings.push(`date de mise en ligne : ${dated} fiche(s) datée(s) par le plan du site (dernière modification = en ligne au moins depuis)`);
+    }
+  } catch { /* plan du site indisponible : première vue par ADA */ }
+  return { provider: 'estorik', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
+}
+
 async function scrapeAutopalace(url: string, firstHtml: string): Promise<DealerStockResult> {
   const origin = new URL(url).origin;
   const out: DealerVehicle[] = [];
@@ -6836,6 +6925,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'rswusato') return scrapeRswUsato(url, first.text);
   if (provider === 'eveho') return scrapeEveho(url, first.text);
   if (provider === 'autopalace') return scrapeAutopalace(url, first.text);
+  if (provider === 'estorik') return scrapeEstorik(url, first.text);
   if (provider === 'acaicms') return scrapeAcai(url, first.text);
   if (provider === 'carmarketb2c') return scrapeCarmarketB2c(url, first.text);
   if (provider === 'dasweltauto') return scrapeDasWeltAuto(url, first.text);
