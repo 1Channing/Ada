@@ -20,19 +20,19 @@ export function IntraPhotoPicker({ items, onClose, onDone }: Props) {
     void Promise.all(items.map(async (item) => {
       const r = await candidatePhotos(item).catch((e) => ({ inspection: null, photos: [], why: e instanceof Error ? e.message : String(e) }));
       if (!alive) return;
-      setRows((rs) => rs.map((x) => (x.item.id === item.id ? { ...x, loading: false, photos: r.photos, why: r.why, picked: new Set(r.photos.filter((p) => p.kind === 'photo').map((p) => p.path)) } : x)));
+      setRows((rs) => rs.map((x) => (x.item.id === item.id ? { ...x, loading: false, photos: r.photos, why: r.why, picked: new Set(r.photos.filter((p) => p.kind === 'photo').map((p) => p.key)) } : x)));
     }));
     return () => { alive = false; };
   }, [items]);
-  const toggle = (id: string, path: string) => setRows((rs) => rs.map((x) => { if (x.item.id !== id) return x; const s = new Set(x.picked); if (s.has(path)) s.delete(path); else s.add(path); return { ...x, picked: s }; }));
-  const setAll = (id: string, on: boolean) => setRows((rs) => rs.map((x) => (x.item.id === id ? { ...x, picked: new Set(on ? x.photos.map((p) => p.path) : []) } : x)));
+  const toggle = (id: string, key: string) => setRows((rs) => rs.map((x) => { if (x.item.id !== id) return x; const s = new Set(x.picked); if (s.has(key)) s.delete(key); else s.add(key); return { ...x, picked: s }; }));
+  const setAll = (id: string, on: boolean) => setRows((rs) => rs.map((x) => (x.item.id === id ? { ...x, picked: new Set(on ? x.photos.map((p) => p.key) : []) } : x)));
   const total = rows.reduce((a, x) => a + x.picked.size, 0);
   const loading = rows.some((x) => x.loading);
   const publish = async () => {
     let added = 0;
     const errors: string[] = [];
     for (const x of rows) {
-      const picked = x.photos.filter((p) => x.picked.has(p.path));
+      const picked = x.photos.filter((p) => x.picked.has(p.key));
       if (picked.length === 0) continue;
       setBusy(`${x.item.vehicle.brand} ${x.item.vehicle.model} : 0/${picked.length}`);
       const r = await publishInspectionPhotos(x.item, picked, (n) => setBusy(`${x.item.vehicle.brand} ${x.item.vehicle.model} : ${n}/${picked.length}`));
@@ -73,9 +73,9 @@ export function IntraPhotoPicker({ items, onClose, onDone }: Props) {
                   : (
                     <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 gap-2">
                       {x.photos.map((p) => {
-                        const on = x.picked.has(p.path);
+                        const on = x.picked.has(p.key);
                         return (
-                          <button key={p.path} type="button" onClick={() => toggle(x.item.id, p.path)} title={p.kind === 'dommage' ? `Dommage${p.caption ? ` : ${p.caption}` : ''}` : 'Photo du rapport'}
+                          <button key={p.key} type="button" onClick={() => toggle(x.item.id, p.key)} title={p.kind === 'dommage' ? `Dommage${p.caption ? ` : ${p.caption}` : ''}` : 'Photo du rapport'}
                             className={`relative rounded-lg overflow-hidden border-2 ${on ? 'border-brand-ocean' : 'border-slate-200 opacity-60 hover:opacity-100'}`}>
                             <img src={p.url} alt="" loading="lazy" className="w-full h-24 object-cover" />
                             <span className={`absolute top-1 left-1 w-5 h-5 rounded grid place-items-center ${on ? 'bg-brand-ocean text-white' : 'bg-white/90 border border-slate-300'}`}>{on && <Check className="w-3.5 h-3.5" />}</span>
