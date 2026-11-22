@@ -20,7 +20,14 @@ export const ROLE_RANK: Record<ContactRole, number> = { acheteur: 0, responsable
 
 /** « Nom — rôle « titre local » » (fiches de Dana) : le nom, puis le rôle. */
 export function splitContactName(contactName: string | null | undefined): { person: string | null; role: string | null } {
-  const parts = (contactName ?? '').split(/\s+[—–-]\s+/);
+  // « · chef VO : Vladimír Sotá » (fiches plus anciennes) : un second nom après le point médian, pas le rôle du premier.
+  const raw = (contactName ?? '').split(/\s+·\s+/)[0].trim();
+  const parts = raw.split(/\s+[—–-]\s+/);
+  if (parts.length === 1) {
+    // « Tomáš Ožvald (výkup / acheteur VO) » : le rôle entre parenthèses.
+    const m = raw.match(/^([^(]+?)\s*\(([^)]+)\)\s*$/);
+    if (m) return { person: m[1].trim() || null, role: m[2].trim() || null };
+  }
   const person = (parts[0] ?? '').trim() || null;
   const role = parts.slice(1).join(' — ').trim() || null;
   return { person, role };
