@@ -290,7 +290,8 @@ export function linkedinSearchUrl(company: string, role: 'ada' | 'dana', languag
 }
 
 /** Un mail de Dana ne parle jamais de prix (la négociation passe par Channing). */
-export const PRICE_WORDS = /€|\beur\b|\bprix\b|\bprice|\bpreis|\bprijs|\bprecio|\bprezz|\btarif|\bkorting|\brabatt|\bdiscount/i;
+/** 22/11 : « Európe » (slovaque) déclenchait `\beur\b` — en JS, \b ignore les lettres accentuées ; les bornes sont des lettres Unicode. */
+export const PRICE_WORDS = /€|(?<!\p{L})(?:eur(?!\p{L})|prix(?!\p{L})|price|preis|prijs|precio|prezz|tarif|korting|rabatt|discount)/iu;
 
 /** Ce qu'un relecteur doit regarder dans un mail de Dana : le contrôle commun, et tout ce qui parle de prix. */
 export function checkDanaMail(out: FirstMailOutput, material: string, figures: string[] = []): DraftCheck {

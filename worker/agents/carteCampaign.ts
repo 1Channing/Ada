@@ -121,7 +121,8 @@ export async function draftContactMail(contactId: string, a: AiAgent, taskId: st
       });
       out = r.data;
       cost = r.costUsd;
-      if (out?.corps?.trim()) { const ch = checkCampaignMail(out, prompt); warnings = ch.warnings; words = ch.words; }
+      // Le contrôle des chiffres connaît la doctrine (10 ans, 100 000 km viennent du système, pas du matériel).
+      if (out?.corps?.trim()) { const ch = checkCampaignMail(out, `${carteCampaignSystem(doctrine)}\n${prompt}`); warnings = ch.warnings; words = ch.words; }
     } else {
       // Aiguillage : on écrit à qui est joignable (un vendeur VO, le service, l'adresse générale) pour obtenir l'acheteur VO.
       // Si on connaît déjà son nom sans le joindre (acheteur VO sur info@), on le nomme : est-ce bien lui, et comment le joindre ?
