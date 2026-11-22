@@ -20,10 +20,9 @@ import {
   type AgentSettings, type CampaignMessage, type Campaign,
 } from '../../services/agents';
 import { loadNetwork, KIND_LABEL, type NetworkContact } from '../../services/network';
-import { CARTE_CAMPAIGN_DEFAULT_INSTRUCTIONS } from '../../lib/agents/firstMail';
 import { COUNTRY_FR } from '../../lib/agents/research';
 import { brandKey } from '../../lib/agents/opportunity';
-import { addressKind } from '../../lib/agents/qualification';
+import { contactModeOf, contactRoleOf, isIndependent, dealerBrands, ROLE_LABEL, ROLE_RANK, type ContactMode, type DealerKind } from '../../lib/agents/campaignContacts';
 import { INTENT_LABEL, type REPLY_INTENTS } from '../../lib/agents/reply';
 import { workHoursLabel } from '../../lib/agents/sendPolicy';
 import { Banner } from './shared';
@@ -41,42 +40,7 @@ interface Props {
 }
 
 type Step = 'choisir' | 'relire' | 'suivi';
-/**
- * DIRECT OU AIGUILLAGE (22/11, Channing : « trier entre les contacts directs acheteurs VO des groupes, et les autres à
- * qui on fait de l'aiguillage ») : direct = une personne nommée ET son adresse à elle (règle d'adresse de Dana :
- * « prenom.nom@ », pas info@ / predaj@ / contact@) ; tout le reste part en aiguillage (on demande le bon interlocuteur).
- */
-export type ContactMode = 'direct' | 'aiguillage';
-export function contactModeOf(c: Pick<NetworkContact, 'contact_name' | 'email'>): ContactMode {
-  const person = (c.contact_name ?? '').split(/\s+[—–-]\s+/)[0].trim();
-  if (!person || !c.email) return 'aiguillage';
-  return addressKind(c.email.trim().toLowerCase(), null, person) === 'personne' ? 'direct' : 'aiguillage';
-}
 const MODE_LABEL: Record<ContactMode, string> = { direct: 'Contacts directs', aiguillage: 'Aiguillage' };
-
-/**
- * CONCESSION DE LA MARQUE OU INDÉPENDANT (22/11, Channing : « quand je clique sur Alfa Romeo, je veux des concessions
- * Alfa Romeo, pas des concessions qui ont des Alfa Romeo en vente — ce sont des reprises ; et trier les indépendants à
- * part, où là c'est en fonction de leur stock »). Indépendant = « (indépendant) » dans le nom (fiches de Dana), ou un
- * négociant. Marques d'une concession = celles de son nom avant la parenthèse (le groupe entre parenthèses n'est pas
- * une marque : « Porsche Holding ») et celles qui pèsent au moins un quart de son stock (5 voitures ou plus).
- */
-export type DealerKind = 'concession' | 'independant';
-export const isIndependent = (c: Pick<NetworkContact, 'name' | 'kind'>): boolean => c.kind === 'trader' || /ind[ée]pendant|autobaz[aá]r|haszn[aá]ltaut[oó]/i.test(c.name);
-const nameTokens = (name: string) => name.split('(')[0].normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
-export function dealerBrands(c: Pick<NetworkContact, 'name' | 'kind'>, stock: Array<{ brand: string; n: number }>, known: string[]): string[] {
-  if (isIndependent(c)) return [];
-  const tokens = new Set(nameTokens(c.name));
-  const out = new Map<string, string>();
-  for (const b of known) {
-    const first = brandKey(b.split(/[\s/-]+/)[0]);
-    if (first.length >= 3 && tokens.has(first)) out.set(brandKey(b), b);
-    else if (first.length < 3 && (c.name.split('(')[0]).split(/[^A-Za-z0-9]+/).some((t) => t.toUpperCase() === b.toUpperCase())) out.set(brandKey(b), b);
-  }
-  const total = stock.reduce((a, b) => a + b.n, 0);
-  for (const b of stock) if (b.n >= 5 && b.n / Math.max(1, total) >= 0.25) out.set(brandKey(b.brand), out.get(brandKey(b.brand)) ?? b.brand);
-  return [...out.values()];
-}
 const STEP: Record<Step, { label: string; icon: React.ReactNode }> = {
   choisir: { label: '1. Choisir', icon: <ListChecks className="w-4 h-4" /> },
   relire: { label: '2. Relire et envoyer', icon: <Eye className="w-4 h-4" /> },
@@ -98,7 +62,7 @@ export function Campagne({ settings, isAdmin, userId, refreshKey, onError, onInf
   const [mode, setMode] = useState<ContactMode | ''>('');
   const [kind, setKind] = useState<DealerKind | ''>('');
   const [checked, setChecked] = useState<Set<string>>(new Set());
-  const [consignes, setConsignes] = useState(CARTE_CAMPAIGN_DEFAULT_INSTRUCTIONS);
+  const [consignes, setConsignes] = useState('');
   const [loading, setLoading] = useState(true);
   const [brandsLoading, setBrandsLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -176,7 +140,7 @@ export function Campagne({ settings, isAdmin, userId, refreshKey, onError, onInf
     const keys = new Set(picked.map(brandKey));
     return inCountry.filter((c) => matchesBrands(c, keys) && (!mode || contactModeOf(c) === mode) && (!kind || (isIndependent(c) ? 'independant' : 'concession') === kind))
       // Les concessions de la marque d'abord, les indépendants ensuite ; puis déjà en discussion en bas, gros stock en haut.
-      .sort((x, y) => Number(inDiscussion(x)) - Number(inDiscussion(y)) || Number(isIndependent(x)) - Number(isIndependent(y)) || (y.stock_total ?? 0) - (x.stock_total ?? 0) || x.name.localeCompare(y.name));
+      .sort((x, y) => Number(inDiscussion(x)) - Number(inDiscussion(y)) || ROLE_RANK[contactRoleOf(x)] - ROLE_RANK[contactRoleOf(y)] || Number(isIndependent(x)) - Number(isIndependent(y)) || (y.stock_total ?? 0) - (x.stock_total ?? 0) || x.name.localeCompare(y.name));
   }, [inCountry, picked, matchesBrands, inDiscussion, mode, kind]);
   const kindCounts = useMemo(() => {
     const keys = new Set(picked.map(brandKey));
@@ -368,7 +332,7 @@ function Choose(p: {
         </label>
         <span className="inline-flex rounded-lg border border-slate-300 overflow-hidden text-xs" role="group" aria-label="Type de contact">
           {([['', 'Tous'], ['direct', `${MODE_LABEL.direct} (${p.modeCounts.direct})`], ['aiguillage', `${MODE_LABEL.aiguillage} (${p.modeCounts.aiguillage})`]] as Array<[ContactMode | '', string]>).map(([m, label]) => (
-            <button key={m || 'tous'} type="button" onClick={() => p.setMode(m)} title={m === 'direct' ? 'Une personne nommée et son adresse à elle' : m === 'aiguillage' ? 'Adresse générale ou personne inconnue : on demande le bon interlocuteur' : ''}
+            <button key={m || 'tous'} type="button" onClick={() => p.setMode(m)} title={m === 'direct' ? 'Acheteur VO ou responsable VO, nommé, à son adresse (jamais un vendeur)' : m === 'aiguillage' ? 'Adresse générale, personne inconnue ou simple vendeur : on demande l\'acheteur VO' : ''}
               className={`px-2.5 py-1.5 ${p.mode === m ? 'bg-brand-encre text-white' : 'bg-white text-slate-700 hover:bg-slate-50'}`}>{label}</button>
           ))}
         </span>
@@ -418,14 +382,16 @@ function Choose(p: {
                     <div className="text-xs text-slate-500">{[KIND_LABEL[c.kind], c.city].filter(Boolean).join(' · ')}{done ? ` · ${p.whyNot(c)}` : ''}</div>
                   </td>
                   <td className="px-3 py-1.5">
-                    <span className={`mr-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${contactModeOf(c) === 'direct' ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>{contactModeOf(c) === 'direct' ? 'direct' : 'aiguillage'}</span>
+                    {(() => { const role = contactRoleOf(c); const direct = contactModeOf(c) === 'direct';
+                      const why = direct ? `Contact direct : ${ROLE_LABEL[role]}, adresse nominative` : role === 'vendeur' ? 'Vendeur VO : jamais en direct, on lui demande l\'acheteur VO' : !c.contact_name ? 'Personne inconnue : on demande le bon interlocuteur' : role === 'inconnu' ? 'Rôle inconnu : aiguillage' : 'Adresse générale : on demande à transmettre';
+                      return <span title={why} className={`mr-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${direct ? (role === 'acheteur' ? 'bg-emerald-100 text-emerald-900' : 'bg-emerald-50 text-emerald-800') : 'bg-slate-100 text-slate-600'}`}>{direct ? `direct · ${ROLE_LABEL[role]}` : `aiguillage${role !== 'inconnu' && c.contact_name ? ` · ${ROLE_LABEL[role]}` : ''}`}</span>; })()}
                     {c.contact_name || <span className="text-slate-400">— (salutation générale)</span>}
                   </td>
                   <td className="px-3 py-1.5 text-xs">{c.email}</td>
                   <td className="px-3 py-1.5 text-xs">
                     {isIndependent(c)
                       ? <span className="mr-1.5 inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">indépendant</span>
-                      : <span className="mr-1.5 inline-block rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-brand-encre">{p.dealerBrandsOf(c).join(' · ') || 'marque ?'}</span>}
+                      : <span className="mr-1.5 inline-block rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-brand-encre">{p.dealerBrandsOf(c).join(' · ') || 'concession'}</span>}
                     {bs.length ? [...bs].sort((x, y) => Number(keys.has(brandKey(y.brand))) - Number(keys.has(brandKey(x.brand))) || y.n - x.n).slice(0, 4).map((b) => `${b.brand} ${b.n}`).join(', ') : <span className="text-slate-400">vitrine non relevée</span>}
                   </td>
                   <td className="px-3 py-1.5 text-right">
@@ -442,8 +408,8 @@ function Choose(p: {
         </table>
       </div>
       <div>
-        <p className="text-xs text-slate-500 mb-1">Consignes à Dana (le mail propose les deux sens, dans la langue du pays, et ouvre la discussion — sans appel ni rendez-vous) :</p>
-        <textarea className={`${input} w-full`} rows={3} value={p.consignes} onChange={(e) => p.setConsignes(e.target.value)} />
+        <p className="text-xs text-slate-500 mb-1">Consignes propres à cette campagne, en plus de sa doctrine (onglet « Ce qu'elle sait ») — facultatif :</p>
+        <textarea className={`${input} w-full`} rows={2} placeholder="ex. : insister sur les Toyota hybrides de moins de 3 ans" value={p.consignes} onChange={(e) => p.setConsignes(e.target.value)} />
       </div>
       <button type="button" disabled={!p.isAdmin || p.busy || n === 0} onClick={p.onPrepare} className={`${btn} bg-brand-encre text-white hover:bg-brand-ocean`}>
         {p.busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Megaphone className="w-4 h-4" />}Préparer {n} brouillon{n > 1 ? 's' : ''}
