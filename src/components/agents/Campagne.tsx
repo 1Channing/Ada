@@ -14,7 +14,7 @@
  * Le worker rédige (worker/agents/carteCampaign.ts) ; rien ne part sans un clic ici.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Send, SkipForward, Ban, Loader2, Megaphone, ListChecks, Eye, Mail } from 'lucide-react';
+import { Send, SkipForward, Ban, Loader2, Megaphone, ListChecks, Eye, Mail, Store } from 'lucide-react';
 import {
   queueCampaign, listCampaignMessages, contactsInThreads, brandsOfContacts, editDraft, setMessageStatus, listTasks,
   type AgentSettings, type CampaignMessage, type Campaign,
@@ -27,6 +27,7 @@ import { INTENT_LABEL, type REPLY_INTENTS } from '../../lib/agents/reply';
 import { workHoursLabel } from '../../lib/agents/sendPolicy';
 import { Banner } from './shared';
 import { fmtDateTime } from './helpers';
+import { ShowcaseModal } from '../ShowcaseModal';
 
 interface Props {
   settings: AgentSettings | undefined;
@@ -65,6 +66,9 @@ export function Campagne({ settings, isAdmin, userId, refreshKey, onError, onInf
   const [messages, setMessages] = useState<CampaignMessage[]>([]);
   const [pending, setPending] = useState(0);
   const [campaignFilter, setCampaignFilter] = useState('');
+  /** 22/11 (Channing : « depuis l'onglet Choisir, un bouton pour avoir accès à leurs vitrines, la page d'agents doit
+   *  persister ») : la vitrine de la Carte s'ouvre par-dessus, rien ne quitte la campagne. */
+  const [showcaseFor, setShowcaseFor] = useState<NetworkContact | null>(null);
 
   const loadMessages = useCallback(async () => {
     const [{ rows, error }, { rows: tasks }] = await Promise.all([listCampaignMessages(), listTasks(60, 'dana')]);
@@ -165,7 +169,7 @@ export function Campagne({ settings, isAdmin, userId, refreshKey, onError, onInf
   }, [messages]);
   const tracked = useMemo(() => messages.filter((m) => !campaignFilter || m.ai_notes?.campagne?.id === campaignFilter), [messages, campaignFilter]);
   const counts = useMemo(() => {
-    const c = { total: tracked.length, relire: 0, attente: 0, envoyes: 0, repondu: 0, rebond: 0, sans: 0, echec: 0 };
+    const c = { total: tracked.length, relire: 0, attente: 0, envoyes: 0, repondu: 0, rebond: 0, sans: 0, echec: 0, aVous: 0 };
     for (const m of tracked) {
       if (m.status === 'a_valider') c.relire++;
       else if (m.status === 'valide' || m.status === 'envoi') c.attente++;
@@ -175,7 +179,7 @@ export function Campagne({ settings, isAdmin, userId, refreshKey, onError, onInf
         const k = m.reply?.classification ?? null;
         if (!m.reply) c.sans++;
         else if (k === 'rebond' || k === 'antispam') c.rebond++;
-        else if (k !== 'absence') c.repondu++;
+        else if (k !== 'absence') { c.repondu++; if (m.exchanges.lastDirection === 'in') c.aVous++; }
         else c.sans++;
       }
     }
@@ -206,10 +210,14 @@ export function Campagne({ settings, isAdmin, userId, refreshKey, onError, onInf
         </p>
       )}
 
+      {showcaseFor && (
+        <ShowcaseModal contactId={showcaseFor.id} name={showcaseFor.name} url={showcaseFor.website} url2={showcaseFor.website2 ?? null} country={showcaseFor.country}
+          frequency={showcaseFor.stock_frequency ?? null} unreadable={showcaseFor.showcase_unreadable ?? null} onClose={() => setShowcaseFor(null)} />
+      )}
       {step === 'choisir' && (
         <Choose loading={loading} brandsLoading={brandsLoading} countries={countries} country={country} setCountry={(c) => { setCountry(c); setPicked([]); }}
           brandChoices={brandChoices} picked={picked} setPicked={setPicked} listed={listed} brands={brands} already={already} whyNot={whyNot}
-          checked={checked} setChecked={setChecked} consignes={consignes} setConsignes={setConsignes} busy={busy} isAdmin={isAdmin} onPrepare={() => void prepare()} />
+          checked={checked} setChecked={setChecked} consignes={consignes} setConsignes={setConsignes} busy={busy} isAdmin={isAdmin} onPrepare={() => void prepare()} onShowcase={setShowcaseFor} />
       )}
       {step === 'relire' && (
         <Review rows={toReview} pending={pending} isAdmin={isAdmin} onError={onError} onInfo={onInfo} onChanged={() => void loadMessages()} onOpenThread={onOpenThread} />
@@ -223,7 +231,7 @@ export function Campagne({ settings, isAdmin, userId, refreshKey, onError, onInf
             </select>
             <span className="text-xs text-slate-600">
               {counts.total} mail{counts.total > 1 ? 's' : ''} · {counts.relire} à relire · {counts.attente} en attente d'envoi · {counts.envoyes} envoyé{counts.envoyes > 1 ? 's' : ''} ·{' '}
-              <span className="text-emerald-700 font-medium">{counts.repondu} répondu{counts.repondu > 1 ? 's' : ''}</span> · {counts.rebond} rebond{counts.rebond > 1 ? 's' : ''} · {counts.sans} sans réponse{counts.echec ? ` · ${counts.echec} échec${counts.echec > 1 ? 's' : ''}` : ''}
+              <span className="text-emerald-700 font-medium">{counts.repondu} répondu{counts.repondu > 1 ? 's' : ''}</span>{counts.aVous > 0 && <span className="text-amber-800 font-medium"> dont {counts.aVous} à vous de répondre</span>} · {counts.rebond} rebond{counts.rebond > 1 ? 's' : ''} · {counts.sans} sans réponse{counts.echec ? ` · ${counts.echec} échec${counts.echec > 1 ? 's' : ''}` : ''}
             </span>
           </div>
           {tracked.length === 0 ? <p className="text-sm text-slate-500">Aucun mail de campagne pour l'instant.</p> : (
@@ -236,10 +244,15 @@ export function Campagne({ settings, isAdmin, userId, refreshKey, onError, onInf
                   {tracked.map((m) => {
                     const c = m.ai_notes?.campagne;
                     const r = m.reply;
+                    const ex = m.exchanges;
+                    // 22/11 : le nombre d'échanges et qui a parlé en dernier — à nous de répondre, ou on attend leur retour.
+                    const bad = !!r && ['rebond', 'antispam', 'stop'].includes(r.classification ?? '');
                     const ret = m.status !== 'envoye' ? '—'
-                      : !r ? `sans réponse${daysSince(m.sent_at) != null ? ` depuis ${daysSince(m.sent_at)} j` : ''}`
-                        : `${CLASS_FR[r.classification ?? 'reponse'] ?? 'a répondu'}${r.intention ? ` : ${INTENT_LABEL[r.intention as typeof REPLY_INTENTS[number]] ?? r.intention}` : ''}${r.received_at ? ` (${fmtDateTime(r.received_at)})` : ''}`;
-                    const good = !!r && !['rebond', 'absence', 'antispam', 'stop'].includes(r.classification ?? '');
+                      : bad ? `${CLASS_FR[r!.classification ?? 'reponse']}${r!.received_at ? ` (${fmtDateTime(r!.received_at)})` : ''}`
+                        : ex.in === 0 ? `sans réponse${daysSince(m.sent_at) != null ? ` depuis ${daysSince(m.sent_at)} j` : ''}`
+                          : `${ex.count} échange${ex.count > 1 ? 's' : ''} · dernier : ${ex.lastDirection === 'in' ? 'eux' : 'nous'}${ex.lastAt ? ` (${fmtDateTime(ex.lastAt)})` : ''}${r?.intention ? ` · ${INTENT_LABEL[r.intention as typeof REPLY_INTENTS[number]] ?? r.intention}` : ''}`;
+                    const todo = m.status === 'envoye' && !bad && ex.in > 0 && ex.lastDirection === 'in';
+                    const good = !!r && !bad && r.classification !== 'absence';
                     return (
                       <tr key={m.id} className="border-t border-slate-100">
                         <td className="px-3 py-2">
@@ -249,7 +262,7 @@ export function Campagne({ settings, isAdmin, userId, refreshKey, onError, onInf
                         <td className="px-3 py-2 text-slate-700">{COUNTRY_FR[c?.pays ?? ''] ?? c?.pays ?? '—'}</td>
                         <td className="px-3 py-2 text-slate-700">{c?.marques_contact?.join(', ') || '—'}</td>
                         <td className="px-3 py-2 text-slate-700">{STATUS_FR[m.status] ?? m.status}{m.status === 'envoye' && m.sent_at ? ` le ${fmtDateTime(m.sent_at)}` : ''}{m.status === 'echec' && m.error ? ` — ${m.error}` : ''}</td>
-                        <td className={`px-3 py-2 ${good ? 'text-emerald-700 font-medium' : 'text-slate-700'}`}>{ret}</td>
+                        <td className={`px-3 py-2 ${todo ? 'text-amber-800 font-medium' : good ? 'text-emerald-700' : 'text-slate-700'}`}>{ret}{todo && <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-900">à vous de répondre</span>}{m.status === 'envoye' && !bad && ex.in > 0 && ex.lastDirection === 'out' && <span className="ml-2 text-[11px] text-slate-500">on attend leur retour</span>}</td>
                         <td className="px-3 py-2 text-right"><button type="button" onClick={() => onOpenThread(m.thread_id)} className="text-xs text-brand-ocean hover:underline">ouvrir le fil</button></td>
                       </tr>
                     );
@@ -269,7 +282,7 @@ function Choose(p: {
   brandChoices: Array<{ brand: string; contacts: number }>; picked: string[]; setPicked: (b: string[]) => void;
   listed: NetworkContact[]; brands: Map<string, Array<{ brand: string; n: number }>>; already: (c: NetworkContact) => boolean; whyNot: (c: NetworkContact) => string;
   checked: Set<string>; setChecked: (s: Set<string>) => void; consignes: string; setConsignes: (s: string) => void;
-  busy: boolean; isAdmin: boolean; onPrepare: () => void;
+  busy: boolean; isAdmin: boolean; onPrepare: () => void; onShowcase: (c: NetworkContact) => void;
 }) {
   const togglePick = (b: string) => p.setPicked(p.picked.includes(b) ? p.picked.filter((x) => x !== b) : [...p.picked, b]);
   const selectable = p.listed.filter((c) => !p.already(c));
@@ -307,7 +320,7 @@ function Choose(p: {
       <div className="max-h-96 overflow-y-auto rounded-xl border border-slate-200 bg-white">
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500 sticky top-0">
-            <tr><th className="px-3 py-2" /><th className="px-3 py-2">Entreprise</th><th className="px-3 py-2">Personne</th><th className="px-3 py-2">E-mail</th><th className="px-3 py-2">Marques en stock</th></tr>
+            <tr><th className="px-3 py-2" /><th className="px-3 py-2">Entreprise</th><th className="px-3 py-2">Personne</th><th className="px-3 py-2">E-mail</th><th className="px-3 py-2">Marques en stock</th><th className="px-3 py-2"><span className="sr-only">Vitrine</span></th></tr>
           </thead>
           <tbody>
             {p.listed.map((c) => {
@@ -326,6 +339,13 @@ function Choose(p: {
                   <td className="px-3 py-1.5">{c.contact_name || <span className="text-slate-400">— (salutation générale)</span>}</td>
                   <td className="px-3 py-1.5 text-xs">{c.email}</td>
                   <td className="px-3 py-1.5 text-xs">{bs.length ? [...bs].sort((x, y) => Number(keys.has(brandKey(y.brand))) - Number(keys.has(brandKey(x.brand))) || y.n - x.n).slice(0, 4).map((b) => `${b.brand} ${b.n}`).join(', ') : <span className="text-slate-400">vitrine non relevée</span>}</td>
+                  <td className="px-3 py-1.5 text-right">
+                    {c.website && (
+                      <button type="button" onClick={() => p.onShowcase(c)} title={`La vitrine de ${c.name} (Carte), sans quitter la campagne`} className="inline-flex items-center gap-1 text-xs text-brand-ocean hover:text-brand-encre whitespace-nowrap">
+                        <Store className="w-3.5 h-3.5" /> Vitrine{c.stock_total != null ? ` (${c.stock_total})` : ''}
+                      </button>
+                    )}
+                  </td>
                 </tr>
               );
             })}

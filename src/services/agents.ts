@@ -1061,6 +1061,9 @@ export interface CampaignMessage extends AgentMessage {
   thread: Pick<AgentThread, 'id' | 'counterpart_name' | 'counterpart_email' | 'network_contact_id' | 'last_direction' | 'last_classification' | 'unread'> | null;
   /** La première réponse reçue dans le fil (hors rebond, absence, anti-spam), ou le premier retour quel qu'il soit. */
   reply: { classification: string | null; received_at: string | null; intention: string | null } | null;
+  /** 22/11 (Channing : « le nombre d'échanges, et qui a répondu en dernier pour savoir s'il y a une action à faire ») :
+   *  les mails réellement échangés dans le fil (partis + reçus, hors rebonds et absences), le dernier, et son auteur. */
+  exchanges: { count: number; out: number; in: number; lastDirection: 'in' | 'out' | null; lastAt: string | null };
 }
 
 /** Les mails de toutes les campagnes de Dana, avec leur fil et le retour reçu. */
@@ -1070,18 +1073,28 @@ export async function listCampaignMessages(): Promise<{ rows: CampaignMessage[];
     .eq('agent', 'dana').eq('direction', 'out').not('ai_notes->campagne', 'is', null)
     .order('created_at', { ascending: true }).limit(2000);
   if (error) return { rows: [], error: errMails(error.message) };
-  const rows = ((data ?? []) as Array<AgentMessage & { thread: CampaignMessage['thread'] }>).map((m) => ({ ...m, reply: null as CampaignMessage['reply'] }));
+  const noEx: CampaignMessage['exchanges'] = { count: 0, out: 0, in: 0, lastDirection: null, lastAt: null };
+  const rows = ((data ?? []) as Array<AgentMessage & { thread: CampaignMessage['thread'] }>).map((m) => ({ ...m, reply: null as CampaignMessage['reply'], exchanges: { ...noEx } }));
   const ids = [...new Set(rows.map((m) => m.thread_id))];
   const replies = new Map<string, NonNullable<CampaignMessage['reply']>>();
+  const exchanges = new Map<string, CampaignMessage['exchanges']>();
   for (let i = 0; i < ids.length; i += 200) {
-    const { data: ins } = await sb.from('agent_messages').select('thread_id, classification, received_at, ai_notes')
-      .eq('direction', 'in').in('thread_id', ids.slice(i, i + 200)).order('received_at', { ascending: true }).limit(2000);
-    for (const r of (ins ?? []) as Array<{ thread_id: string; classification: string | null; received_at: string | null; ai_notes: { intention?: string } | null }>) {
+    const { data: all } = await sb.from('agent_messages').select('thread_id, direction, status, classification, received_at, sent_at, ai_notes')
+      .in('thread_id', ids.slice(i, i + 200)).limit(4000);
+    type Row = { thread_id: string; direction: 'in' | 'out'; status: string; classification: string | null; received_at: string | null; sent_at: string | null; ai_notes: { intention?: string } | null };
+    const list = ((all ?? []) as Row[]).map((r) => ({ ...r, at: r.direction === 'in' ? r.received_at : r.sent_at })).filter((r) => !!r.at).sort((a, b) => String(a.at).localeCompare(String(b.at)));
+    for (const r of list) {
       const real = !['rebond', 'absence', 'antispam'].includes(r.classification ?? '');
-      const prev = replies.get(r.thread_id);
-      if (!prev || (real && ['rebond', 'absence', 'antispam'].includes(prev.classification ?? ''))) {
-        replies.set(r.thread_id, { classification: r.classification, received_at: r.received_at, intention: r.ai_notes?.intention ?? null });
-      }
+      if (r.direction === 'in') {
+        const prev = replies.get(r.thread_id);
+        if (!prev || (real && ['rebond', 'absence', 'antispam'].includes(prev.classification ?? ''))) {
+          replies.set(r.thread_id, { classification: r.classification, received_at: r.received_at, intention: r.ai_notes?.intention ?? null });
+        }
+        if (!real) continue;
+      } else if (!['envoye', 'envoye_main'].includes(r.status)) continue;
+      const ex = exchanges.get(r.thread_id) ?? exchanges.set(r.thread_id, { ...noEx }).get(r.thread_id)!;
+      ex.count++; if (r.direction === 'in') ex.in++; else ex.out++;
+      ex.lastDirection = r.direction; ex.lastAt = r.at as string;
     }
   }
   // L'intention lue par Dana dans sa réponse préparée (ai_notes.resume/intention sur le message sortant suivant).
@@ -1093,7 +1106,7 @@ export async function listCampaignMessages(): Promise<{ rows: CampaignMessage[];
       if (rep && !rep.intention && r.ai_notes?.intention) rep.intention = r.ai_notes.intention;
     }
   }
-  for (const m of rows) m.reply = replies.get(m.thread_id) ?? null;
+  for (const m of rows) { m.reply = replies.get(m.thread_id) ?? null; m.exchanges = exchanges.get(m.thread_id) ?? { ...noEx }; }
   return { rows: rows as CampaignMessage[], error: null };
 }
 
