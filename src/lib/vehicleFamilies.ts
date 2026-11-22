@@ -25,8 +25,9 @@ export function fuelFamily(text: string | null | undefined): FuelFamily | null {
   // « benzín + elektro » = hybride (sinon lu « électrique » par la ligne suivante).
   // Slovaquie (Das WeltAuto) : « Hybr.B/E ext.nab. », « Hybr.D/E ext.nab. » (externé nabíjanie = recharge extérieure).
   if (/kulso tolto|ext\.?\s?nab/.test(t)) return 'phev';
+  // 22/11 (Italie, Spazio Group) : « Diesel/Elettrica », « Benzina/Elettrica » (italien « elettr- », double t).
   if (/hybrid|hybride|hybridi|\bhibrid|\bhibr\b|\bhybr\b|\bibrid|\bhev\b|mhev|e-tech|\bh\b|\d{2,3}h\b/.test(t)
-    || /(?:benzin|dizel|diesel|nafta|petrol|essence)\s*[\/+]\s*(?:elektr|electr)|(?:elektr|electr)\w*\s*[\/+]\s*(?:benzin|dizel|diesel|nafta|petrol|essence)/.test(t)) return 'hybrid';
+    || /(?:benzin|dizel|diesel|nafta|petrol|essence|gasolio)\w*\s*[\/+]\s*(?:elektr|electr|elettr)|(?:elektr|electr|elettr)\w*\s*[\/+]\s*(?:benzin|dizel|diesel|nafta|petrol|essence|gasolio)/.test(t)) return 'hybrid';
   if (/electri|elektr|sahko|\bev\b|\bbev\b|\bel\b|elettric|electric|\belectra\b/.test(t)) return 'electric';
   // 19/11 : « Dízel », « Gázolaj » (HU), « Nafta » (SK).
   if (/diesel|\bdizel\b|\bgazolaj\b|\bnafta\b|gasolio|\btdi\b|\bhdi\b|\bdci\b|\bcdi\b|\bcrdi\b|\bd4d\b|bluehdi|\bgazole\b/.test(t)) return 'diesel';

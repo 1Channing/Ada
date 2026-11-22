@@ -575,6 +575,7 @@ const fuels: Array<[string, string | null]> = [
   ['Autogas', 'gas'], ['Autogas (LPG)', 'gas'], ['Etanol', 'petrol'], ['Hybrid-Benzin', 'hybrid'],
   ['Dízel', 'diesel'], ['Gázolaj', 'diesel'], ['Benzin(mild) Hybrid', 'hybrid'], ['Nafta', 'diesel'], ['Hibr.B/E külső töltő', 'phev'], ['Benzin/elektromos', 'hybrid'], ['Hibrid', 'hybrid'], ['Elektromos', 'electric'], ['Benzín', 'petrol'], ['Elektrický', 'electric'],
   ['Hybr.B/E ext.nab.', 'phev'], ['Hybr.D/E ext.nab.', 'phev'], ['Hybr.B/E', 'hybrid'],
+  ['Diesel/Elettrica', 'hybrid'], ['Benzina/Elettrica', 'hybrid'], ['Elettrica/Benzina', 'hybrid'], ['elettrico', 'electric'], ['ibrido', 'hybrid'],
   ['Waterstof', null], ['autre', null],
 ];
 const fuelBad = fuels.filter(([v, want]) => fuelFamily(v) !== want);
