@@ -551,6 +551,99 @@ console.log('\n=== PAPPAS (Mercedes / Kia Hongrie, 19/11) ===\n');
   ok(ds7.readPappasDetail('<dl><dt class="key-value__key">Váltó típusa</dt><dd class="key-value__value">Automata</dd><dt>Évjárat</dt><dd>12/2024</dd></dl>').gearbox === 'Automatique', 'fiche : « Váltó típusa » = boîte');
 }
 
+console.log('\n=== ITALIE (22/11) : SPAZIO GROUP (rswusato par type, tris réunis) ET CENTROAUTO VT (cardveicolo) ===\n');
+{
+  const dsi = await import('../worker/dealerStock');
+  // Carte réelle de Spazio (auto.spaziogroup.com/tipologia/usato/, 22/11), allégée : les détails n'ont pas de nom de
+  // champ, seulement une icône ; prix barré « oldprice » avant le prix.
+  const spCard = (href: string, km: string, year: number, fuel: string, gear: string, price: string) => `<div class="card vehicle clickable usato">
+    <div class="vehicle-labels"><span class="label label-tipologia label-usato"><span>Usato</span></span><br></div>
+    <div class="card-image text-center"><a href="${href}" title="Jeep Compass"><img src="https://cdn.test/x.jpg" alt=""/></a></div>
+    <div class="card-body"><div class="vehicle-title-box"><div class="vehicle-title">
+      <span class="vehicle-brand">Jeep </span> <span class="vehicle-model">Compass</span></div>
+      <div class="vehicle-subtitle"><span class="vehicle-version">II 2017 2.0 mjt Limited 4wd 140cv auto</span></div></div>
+      <div class="vehicle-details">
+            <span class="vehicle-detail"><span class="icon"><i class="fa-solid fa-road"></i></span>${km}</span>
+            <span class="vehicle-detail"><span class="icon"><i class="fa-solid fa-calendar-days"></i></span>${year}</span>
+            <span class="vehicle-detail"><span class="icon"><i class="fa-solid fa-gas-pump"></i></span>${fuel}</span>
+            <span class="vehicle-detail"><span class="icon"><i class="fa-solid fa-gears"></i></span>${gear}</span>
+            <span class="vehicle-detail"><span class="icon"><i class="fa-solid fa-engine"></i></span>1.956 cc</span>
+      </div>
+      <div class="vehicle-price"><span class="oldprice">17.900<span class="currency">&euro;</span></span>            <span class="price">${price}<span class="currency">&euro;</span></span></div>
+    </div></div>`;
+  // Neuf voitures A…I ; deux adresses que WordPress a rendues uniques par « -2 » (deux modèles différents).
+  const href: Record<string, string> = Object.fromEntries('ABCDEFGHI'.split('').map((k, i) => [k, `https://sp.test/auto/jeep-compass-${k.toLowerCase()}-usato-a-torino-u90${i}000/`]));
+  href.H = 'https://sp.test/auto/toyota-aygo-x-trend-benzina-usato-a-torino-2/';
+  href.I = 'https://sp.test/auto/fiat-panda-cross-benzina-usato-a-torino-2/';
+  const card = (k: string) => spCard(href[k], `${61 + k.charCodeAt(0)}.061 km`, 2019, 'diesel', 'automatico', '16.900');
+  const head = `<link rel="https://api.w.org/" href="https://sp.test/wp-json/" /><select name="orderby" id="orderby"><option value="">Ordina per</option>`
+    + `<option value="title">Marca / Modello</option><option value="date">Nuovi Arrivi</option><option value="km">Chilometri</option>`
+    + `<option value="price-up">Prezzo crescente</option></select><p><b>9</b>  Auto Usato subito disponibili!</p>`;
+  const nav = '<a href="https://sp.test/tipologia/usato/page/2/">2</a><a href="https://sp.test/tipologia/usato/page/3/">3</a>';
+  const lst = (ks: string) => head + ks.split('').map(card).join('') + nav;
+  // Ordre par défaut instable : la page 2 ne reprend que des voitures déjà vues, la page 3 en montre deux nouvelles.
+  pages['https://sp.test/tipologia/usato/'] = lst('ABC');
+  pages['https://sp.test/tipologia/usato/page/2/'] = lst('BCA');
+  pages['https://sp.test/tipologia/usato/page/3/'] = lst('DEA');
+  // Par kilométrage : tout, sans doublon.
+  pages['https://sp.test/tipologia/usato/?orderby=km'] = lst('ABC');
+  pages['https://sp.test/tipologia/usato/page/2/?orderby=km'] = lst('DEF');
+  pages['https://sp.test/tipologia/usato/page/3/?orderby=km'] = lst('GHI');
+  pages['https://sp.test/wp-json/wp/v2/veicoli_tipologia?slug=usato&_fields=id'] = '[{"id":7}]';
+  pages['https://sp.test/wp-json/wp/v2/veicoli?per_page=100&page=1&orderby=id&order=asc&_fields=link,title&veicoli_tipologia=7'] = JSON.stringify('ABCDEFGHI'.split('').map((k) => ({ link: href[k], title: { rendered: 'Jeep Compass usato' } })));
+  // Type inconnu de l'API : pas de vérification (pas de liste de l'API entière, où les km 0 seraient « absentes »).
+  pages['https://sp.test/tipologia/demo/'] = head.replace('<b>9</b>', '<b>1</b>') + card('A');
+  pages['https://sp.test/wp-json/wp/v2/veicoli_tipologia?slug=demo&_fields=id'] = '[]';
+  const realTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = ((fn: () => void) => realTimeout(fn, 0)) as typeof setTimeout;
+  try {
+    ok(dsi.detectDealerProvider(pages['https://sp.test/tipologia/usato/']) === 'rswusato', 'Spazio : cartes « vehicle-detail » à icône reconnues (rswusato)');
+    const before = fetched.length;
+    const sp = await dsi.fetchDealerStock('https://sp.test/tipologia/usato/');
+    const asked = fetched.slice(before);
+    const a = sp.vehicles.find((v) => v.url === href.A);
+    ok(sp.vehicles.length === 9 && sp.declared === 9 && new Set(sp.vehicles.map((v) => v.external_id)).size === 9,
+      'Spazio : page de doublons sans fin de lecture, tri « km » relu et réuni : 9 voitures sur 9, les deux « …-2/ » distinctes', [sp.vehicles.length, sp.declared, sp.vehicles.map((v) => v.external_id)]);
+    ok(a?.km === 126061 && a?.year === 2019 && a?.fuel === 'diesel' && a?.gearbox === 'Automatique' && a?.price === 16900 && a?.brand === 'Jeep' && a?.power_ch === 140,
+      'Spazio : km, année, énergie, boîte lus à leur icône ; prix (pas le prix barré) ; puissance de la version', a);
+    ok(asked.includes('https://sp.test/wp-json/wp/v2/veicoli?per_page=100&page=1&orderby=id&order=asc&_fields=link,title&veicoli_tipologia=7')
+      && sp.warnings.some((w) => /tri « km » : 4 voiture\(s\) de plus/.test(w)) && !asked.some((u) => /orderby=price-up/.test(u)) && !asked.some((u) => /\/auto\//.test(u)),
+      'Spazio : API restreinte au type de l\'adresse ; un seul tri de plus suffit, aucune fiche lue une à une', [sp.warnings, asked]);
+    const demo = await dsi.fetchDealerStock('https://sp.test/tipologia/demo/');
+    ok(demo.vehicles.length === 1 && demo.warnings.some((w) => /type « demo » introuvable/.test(w)) && !fetched.some((u) => /veicoli\?per_page=100&page=1&orderby=id&order=asc&_fields=link,title$/.test(u)),
+      'Spazio : type introuvable dans l\'API → pas de vérification par l\'API (avertissement), plutôt qu\'une fausse', demo.warnings);
+  } finally { globalThis.setTimeout = realTimeout; }
+
+  // Cartes réelles de Centroauto VT (centroautovt.it/ricerca-auto, 22/11), allégées ; l'empreinte du module CSS change
+  // d'une mise en ligne à l'autre (« ZRArIW » page 1, « Q9x-_b » page 2).
+  const ca = (h: string, href2: string, title: string, dati: string, price: string, badge = '') => `<article class="CardVeicolo-module__${h}__card"><a class="CardVeicolo-module__${h}__collegamento" href="${href2}">`
+    + `<div class="CardVeicolo-module__${h}__cornice"><img src="/_next/image?url=https%3A%2F%2Fweb.imgstore.it%2F578d_orig.jpg&amp;w=828&amp;q=75" alt="${title}" class="CardVeicolo-module__${h}__foto"/>`
+    + `<div class="CardVeicolo-module__${h}__badges">${badge}</div></div><div class="CardVeicolo-module__${h}__corpo"><h3 class="CardVeicolo-module__${h}__titolo">${title}</h3>`
+    + `<p class="CardVeicolo-module__${h}__dati">${dati}</p><p class="CardVeicolo-module__${h}__sede">Sede di <!-- -->Viterbo</p><div class="PrezzoVeicolo-module__9m3wAW__prezzo PrezzoVeicolo-module__9m3wAW__card">`
+    + `<span class="PrezzoVeicolo-module__9m3wAW__riga"><strong class="PrezzoVeicolo-module__9m3wAW__cifra">${price}</strong></span></div></div></a></article>`;
+  const count = (n: number) => `<div class="Listino-module__byCslq__conteggioRiga"><p class="Listino-module__byCslq__conteggio">${n} auto trovate</p></div><a href="/ricerca-auto?pagina=2">2</a>`;
+  pages['https://ca.test/ricerca-auto'] = count(5)
+    + ca('ZRArIW', '/ricerca-auto/usate/bmw/serie-1-f40/bmw-116d-advantage-u25415', 'BMW 116d Advantage', '2021 · 108.688 km · Gasolio · Manuale', '14.900 €')
+    + ca('ZRArIW', '/ricerca-auto/usate/smart/forfour/smart-forfour-1-0-passion-71cv-twinamic-u25376', 'Smart Forfour 1.0 Passion 71cv twinamic', '2017 · 61.195 km · Benzina · Automatico', '9600 €')
+    + ca('ZRArIW', '/ricerca-auto/nuove/fiat/600e/fiat-600e-600e-turismo-n34606', 'Fiat 600e 600e Turismo', '0 km · Elettrica', '29.900 €');
+  pages['https://ca.test/ricerca-auto?pagina=2'] = count(5)
+    + ca('Q9x-_b', '/ricerca-auto/usate/fiat/500/fiat-500-1-0-hybrid-70cv-u25478', 'Fiat 500 1.0 hybrid 70cv', '2024 · 27.998 km · Ibrida · Manuale', '13.900 €')
+    + ca('Q9x-_b', '/ricerca-auto/km0/jeep/avenger/jeep-avenger-1-2-turbo-altitude-n35001', 'Jeep Avenger 1.2 turbo Altitude', '2025 · 10 km · Benzina · Manuale', '21.500 €',
+      '<span class="Badge-module__H8aylq__badge">Venduto</span>');
+  ok(dsi.detectDealerProvider(pages['https://ca.test/ricerca-auto']) === 'cardveicolo' && dsi.detectDealerProvider(pages['https://ca.test/ricerca-auto?pagina=2']) === 'cardveicolo',
+    'Centroauto : cartes « CardVeicolo-module__…__card » reconnues, quelle que soit l\'empreinte du module');
+  const cv = await dsi.fetchDealerStock('https://ca.test/ricerca-auto');
+  const bmw = cv.vehicles.find((v) => v.external_id === 'u25415'), neuve = cv.vehicles.find((v) => v.external_id === 'n34606');
+  ok(cv.vehicles.length === 5 && cv.declared === 5 && cv.pages === 2, 'Centroauto : « 5 auto trovate », deux pages « ?pagina=N », 5 voitures sur 5', [cv.vehicles.length, cv.declared, cv.pages]);
+  ok(bmw?.price === 14900 && bmw?.km === 108688 && bmw?.year === 2021 && bmw?.fuel === 'Gasolio' && bmw?.gearbox === 'Manuelle' && bmw?.location === 'Viterbo'
+    && bmw?.url === 'https://ca.test/ricerca-auto/usate/bmw/serie-1-f40/bmw-116d-advantage-u25415' && bmw?.image === 'https://web.imgstore.it/578d_orig.jpg',
+    'Centroauto : prix, km, année, énergie, boîte, lieu, adresse et photo d\'une carte', bmw);
+  ok(cv.vehicles.find((v) => v.external_id === 'u25376')?.price === 9600 && neuve?.year === null && neuve?.km === 0 && neuve?.fuel === 'Elettrica' && neuve?.body === 'neuve en stock'
+    && cv.vehicles.find((v) => v.external_id === 'n35001')?.status === 'sold' && cv.vehicles.find((v) => v.external_id === 'n35001')?.body === 'km 0',
+    'Centroauto : « 9600 € » ; une neuve (pas d\'année, ni de boîte) lue à la forme de chaque donnée ; km 0 et « Venduto » reconnus',
+    cv.vehicles.map((v) => [v.external_id, v.price, v.km, v.year, v.fuel, v.gearbox, v.body, v.status]));
+}
+
 console.log('\n=== POLITESSE : PAS PLUS D\'UNE REQUÊTE TOUTES LES 350 MS PAR SITE ===\n');
 {
   const { reserveSiteSlot, SITE_MIN_GAP_MS } = await import('../worker/dealerStock');

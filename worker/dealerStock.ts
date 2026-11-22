@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused' | 'kiaosp' | 'pappas' | 'jpauto' | 'fwcars' | 'mbmauto' | 'dunaauto' | 'schiller' | 'petranyi' | 'leierauto' | 'skodastock' | 'kiaihned' | 'autobazareu' | 'hedin' | 'kiaused' | 'todosjazdene';
-const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused', 'kiaosp', 'pappas', 'jpauto', 'fwcars', 'mbmauto', 'dunaauto', 'schiller', 'petranyi', 'leierauto', 'skodastock', 'kiaihned', 'autobazareu', 'hedin', 'kiaused', 'todosjazdene'];
+export type DealerProvider = 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused' | 'kiaosp' | 'pappas' | 'jpauto' | 'fwcars' | 'mbmauto' | 'dunaauto' | 'schiller' | 'petranyi' | 'leierauto' | 'skodastock' | 'kiaihned' | 'autobazareu' | 'hedin' | 'kiaused' | 'todosjazdene' | 'cardveicolo';
+const PROVIDERS_KNOWN: DealerProvider[] = ['dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused', 'kiaosp', 'pappas', 'jpauto', 'fwcars', 'mbmauto', 'dunaauto', 'schiller', 'petranyi', 'leierauto', 'skodastock', 'kiaihned', 'autobazareu', 'hedin', 'kiaused', 'todosjazdene', 'cardveicolo'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -335,7 +335,13 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/filteredVehicleListUrl\s*=\s*"\/api\/filtered-vehicle-list"/.test(html)) return 'vehiclelistapi';
   // rswusato (Gruppo Ghedini, 04/11) : WordPress thème rswstarter, cartes « card vehicle … usato » avec vehicle-brand /
   // vehicle-model / vehicle-version / vehicle-date / vehicle-km / vehicle-fuel / vehicle-gear / price, pages « /page/N/ ».
-  if (/class="card vehicle[^"]*"/.test(html) && /class="vehicle-brand"/.test(html) && /class="[^"]*\bvehicle-km\b/.test(html)) return 'rswusato';
+  // Variante Spazio Group (22/11) : mêmes cartes, mais les détails sont des « vehicle-detail » sans nom, reconnus à leur
+  // icône (fa-road = km, fa-calendar = année, fa-gas-pump = énergie, fa-gears = boîte).
+  if (/class="card vehicle[^"]*"/.test(html) && /class="vehicle-brand"/.test(html)
+    && (/class="[^"]*\bvehicle-km\b/.test(html) || /class="vehicle-detail"><span class="icon"><i class="[^"]*\bfa-road\b/.test(html))) return 'rswusato';
+  // cardveicolo (Centroauto VT, 22/11) : site Next.js, cartes « CardVeicolo-module__<empreinte>__card » rendues côté
+  // serveur (titre, « 2021 · 108.688 km · Gasolio · Manuale », « Sede di … », prix), « 116 auto trovate », « ?pagina=N ».
+  if (/class="CardVeicolo-module__[\w-]+__card"/.test(html) && /CardVeicolo-module__[\w-]+__dati/.test(html)) return 'cardveicolo';
   // eveho (VPN Autos, 05/11) : Nuxt rendu serveur, cartes « component-single-vehicle » (marque/modèle, version, prix,
   // « filedKmYear » km et année, « otherFields » énergie et boîte, lieu), 23 par page « ?page=N », « N résultats ».
   if (/class="component-single-vehicle"/.test(html) && /filedKmYear/.test(html)) return 'eveho';
@@ -3161,8 +3167,10 @@ async function scrapeVehicleListApi(url: string): Promise<DealerStockResult> {
 /** Km d'une carte rswusato : « 92.535 km », ou « Km Zero » (13/11, Gruppo Ghedini : les voitures km 0 portent le mot à
  *  la place du nombre, 88 cartes sur 230 — km lu 62 %) → 0. */
 export const rswKm = (t: string): number | null => (/^km\s*(?:zero|0)$/i.test(t.trim()) ? 0 : kmOf(t));
-/** Identifiant rswusato : numéro final de l'adresse (« …-usato-86340/ »), sinon l'adresse (« …-km0-n218189/ »). */
-const rswId = (href: string): string => href.match(/-(\d+)\/?$/)?.[1] ?? href;
+/** Identifiant rswusato : numéro final de l'adresse (« …-usato-86340/ »), sinon l'adresse (« …-km0-n218189/ »).
+ *  Un numéro d'au moins 4 chiffres (22/11, Spazio Group) : WordPress ajoute « -2 », « -3 »… à une adresse déjà prise
+ *  (« …-usato-a-torino-2/ ») — 17 voitures partageaient les identifiants « 2 » à « 5 », 13 étaient perdues. */
+const rswId = (href: string): string => href.match(/-(\d{4,})\/?$/)?.[1] ?? href;
 /** Fiche rswusato (13/11, Gruppo Ghedini) : paires « feature-label / feature-value » (Immatricolazione 01/2024,
  *  Alimentazione, Chilometraggio « 26.027 km » ou « Km Zero », Cambio « Automatico sequenziale a 6 marce ») et prix
  *  « <span class="price">23.000<span class="currency">€ » (le premier de la page : celui de la voiture). */
@@ -3176,45 +3184,70 @@ export function readRswDetail(html: string): DetailFields {
 }
 // ── rswusato (Gruppo Ghedini, 04/11) : 16 cartes par page, « /usato/veicoli/page/N/ ».
 async function scrapeRswUsato(url: string, firstHtml: string): Promise<DealerStockResult> {
-  const base = url.replace(/\/page\/\d+\/?$/, '').replace(/\/?$/, '/');
+  // Les paramètres de l'adresse (« ?orderby=km ») suivent le numéro de page : « …/page/2/?orderby=km ».
+  const query = (() => { try { return new URL(url).search; } catch { return ''; } })();
+  const base = url.replace(/[?#].*$/, '').replace(/\/page\/\d+\/?$/, '').replace(/\/?$/, '/');
   const out: DealerVehicle[] = [];
   const seen = new Set<string>();
   const span = (part: string, cls: string) => htmlText(part.match(new RegExp(`class="[^"]*\\b${cls}\\b[^"]*"[^>]*>([\\s\\S]*?)<\\/span>`))?.[1] ?? '');
   // Les détails (date, km, énergie, boîte) contiennent d'abord un <span class="icon"> : le texte vient après lui.
-  const detail = (part: string, cls: string) => htmlText(part.match(new RegExp(`class="[^"]*\\b${cls}\\b[^"]*"[^>]*>\\s*<span class="icon">[\\s\\S]*?<\\/span>([^<]*)<`))?.[1] ?? '');
+  // Variante Spazio (22/11) : « <span class="vehicle-detail"><span class="icon"><i class="fa-solid fa-road"></i></span>
+  // 61.061 km</span> » — pas de nom de champ, l'icône le dit (fa-road km, fa-calendar année, fa-gas-pump, fa-gears).
+  const detail = (part: string, cls: string, icon: string) => htmlText(part.match(new RegExp(`class="[^"]*\\b${cls}\\b[^"]*"[^>]*>\\s*<span class="icon">[\\s\\S]*?<\\/span>([^<]*)<`))?.[1]
+    ?? part.match(new RegExp(`class="vehicle-detail"[^>]*>\\s*<span class="icon">\\s*<i class="[^"]*\\b(?:${icon})\\b[^"]*"><\\/i>\\s*<\\/span>([^<]*)<`))?.[1] ?? '');
+  // Rend les cartes VUES, pas seulement les nouvelles (22/11, Spazio Group : dans un tri instable, une page ne montre
+  // parfois que des voitures déjà lues — la lecture s'arrêtait page 27 sur 48) : seule une page vide ou absente finit.
   const parse = (html: string): number => {
-    let added = 0;
+    let cards = 0;
     for (const part of html.split(/<div class="card vehicle[^"]*">/).slice(1)) {
       const href = part.match(/<a href="([^"]+)"/)?.[1];
       if (!href) continue;
+      cards++;
       const id = rswId(href);
       if (seen.has(id)) continue;
       const brand = span(part, 'vehicle-brand'), model = span(part, 'vehicle-model'), version = span(part, 'vehicle-version');
       const price = euro(part.match(/class="price">([\s\S]*?)<\/span>\s*<\/span>/)?.[1]?.replace(/<[^>]+>/g, '') ?? part.match(/class="price">([^<]*)/)?.[1] + ' €');
-      const date = detail(part, 'vehicle-date');
-      seen.add(id); added++;
+      const date = detail(part, 'vehicle-date', 'fa-calendar[\\w-]*');
+      seen.add(id);
       out.push({
         external_id: id, url: href, title: [brand, model, version].filter(Boolean).join(' '), brand: brand || null, model: model || null, price,
-        km: rswKm(detail(part, 'vehicle-km')), year: yearOf(date), fuel: detail(part, 'vehicle-fuel') || null, gearbox: gearboxOf(detail(part, 'vehicle-gear') || null),
+        km: rswKm(detail(part, 'vehicle-km', 'fa-road')), year: yearOf(date), fuel: detail(part, 'vehicle-fuel', 'fa-gas-pump') || null,
+        gearbox: gearboxOf(detail(part, 'vehicle-gear', 'fa-gears?|fa-cogs?') || null),
         plate: null, vin: null, body: null, image: part.match(/<img src="([^"]+)"/)?.[1] ?? null, listed_at: null,
         status: /label-venduto|Venduto/i.test(part) ? 'sold' : price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: powerFromText(version),
       });
     }
-    return added;
+    return cards;
   };
   const last = Math.max(1, ...[...firstHtml.matchAll(/\/page\/(\d+)\//g)].map((m) => Number(m[1])));
-  const { pages, warnings } = await paginate(firstHtml, parse, (p) => `${base}page/${p}/`, { cap: Math.min(MAX_PAGES, last + 3) });
+  const first = await paginate(firstHtml, parse, (p) => `${base}page/${p}/${query}`, { cap: Math.min(MAX_PAGES, last + 3) });
+  let pages = first.pages;
+  const warnings = first.warnings;
   // LISTE COMPLÉTÉE PAR L'API WORDPRESS DU SITE (13/11, Gruppo Ghedini : 230 annoncées, 226 lues — les pages sont triées
   // par prix sans départage, les 4 MÊMES voitures n'apparaissent sur aucune page à chaque lecture, 4 autres sur deux ;
   // « orderby » est ignoré). /wp-json/wp/v2/veicoli (publique, sans clé, tri par id stable) donne toutes les fiches ;
   // celles que les pages n'ont pas montrées sont lues une à une sur leur fiche.
   let declared: number | null = null;
   const api = firstHtml.match(/<link rel="https:\/\/api\.w\.org\/" href="([^"]+)"/)?.[1];
-  if (api) {
-    const missing: Array<{ link: string; title: string }> = [];
+  // LISTE D'UN SEUL TYPE (22/11, Spazio Group) : « /tipologia/usato/ » (572) et « /tipologia/km0/ » (211) sont deux
+  // vitrines ; l'API rend les 783 fiches des deux types. Elle est restreinte au type de l'adresse (son numéro lu par
+  // son nom) — sans quoi chaque km 0 serait « absente » de la liste des occasions et lue sur sa fiche. Type introuvable :
+  // pas de vérification par l'API (un avertissement), plutôt qu'une vérification fausse.
+  const tipo = (() => { try { return new URL(url).pathname.match(/\/tipologia\/([a-z0-9-]+)\/?$/)?.[1] ?? null; } catch { return null; } })();
+  let scope = '';
+  if (api && tipo) {
+    const r = await getTextPatient(`${api}wp/v2/veicoli_tipologia?slug=${tipo}&_fields=id`, { headers: { accept: 'application/json' } });
+    let id: number | null = null;
+    try { id = r.status === 200 ? num((JSON.parse(r.text) as Array<{ id?: number }>)[0]?.id) : null; } catch { id = null; }
+    if (id == null) warnings.push(`API WordPress : type « ${tipo} » introuvable (HTTP ${r.status}) — liste non vérifiée`);
+    else scope = `&veicoli_tipologia=${id}`;
+    await sleep(PAGE_DELAY_MS);
+  }
+  if (api && (!tipo || scope)) {
+    let missing: Array<{ link: string; title: string }> = [];
     let listed = 0;
     for (let p = 1; p <= 30; p++) {
-      const r = await getTextPatient(`${api}wp/v2/veicoli?per_page=100&page=${p}&orderby=id&order=asc&_fields=link,title`, { headers: { accept: 'application/json' } });
+      const r = await getTextPatient(`${api}wp/v2/veicoli?per_page=100&page=${p}&orderby=id&order=asc&_fields=link,title${scope}`, { headers: { accept: 'application/json' } });
       if (r.status !== 200) { if (p === 1) warnings.push(`API WordPress des fiches : HTTP ${r.status} — liste non vérifiée`); break; }
       let arr: Array<{ link?: string; title?: { rendered?: string } }>;
       try { arr = JSON.parse(r.text); } catch { warnings.push('API WordPress des fiches : réponse illisible'); break; }
@@ -3225,6 +3258,22 @@ async function scrapeRswUsato(url: string, firstHtml: string): Promise<DealerSto
       await sleep(PAGE_DELAY_MS);
     }
     if (listed > 0) declared = listed;
+    // AUTRES TRIS DU SITE (22/11, Spazio Group : 307 voitures lues sur 572 dans l'ordre par défaut, 482 par date — les ex
+    // æquo changent de page —, 572 sur 572 par kilométrage). Quand relire la liste coûte moins que lire les absentes une
+    // à une (plus de voitures absentes que de pages, ou plus que les 60 fiches d'un relevé), elle est relue dans les tris
+    // que propose sa liste déroulante (« orderby » : km, prix, date), et les lectures sont réunies.
+    for (const o of ['km', 'price-up', 'date'].filter((x) => firstHtml.includes(`<option value="${x}"`))) {
+      if (missing.length <= Math.min(60, last)) break;
+      const q = new URLSearchParams(query.replace(/^\?/, '')); q.set('orderby', o);
+      await sleep(PAGE_DELAY_MS);
+      const r1 = await getTextPatient(`${base}?${q}`);
+      if (r1.status !== 200) { warnings.push(`tri « ${o} » : HTTP ${r1.status}`); continue; }
+      const before = out.length;
+      const again = await paginate(r1.text, parse, (p) => `${base}page/${p}/?${q}`, { cap: Math.min(MAX_PAGES, last + 3) });
+      pages += again.pages;
+      warnings.push(...again.warnings.map((w) => `tri « ${o} » : ${w}`), `liste relue dans le tri « ${o} » : ${out.length - before} voiture(s) de plus`);
+      missing = missing.filter((m) => !seen.has(rswId(m.link)));
+    }
     for (const m of missing.slice(0, 60)) {
       await sleep(DETAIL_DELAY_MS);
       const r = await getTextPatient(m.link);
@@ -3244,6 +3293,59 @@ async function scrapeRswUsato(url: string, firstHtml: string): Promise<DealerSto
     if (missing.length) warnings.push(`${missing.length} voiture(s) absente(s) des pages de liste (tri instable du site) : lue(s) sur leur fiche${missing.length > 60 ? ' (60 au plus par relevé)' : ''}`);
   }
   return { provider: 'rswusato', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
+}
+
+// ── cardveicolo (Centroauto VT, 22/11) : site Next.js, cartes rendues côté serveur. Les classes portent l'empreinte du
+//    module CSS (« CardVeicolo-module__ZRArIW__card »), changée à chaque mise en ligne du site : seule la partie stable
+//    est lue. « /ricerca-auto » = tout le stock (occasions, km 0, neuves : le type est dans l'adresse de la fiche),
+//    « /ricerca-auto/usate » les occasions seules ; « 116 auto trovate », 24 par page, « ?pagina=N ».
+/** Une carte cardveicolo : titre, « 2021 · 108.688 km · Gasolio · Manuale » (année, km, énergie, boîte — chacun
+ *  reconnu à sa forme, pas à sa place : une neuve n'a ni année ni km), « Sede di Viterbo », prix « 20.900 € ». */
+export function parseCardVeicolo(html: string, origin: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  for (const part of html.split(/<article class="CardVeicolo-module__[\w-]+__card[^"]*">/).slice(1)) {
+    const href = part.match(/<a [^>]*href="([^"]+)"/)?.[1];
+    if (!href) continue;
+    const cls = (name: string, tag: string) => htmlText((part.match(new RegExp(`<${tag} class="[^"]*CardVeicolo-module__[\\w-]+__${name}\\b[^"]*">([\\s\\S]*?)<\\/${tag}>`))?.[1] ?? '').replace(/<!--[\s\S]*?-->/g, ''));
+    const title = cls('titolo', 'h3');
+    const toks = cls('dati', 'p').split('·').map((x) => x.trim()).filter(Boolean);
+    const kmTok = toks.find((x) => /\d\s*km$/i.test(x)) ?? null;
+    const yearTok = toks.find((x) => /^(19|20)\d{2}$/.test(x)) ?? null;
+    const rest = toks.filter((x) => x !== kmTok && x !== yearTok);
+    const gearTok = rest.find((x) => /^(manuale|automatic[oa]|sequenziale|robotizzat[oa]|semiautomatic[oa])\b/i.test(x)) ?? null;
+    const fuel = rest.find((x) => x !== gearTok) ?? null;
+    const price = euro(htmlText(part.match(/class="[^"]*PrezzoVeicolo-module__[\w-]+__cifra[^"]*">([\s\S]*?)<\/strong>/)?.[1] ?? ''));
+    const kind = href.match(/\/ricerca-auto\/(usate|nuove|km0)\//)?.[1] ?? null;
+    const badges = part.match(/__badges">([\s\S]*?)<\/div>/)?.[1] ?? '';
+    const { brand, model } = splitTitle(title);
+    const img = part.match(/<img [^>]*src="\/_next\/image\?url=([^&"]+)/)?.[1];
+    out.push({
+      external_id: href.match(/-([a-z]?\d+)\/?$/)?.[1] ?? href, url: href.startsWith('http') ? href : origin + href, title, brand, model, price,
+      km: kmOf(kmTok), year: num(yearTok), fuel, gearbox: gearboxOf(gearTok), plate: null, vin: null,
+      body: kind === 'nuove' ? 'neuve en stock' : kind === 'km0' ? 'km 0' : null,
+      image: img ? decodeURIComponent(img) : null, listed_at: null,
+      status: /vendut/i.test(badges) ? 'sold' : /prenotat|riservat/i.test(badges) ? 'reserved' : price == null ? 'price_on_request' : null,
+      currency: 'EUR', power_ch: powerFromText(title), location: cls('sede', 'p').replace(/^Sede di\s*/i, '') || null,
+    });
+  }
+  return out;
+}
+async function scrapeCardVeicolo(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const declared = num(htmlText(firstHtml.match(/__conteggio">([\s\S]*?)<\/p>/)?.[1]?.replace(/<!--[\s\S]*?-->/g, '') ?? '').match(/^(\d[\d.]*)\s*auto trovat/i)?.[1]?.replace(/\./g, ''));
+  const parse = (html: string): number => {
+    let added = 0;
+    for (const v of parseCardVeicolo(html, origin)) { if (seen.has(v.external_id)) continue; seen.add(v.external_id); out.push(v); added++; }
+    return added;
+  };
+  const u = new URL(url); u.searchParams.delete('pagina');
+  const pageUrl = (p: number) => { const x = new URL(u.toString()); x.searchParams.set('pagina', String(p)); return x.toString(); };
+  const last = Math.max(1, ...[...firstHtml.matchAll(/[?&](?:amp;)?pagina=(\d+)/g)].map((m) => Number(m[1])));
+  const { pages, warnings } = await paginate(firstHtml, parse, pageUrl, { cap: Math.min(MAX_PAGES, last + 2) });
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  return { provider: 'cardveicolo', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
 }
 
 // ── eveho (VPN Autos, 05/11) : 1 461 voitures, 23 par page, « ?page=N ».
@@ -6834,6 +6936,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'dutchvans') return scrapeDutchvans(url, first.text);
   if (provider === 'vehiclelistapi') return scrapeVehicleListApi(url);
   if (provider === 'rswusato') return scrapeRswUsato(url, first.text);
+  if (provider === 'cardveicolo') return scrapeCardVeicolo(url, first.text);
   if (provider === 'eveho') return scrapeEveho(url, first.text);
   if (provider === 'autopalace') return scrapeAutopalace(url, first.text);
   if (provider === 'acaicms') return scrapeAcai(url, first.text);
