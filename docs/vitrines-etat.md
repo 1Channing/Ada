@@ -236,3 +236,12 @@ Interstrip Auto GmbH (12), Rævhede Auto (107), Flexicar (23 565), FLEXICAR AS
 | Slovaquie | 140 | 132 | 77 | 7 771 | km des neuves et démos (37 fiches), année des neuves BMW et Hedin (17), prix « sur demande » (6), boîte (2) |
 
 Toutes les vitrines inscrites : 372, dont 337 relevées, 253 complètes et 162 477 voitures en stock. En Slovaquie, 8 fiches restent en « off » : 7 n'ont aucune vitrine lisible, la 8e est en attente d'une décision (Bavaria Trnava). Le détail est dans le BACKLOG.
+
+**Italie, le 22/11** (enquête Alfa Romeo : seuls les groupes dont l'acheteur ou le responsable VO est prouvé par une page officielle à jour) — premier relevé en production, au passage de rattrapage de 12 h 52 UTC :
+
+| Fiche | Vitrines | Lecteur | Voitures en stock | Prix · km · année · énergie · boîte |
+|---|---|---|---:|---|
+| Spazio Torino (Spazio Group) | occasions /tipologia/usato/ + km 0 /tipologia/km0/ | rswusato | 783 (572 + 211) | 100 % partout |
+| Centroauto Viterbo (Centroauto VT) | tout le stock /ricerca-auto | cardveicolo | 116 (107 VO + 9 neuves) | 100 % ; année 92 % (les 9 neuves ne sont pas immatriculées) |
+
+Non ajoutés (noms seulement dans un annuaire non daté, à confirmer par Channing) : Ceccato, Di.Ba. / Car Point, Intergea, Maldarizzi. Le détail est dans le BACKLOG.
