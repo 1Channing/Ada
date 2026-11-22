@@ -53,6 +53,30 @@ export function contactModeOf(c: Pick<NetworkContact, 'contact_name' | 'email'>)
   return addressKind(c.email.trim().toLowerCase(), null, person) === 'personne' ? 'direct' : 'aiguillage';
 }
 const MODE_LABEL: Record<ContactMode, string> = { direct: 'Contacts directs', aiguillage: 'Aiguillage' };
+
+/**
+ * CONCESSION DE LA MARQUE OU INDÉPENDANT (22/11, Channing : « quand je clique sur Alfa Romeo, je veux des concessions
+ * Alfa Romeo, pas des concessions qui ont des Alfa Romeo en vente — ce sont des reprises ; et trier les indépendants à
+ * part, où là c'est en fonction de leur stock »). Indépendant = « (indépendant) » dans le nom (fiches de Dana), ou un
+ * négociant. Marques d'une concession = celles de son nom avant la parenthèse (le groupe entre parenthèses n'est pas
+ * une marque : « Porsche Holding ») et celles qui pèsent au moins un quart de son stock (5 voitures ou plus).
+ */
+export type DealerKind = 'concession' | 'independant';
+export const isIndependent = (c: Pick<NetworkContact, 'name' | 'kind'>): boolean => c.kind === 'trader' || /ind[ée]pendant|autobaz[aá]r|haszn[aá]ltaut[oó]/i.test(c.name);
+const nameTokens = (name: string) => name.split('(')[0].normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
+export function dealerBrands(c: Pick<NetworkContact, 'name' | 'kind'>, stock: Array<{ brand: string; n: number }>, known: string[]): string[] {
+  if (isIndependent(c)) return [];
+  const tokens = new Set(nameTokens(c.name));
+  const out = new Map<string, string>();
+  for (const b of known) {
+    const first = brandKey(b.split(/[\s/-]+/)[0]);
+    if (first.length >= 3 && tokens.has(first)) out.set(brandKey(b), b);
+    else if (first.length < 3 && (c.name.split('(')[0]).split(/[^A-Za-z0-9]+/).some((t) => t.toUpperCase() === b.toUpperCase())) out.set(brandKey(b), b);
+  }
+  const total = stock.reduce((a, b) => a + b.n, 0);
+  for (const b of stock) if (b.n >= 5 && b.n / Math.max(1, total) >= 0.25) out.set(brandKey(b.brand), out.get(brandKey(b.brand)) ?? b.brand);
+  return [...out.values()];
+}
 const STEP: Record<Step, { label: string; icon: React.ReactNode }> = {
   choisir: { label: '1. Choisir', icon: <ListChecks className="w-4 h-4" /> },
   relire: { label: '2. Relire et envoyer', icon: <Eye className="w-4 h-4" /> },
@@ -72,6 +96,7 @@ export function Campagne({ settings, isAdmin, userId, refreshKey, onError, onInf
   const [country, setCountry] = useState('');
   const [picked, setPicked] = useState<string[]>([]);
   const [mode, setMode] = useState<ContactMode | ''>('');
+  const [kind, setKind] = useState<DealerKind | ''>('');
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [consignes, setConsignes] = useState(CARTE_CAMPAIGN_DEFAULT_INSTRUCTIONS);
   const [loading, setLoading] = useState(true);
@@ -123,27 +148,49 @@ export function Campagne({ settings, isAdmin, userId, refreshKey, onError, onInf
     return [...m.entries()].sort((x, y) => y[1] - x[1]);
   }, [contacts]);
   const inCountry = useMemo(() => contacts.filter((c) => !country || c.country === country), [contacts, country]);
+  /** Toutes les marques vues sur les vitrines du pays (noms d'affichage), pour reconnaître celles d'un nom de concession. */
+  const knownBrands = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of inCountry) for (const b of brands.get(c.id) ?? []) if (!m.has(brandKey(b.brand))) m.set(brandKey(b.brand), b.brand);
+    return [...m.values()];
+  }, [inCountry, brands]);
+  const dealerBrandsOf = useCallback((c: NetworkContact) => dealerBrands(c, brands.get(c.id) ?? [], knownBrands), [brands, knownBrands]);
+  /** Une marque cochée : concession DE la marque (son nom, ou un quart de son stock) ; un indépendant : la marque dans son stock. */
+  const matchesBrands = useCallback((c: NetworkContact, keys: Set<string>): boolean => {
+    if (keys.size === 0) return true;
+    if (isIndependent(c)) return (brands.get(c.id) ?? []).some((b) => keys.has(brandKey(b.brand)));
+    return dealerBrandsOf(c).some((b) => keys.has(brandKey(b)));
+  }, [brands, dealerBrandsOf]);
   const brandChoices = useMemo(() => {
     const m = new Map<string, { brand: string; contacts: number }>();
-    for (const c of inCountry) for (const b of brands.get(c.id) ?? []) {
-      const k = brandKey(b.brand);
-      (m.get(k) ?? m.set(k, { brand: b.brand, contacts: 0 }).get(k)!).contacts++;
+    const add = (b: string) => { const k = brandKey(b); (m.get(k) ?? m.set(k, { brand: b, contacts: 0 }).get(k)!).contacts++; };
+    for (const c of inCountry) {
+      if (kind && (isIndependent(c) ? 'independant' : 'concession') !== kind) continue;
+      if (isIndependent(c)) for (const b of brands.get(c.id) ?? []) add(b.brand);
+      else for (const b of dealerBrandsOf(c)) add(b);
     }
     return [...m.values()].sort((x, y) => y.contacts - x.contacts);
-  }, [inCountry, brands]);
+  }, [inCountry, brands, dealerBrandsOf, kind]);
   const inDiscussion = useCallback((c: NetworkContact) => inThreads.ids.has(c.id) || inThreads.emails.has((c.email ?? '').toLowerCase()), [inThreads]);
   const listed = useMemo(() => {
     const keys = new Set(picked.map(brandKey));
-    return inCountry.filter((c) => (keys.size === 0 || (brands.get(c.id) ?? []).some((b) => keys.has(brandKey(b.brand)))) && (!mode || contactModeOf(c) === mode))
-      .sort((x, y) => Number(inDiscussion(x)) - Number(inDiscussion(y)) || (y.stock_total ?? 0) - (x.stock_total ?? 0) || x.name.localeCompare(y.name));
-  }, [inCountry, picked, brands, inDiscussion, mode]);
+    return inCountry.filter((c) => matchesBrands(c, keys) && (!mode || contactModeOf(c) === mode) && (!kind || (isIndependent(c) ? 'independant' : 'concession') === kind))
+      // Les concessions de la marque d'abord, les indépendants ensuite ; puis déjà en discussion en bas, gros stock en haut.
+      .sort((x, y) => Number(inDiscussion(x)) - Number(inDiscussion(y)) || Number(isIndependent(x)) - Number(isIndependent(y)) || (y.stock_total ?? 0) - (x.stock_total ?? 0) || x.name.localeCompare(y.name));
+  }, [inCountry, picked, matchesBrands, inDiscussion, mode, kind]);
+  const kindCounts = useMemo(() => {
+    const keys = new Set(picked.map(brandKey));
+    const c = { concession: 0, independant: 0 };
+    for (const x of inCountry) if (matchesBrands(x, keys) && (!mode || contactModeOf(x) === mode)) c[isIndependent(x) ? 'independant' : 'concession']++;
+    return c;
+  }, [inCountry, picked, matchesBrands, mode]);
   /** Les deux familles dans le pays et les marques choisis (avant le tri par mode), pour les compteurs des boutons. */
   const modeCounts = useMemo(() => {
     const keys = new Set(picked.map(brandKey));
     const c = { direct: 0, aiguillage: 0 };
-    for (const x of inCountry) if (keys.size === 0 || (brands.get(x.id) ?? []).some((b) => keys.has(brandKey(b.brand)))) c[contactModeOf(x)]++;
+    for (const x of inCountry) if (matchesBrands(x, keys) && (!kind || (isIndependent(x) ? 'independant' : 'concession') === kind)) c[contactModeOf(x)]++;
     return c;
-  }, [inCountry, picked, brands]);
+  }, [inCountry, picked, matchesBrands, kind]);
   // Une même adresse sur plusieurs fiches (un groupe, ses sites : Hedin ×5) : un seul mail, à la fiche au plus gros stock ; les autres le disent.
   const sameAs = useMemo(() => {
     const first = new Map<string, NetworkContact>(), out = new Map<string, NetworkContact>();
@@ -236,7 +283,7 @@ export function Campagne({ settings, isAdmin, userId, refreshKey, onError, onInf
           frequency={showcaseFor.stock_frequency ?? null} unreadable={showcaseFor.showcase_unreadable ?? null} onClose={() => setShowcaseFor(null)} />
       )}
       {step === 'choisir' && (
-        <Choose loading={loading} brandsLoading={brandsLoading} countries={countries} country={country} setCountry={(c) => { setCountry(c); setPicked([]); }} mode={mode} setMode={setMode} modeCounts={modeCounts}
+        <Choose loading={loading} brandsLoading={brandsLoading} countries={countries} country={country} setCountry={(c) => { setCountry(c); setPicked([]); }} mode={mode} setMode={setMode} modeCounts={modeCounts} kind={kind} setKind={setKind} kindCounts={kindCounts} dealerBrandsOf={dealerBrandsOf}
           brandChoices={brandChoices} picked={picked} setPicked={setPicked} listed={listed} brands={brands} already={already} whyNot={whyNot}
           checked={checked} setChecked={setChecked} consignes={consignes} setConsignes={setConsignes} busy={busy} isAdmin={isAdmin} onPrepare={() => void prepare()} onShowcase={setShowcaseFor} />
       )}
@@ -299,7 +346,8 @@ export function Campagne({ settings, isAdmin, userId, refreshKey, onError, onInf
 }
 
 function Choose(p: {
-  loading: boolean; brandsLoading: boolean; countries: Array<[string, number]>; mode: ContactMode | ''; setMode: (m: ContactMode | '') => void; modeCounts: Record<ContactMode, number>; country: string; setCountry: (c: string) => void;
+  loading: boolean; brandsLoading: boolean; countries: Array<[string, number]>; mode: ContactMode | ''; setMode: (m: ContactMode | '') => void; modeCounts: Record<ContactMode, number>;
+  kind: DealerKind | ''; setKind: (k: DealerKind | '') => void; kindCounts: Record<DealerKind, number>; dealerBrandsOf: (c: NetworkContact) => string[]; country: string; setCountry: (c: string) => void;
   brandChoices: Array<{ brand: string; contacts: number }>; picked: string[]; setPicked: (b: string[]) => void;
   listed: NetworkContact[]; brands: Map<string, Array<{ brand: string; n: number }>>; already: (c: NetworkContact) => boolean; whyNot: (c: NetworkContact) => string;
   checked: Set<string>; setChecked: (s: Set<string>) => void; consignes: string; setConsignes: (s: string) => void;
@@ -324,10 +372,16 @@ function Choose(p: {
               className={`px-2.5 py-1.5 ${p.mode === m ? 'bg-brand-encre text-white' : 'bg-white text-slate-700 hover:bg-slate-50'}`}>{label}</button>
           ))}
         </span>
+        <span className="inline-flex rounded-lg border border-slate-300 overflow-hidden text-xs" role="group" aria-label="Concession ou indépendant">
+          {([['', 'Tous'], ['concession', `Concessions de la marque (${p.kindCounts.concession})`], ['independant', `Indépendants (${p.kindCounts.independant})`]] as Array<[DealerKind | '', string]>).map(([k, label]) => (
+            <button key={k || 'tous'} type="button" onClick={() => p.setKind(k)} title={k === 'concession' ? 'Les concessions DE la marque cochée (son nom, ou un quart de son stock)' : k === 'independant' ? 'Les indépendants, jugés sur ce qu\'ils ont en stock' : ''}
+              className={`px-2.5 py-1.5 ${p.kind === k ? 'bg-brand-encre text-white' : 'bg-white text-slate-700 hover:bg-slate-50'}`}>{label}</button>
+          ))}
+        </span>
         {p.loading && <span className="inline-flex items-center gap-1.5 text-xs text-slate-500"><Loader2 className="w-3.5 h-3.5 animate-spin" />lecture de la Carte…</span>}
       </div>
       <div>
-        <p className="text-xs text-slate-500 mb-1.5">Marques (vues sur leurs vitrines ; aucune cochée = toutes) :</p>
+        <p className="text-xs text-slate-500 mb-1.5">Marques (une marque cochée = les concessions de cette marque, et les indépendants qui en ont en stock ; aucune = toutes) :</p>
         <div className="flex flex-wrap gap-1.5">
           {p.brandsLoading && <span className="inline-flex items-center gap-1.5 text-xs text-slate-500"><Loader2 className="w-3.5 h-3.5 animate-spin" />lecture des vitrines…</span>}
           {p.brandChoices.length === 0 && !p.loading && !p.brandsLoading && <span className="text-xs text-slate-400">aucune vitrine relevée pour ce pays</span>}
@@ -347,7 +401,7 @@ function Choose(p: {
       <div className="max-h-96 overflow-y-auto rounded-xl border border-slate-200 bg-white">
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500 sticky top-0">
-            <tr><th className="px-3 py-2" /><th className="px-3 py-2">Entreprise</th><th className="px-3 py-2">Personne</th><th className="px-3 py-2">E-mail</th><th className="px-3 py-2">Marques en stock</th><th className="px-3 py-2"><span className="sr-only">Vitrine</span></th></tr>
+            <tr><th className="px-3 py-2" /><th className="px-3 py-2">Entreprise</th><th className="px-3 py-2">Personne</th><th className="px-3 py-2">E-mail</th><th className="px-3 py-2">Marque · stock</th><th className="px-3 py-2"><span className="sr-only">Vitrine</span></th></tr>
           </thead>
           <tbody>
             {p.listed.map((c) => {
@@ -368,7 +422,12 @@ function Choose(p: {
                     {c.contact_name || <span className="text-slate-400">— (salutation générale)</span>}
                   </td>
                   <td className="px-3 py-1.5 text-xs">{c.email}</td>
-                  <td className="px-3 py-1.5 text-xs">{bs.length ? [...bs].sort((x, y) => Number(keys.has(brandKey(y.brand))) - Number(keys.has(brandKey(x.brand))) || y.n - x.n).slice(0, 4).map((b) => `${b.brand} ${b.n}`).join(', ') : <span className="text-slate-400">vitrine non relevée</span>}</td>
+                  <td className="px-3 py-1.5 text-xs">
+                    {isIndependent(c)
+                      ? <span className="mr-1.5 inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">indépendant</span>
+                      : <span className="mr-1.5 inline-block rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-brand-encre">{p.dealerBrandsOf(c).join(' · ') || 'marque ?'}</span>}
+                    {bs.length ? [...bs].sort((x, y) => Number(keys.has(brandKey(y.brand))) - Number(keys.has(brandKey(x.brand))) || y.n - x.n).slice(0, 4).map((b) => `${b.brand} ${b.n}`).join(', ') : <span className="text-slate-400">vitrine non relevée</span>}
+                  </td>
                   <td className="px-3 py-1.5 text-right">
                     {c.website && (
                       <button type="button" onClick={() => p.onShowcase(c)} title={`La vitrine de ${c.name} (Carte), sans quitter la campagne`} className="inline-flex items-center gap-1 text-xs text-brand-ocean hover:text-brand-encre whitespace-nowrap">
