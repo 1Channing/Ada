@@ -164,7 +164,10 @@ export async function callClaude<T>(c: ClaudeCall): Promise<ClaudeResult<T>> {
         ...(c.tools?.length ? { tools: c.tools } : {}),
         output_config: { effort: c.effort ?? 'low', ...(c.schema ? { format: { type: 'json_schema', schema: c.schema } } : {}) },
       };
-      const opts = c.timeoutMs ? { timeout: c.timeoutMs } : undefined;
+      // 22/11 : un appel resté pendu 24 min (aucun coût enregistré, aucune erreur) bloquait la file des tâches — butoir dur,
+      // essais compris, au-delà du délai par essai du SDK (5 min, deux reprises).
+      const per = c.timeoutMs ?? 5 * 60_000;
+      const opts = { timeout: per, signal: AbortSignal.timeout(Math.round(per * 1.6)) };
       const res = c.fallbacks
         ? await a.beta.messages.create({ ...(params as unknown as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming), betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' }, opts)
         : await a.messages.create(params, opts);

@@ -122,11 +122,32 @@ const FUEL_CANON: Array<[RegExp, string]> = [
 const FUEL_LETTER: Record<string, string> = { D: 'DIESEL', E: 'ESSENCE', G: 'ESSENCE', P: 'ESSENCE', Q: 'ELECTRIQUE', M: 'HYBRIDE', H: 'HYBRIDE' };
 /** Énergie de la colonne : un CODE d'une lettre cède à la ligne libre quand elle le dit (« M » couvre hybride et
  *  PureTech mild hybrid), sinon table des codes ; un libellé est lu tel quel. */
-export function fuelOfCell(raw: string, fromLine: string | null): string | null {
+export function fuelOfCell(raw: string, fromLine: string | null, line = ''): string | null {
   const t = raw.trim().toUpperCase();
   if (t === 'D') return 'DIESEL'; // sans ambiguïté — « 2.0 EcoBlue 130 MHEV » reste un diesel (hybridation légère)
   if (/^[A-Z]$/.test(t)) return fromLine ?? FUEL_LETTER[t] ?? null;
-  return canonFuel(raw) ?? fromLine;
+  return reconcileFuel(canonFuel(raw), line) ?? fromLine;
+}
+/**
+ * La colonne énergie d'un catalogue ne dit que le carburant de base (« Gasolina » pour une Kona HEV, « Electrico »
+ * pour une XC90 T8 Recharge — catalogue Espagne 20/11) : la désignation tranche. Une essence/diesel dont la ligne dit
+ * hybride (HEV, full hybrid, E-Tech, e-Power, « Hybrid 136 ») devient HYBRIDE — pas une hybridation légère (MHEV,
+ * mild, 48V) ; une « électrique » dont la ligne dit rechargeable (Recharge, PHEV, plug-in, Hyper Hybrid, e-EAT8
+ * avec 180/225/300) devient HYBRIDE RECHARGEABLE.
+ */
+export function reconcileFuel(col: string | null, line: string): string | null {
+  if (!col || !line) return col;
+  const s = line.normalize('NFD').replace(/\p{M}/gu, '');
+  // « Hybrid 136 / 145 e-DCS6 » (Stellantis) et « 48V » : hybridation légère, le carburant de la colonne reste.
+  const mild = /\bmhev\b|mild|micro-?hybr|48 ?v|\bbsg\b|\bhybrid\s?(?:100|110|120|130|136|145)\b|\be-?dcs6\b|\bedcs6\b/i.test(s);
+  if ((col === 'ESSENCE' || col === 'DIESEL') && !mild
+    && /\bhev\b|full ?hybr|\be-?power\b|\be-?tech\b|\bhybrid\s?\d{3}\b|\bhybrid\b|hibrido/i.test(s)) {
+    return /recharge|plug-?in|phev|hyper ?hyb|\bhybrid\s?(?:180|195|225|300|360)\b|\be-?eat8\b/i.test(s) ? 'HYBRIDE RECHARGEABLE' : 'HYBRIDE';
+  }
+  if (col === 'ELECTRIQUE' && /recharge|plug-?in|phev|hyper ?hyb|\bhybrid\s?(?:180|195|225|300|360)\b|\b(?:180|195|225|300|360)\s?e-?eat8\b|\be-?eat8\b|\bt8\b/i.test(s)) {
+    return 'HYBRIDE RECHARGEABLE';
+  }
+  return col;
 }
 export function canonFuel(raw: string | null | undefined): string | null {
   const s = (raw ?? '').trim().normalize('NFD').replace(/\p{M}/gu, '');
@@ -252,6 +273,10 @@ export function readSupplierGrid(buf: ArrayBuffer): { sheet: string; grid: unkno
 const cell = (v: unknown): string => (v == null ? '' : v instanceof Date ? v.toISOString().slice(0, 10) : String(v).trim());
 
 /** Fourchette « A hasta B » / « A - B » / « A à B » / « A to B » / « A bis B » (deux nombres) : borne basse + texte. */
+const fmtInt = (n: number) => Math.round(n).toLocaleString('fr-FR').replace(/\u202f|\u00a0/g, ' ');
+/** Un extra lisible : les « _italiques_ » d'un export (équipements du catalogue Espagne 20/11) perdent leurs tirets bas. */
+const cleanExtra = (t: string) => t.replace(/_([^_]+)_/g, '$1').replace(/\s+/g, ' ').trim();
+
 function splitRange(v: unknown): { lo: number; text: string } | null {
   if (typeof v !== 'string') return null;
   const m = v.trim().match(/^([\d][\d\s.,]*)\s*(?:km|€|eur|kms?)?\s*(?:hasta|a|à|-|–|—|to|bis|\/)\s*([\d][\d\s.,]*)\s*(?:km|€|eur|kms?)?$/i);
@@ -540,7 +565,9 @@ export function parseFreeLine(line: string): { power_ch: number | null; gearbox:
   // Chevaux écrits après la FAMILLE MOTEUR, sans unité (liste SY 17/11 : « BlueHDi 130 », « Hybrid 145 », « Gasolina
   // 100 », « PureTech 130 ») — jamais quand le nombre est une capacité (« eléctrico 50 kWh »).
   const fam = s.match(/\b(?:bluehdi|puretech|hdi|hybrid|gasolina|diesel|thp|vti|tce|dci|tdi|tsi|tfsi|ecoboost|ecoblue|ecob|multijet|e-?tense|electrico|electrique|t-?gdi|crdi|power|mhev|hev|dig-?t|mivec)\s?(\d{2,3})\b(?!\s?kwh?\b)/i);
-  const power_ch = p ? Number(p[1]) : kw ? Math.round(Number(kw[1]) * 1.36) : fam ? Number(fam[1]) : null;
+  // « 2008 180 e-EAT8 », « 208 145 EDCS6 » (catalogue Espagne 20/11) : la puissance juste devant la boîte Stellantis.
+  const box = s.match(/\b(\d{2,3})\s?(?:e-?eat8|e-?dcs?6|edcs6|e-?dct\d?)\b/i);
+  const power_ch = p ? Number(p[1]) : kw ? Math.round(Number(kw[1]) * 1.36) : fam ? Number(fam[1]) : box ? Number(box[1]) : null;
   // « AT-8 » / « MT-6 » (fichiers allemands), « Automatik », « BVA »…
   // « AUT » (catalogue Record Rent a Car 07/10 : « 252CV AUT »), « E-CVT ».
   // « AUTO » seul (liste Drivalia 12/11 : « 1.5T EHS PHEV LUXURY AUTO »).
@@ -597,7 +624,7 @@ export function stripGenerationSuffix(model: string): string {
  * cylindrée/puissance, marqueur de génération retiré.
  */
 /** Mots de finition qui ne font jamais partie du nom d'un modèle. */
-export const TRIM_WORDS = new Set(['EDITION', 'ELEGANCE', 'SHINE', 'COMFORT', 'DESIGN', 'LUXURY', 'PRIME', 'PLUS', 'FEEL', 'MAX', 'CORE', 'ULTRA', 'ULTIMATE', 'BUSINESS', 'ADVANCE', 'ADVANCED', 'STYLE', 'LIFE', 'SPRINT', 'SUMMIT', 'LONGITUDE', 'LIMITED', 'TREND', 'TITANIUM', 'ACTIVE', 'ALLURE', 'RIVOLI', 'PERFORMANCE', 'BOOST', 'VISION', 'AVANTGARDE', 'INTENS', 'ZEN', 'TECHNO', 'ICONIC', 'ESPRIT', 'INITIALE', 'EXCLUSIVE', 'PREMIUM', 'AMBIENTE', 'SELECTION', 'EXECUTIVE', 'INSCRIPTION', 'MOMENTUM']);
+export const TRIM_WORDS = new Set(['EVOLUTION', 'EDITION', 'ELEGANCE', 'SHINE', 'COMFORT', 'DESIGN', 'LUXURY', 'PRIME', 'PLUS', 'FEEL', 'MAX', 'CORE', 'ULTRA', 'ULTIMATE', 'BUSINESS', 'ADVANCE', 'ADVANCED', 'STYLE', 'LIFE', 'SPRINT', 'SUMMIT', 'LONGITUDE', 'LIMITED', 'TREND', 'TITANIUM', 'ACTIVE', 'ALLURE', 'RIVOLI', 'PERFORMANCE', 'BOOST', 'VISION', 'AVANTGARDE', 'INTENS', 'ZEN', 'TECHNO', 'ICONIC', 'ESPRIT', 'INITIALE', 'EXCLUSIVE', 'PREMIUM', 'AMBIENTE', 'SELECTION', 'EXECUTIVE', 'INSCRIPTION', 'MOMENTUM']);
 
 export function guessModel(_brand: string, line: string, knownModels: string[]): string {
   // « León » (Stock Export 06/11) = LEON : accents retirés ; « Ceed_sw » (Kia 04/11) = « CEED SW ».
@@ -611,12 +638,22 @@ export function guessModel(_brand: string, line: string, knownModels: string[]):
   for (const m of candidates) if (stripped.startsWith(`${m} `) || stripped === m) return m;
   // « MOKKA-E EDITION », « E-C4 SHINE » : la déclinaison électrique d'un modèle connu (stock CQS 01/11).
   for (const m of candidates) if (stripped.startsWith(`${m}-E `) || stripped === `${m}-E` || stripped.startsWith(`E-${m} `) || stripped === `E-${m}`) return m;
+  // « Xtrail 7PL » = X-TRAIL, « C4X » = C4 X (catalogue Espagne 20/11) : les séparateurs du nom connu sont facultatifs.
+  for (const m of candidates) {
+    if (m.length < 3) continue;
+    const loose = new RegExp(`^${m.replace(/[-\s]/g, '').split('').map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[-\\s]?')}(?=\\s|$)`);
+    if (loose.test(stripped)) return m;
+  }
   const tokens = stripped.split(' ');
   const out: string[] = [];
   for (const t of tokens) {
     // Cylindrée (« 1.6 » ou « 1,6 »), puissance, code moteur Volvo (« B4 », « T8 »), énergie, ou mot de
     // FINITION (« Shine », « Edition », « Elegance »…) : le modèle s'arrête là (stock CQS 01/11).
-    if (/^\d[.,]\d$/.test(t) || /^\d{2,3}(CH|CV|KW|HK)$/.test(t) || /^[BTD]\d$/.test(t) || /^(HYBRID|HYBRIDE|PHEV|DIESEL|ESSENCE|TURBO|PURETECH|TCE|TSI|BLUEHDI|HDI|DCI|E-TECH|MILD|ELECTRIQUE)/.test(t) || TRIM_WORDS.has(t)) break;
+    // Catalogue Espagne 20/11 : « Kona HEV », « Qashqai E-POWER », « Tucson 1.6T », « CX-30 2.5L », « ASX 130T », « Xtrail 7PL »,
+    // « León SP » — motorisation, cylindrée à suffixe, places ou carrosserie : le modèle s'arrête avant.
+    // « 2008 180 e-EAT8 » : une puissance nue après un modèle d'au moins trois caractères (« C 200 » reste « C 200 »).
+    if (out.length >= 1 && out[0].length >= 3 && /^\d{3}$/.test(t)) break;
+    if (/^\d[.,]\d[A-Z]?$/.test(t) || /^\d{2,3}(CH|CV|KW|HK|T)$/.test(t) || /^[BTD]\d$/.test(t) || /^\d{1,2}PL?$/.test(t) || /^(HYBRID|HYBRIDE|PHEV|HEV|MHEV|BEV|E-POWER|EPOWER|DIESEL|ESSENCE|TURBO|PURETECH|TCE|TSI|BLUEHDI|HDI|DCI|E-TECH|MILD|ELECTRIQUE|SP|ST|SW)$/.test(t) || /^(HYBRID|HYBRIDE|PHEV|DIESEL|ESSENCE|TURBO|PURETECH|TCE|TSI|BLUEHDI|HDI|DCI|E-TECH|MILD|ELECTRIQUE)/.test(t) || TRIM_WORDS.has(t)) break;
     out.push(t);
     if (out.length >= 2) break;
   }
@@ -774,13 +811,22 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
       const f = fields[ci];
       if (!h) return;
       if (!mappingsByHeader.has(h)) mappingsByHeader.set(h, { header: h, field: f, sample: cell(v).slice(0, 40) });
-      if (f === 'ignore' || f === 'plate') { extras[h] = cell(v).replace(/\s*\^+\s*/g, ' · ').replace(/^ · | · $/g, ''); return; }
+      if (f === 'ignore' || f === 'plate') { extras[h] = cleanExtra(cell(v).replace(/\s*\^+\s*/g, ' · ').replace(/^ · | · $/g, '')); return; }
       // Deux colonnes pour le même champ : la PREMIÈRE gagne (« Version » avant
       // « Trim »), la seconde est gardée en extras — rien n'est perdu.
       if (rec[f] != null) {
         // Couleur en deux colonnes (code « GRA » puis « Gris Graphene », 06/11) : la plus parlante gagne.
         if (f === 'color' && cell(v).length > cell(rec[f]).length && /[a-z]/.test(cell(v))) { extras[h] = cell(rec[f]); rec[f] = v; return; }
-        extras[h] = cell(v); return;
+        // « Km min / Km max », « Prix min / Prix max » (catalogue Espagne 20/11, une ligne = une plage de véhicules) :
+        // la borne basse reste dans le champ, la fourchette entière en « Fourchette km / prix » — comme un lot « de … à … ».
+        if ((f === 'km' || f === 'price_ht' || f === 'price_ttc') && /\bmax/i.test(h)) {
+          const lo = toNumber(rec[f]), hi = toNumber(v);
+          if (lo != null && hi != null && hi >= lo) {
+            if (hi > lo) { extras[f === 'km' ? 'Fourchette km' : 'Fourchette prix'] = `${fmtInt(lo)} – ${fmtInt(hi)}${f === 'km' ? ' km' : ' €'}`; rangeRows.add(i); }
+            return;
+          }
+        }
+        extras[h] = cleanExtra(cell(v)); return;
       }
       rec[f] = v;
     });
@@ -939,12 +985,12 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
       color: cell(rec.color) || null,
       // Marques 100 % électriques (Tesla, Polestar) : énergie connue même si la ligne ne la dit pas ; leur « motorisation »
       // est la version (« Long Range Dual Motor », « Standard RWD ») — liste Drivalia 12/11.
-      fuel: fuelOfCell(cell(rec.fuel), free.fuel) ?? (/^(tesla|polestar)$/i.test(brand) ? 'ELECTRIQUE' : null),
+      fuel: fuelOfCell(cell(rec.fuel), free.fuel, versionLine) ?? (/^(tesla|polestar)$/i.test(brand) ? 'ELECTRIQUE' : null),
       engine: cell(rec.engine) || free.engine || (/^(tesla|polestar)$/i.test(brand) && /long range|standard|performance|dual motor|rwd|awd|plaid/i.test(versionLine) ? versionLine.trim() : null),
       power_ch: power != null ? Math.round(power) : free.power_ch,
       // Une électrique n'a pas de boîte manuelle : automatique quand rien n'est dit.
       gearbox: (cell(rec.gearbox) ? parseFreeLine(cell(rec.gearbox)).gearbox ?? cell(rec.gearbox).toUpperCase() : free.gearbox)
-        ?? (fuelOfCell(cell(rec.fuel), free.fuel) === 'ELECTRIQUE' || /^(tesla|polestar)$/i.test(brand) ? 'AUTOMATIQUE' : null),
+        ?? (fuelOfCell(cell(rec.fuel), free.fuel, versionLine) === 'ELECTRIQUE' || /^(tesla|polestar)$/i.test(brand) ? 'AUTOMATIQUE' : null),
       co2: toNumber(rec.co2),
       damages: toNumber(rec.damages),
       // « &amp; » dans le lien (fichiers fournisseur exportés d'une page web, 12/11 : six liens DEKRA fleetbox illisibles) : rétabli.

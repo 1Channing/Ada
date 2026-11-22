@@ -265,14 +265,34 @@ export function Equipe() {
     void saveTabs(a, compactTabs(next));
   };
 
-  /** Organisation d'un compte (12/10) — RPC admin ; sans le SQL, message explicite. */
+  /**
+   * Organisation d'un compte (12/10 ; refait le 22/11, Channing : « j'avais passé Valentin de Segré vers Thouaré, cela
+   * n'avait pas tenu, il a fallu que je le refasse »). Preuve : le RPC admin_set_organisation répondait sans erreur et
+   * la ligne restait « Segré ». Cause : le RPC fait un INSERT … ON CONFLICT DO UPDATE SET organisation = excluded.organisation,
+   * et le trigger de naissance du profil (BEFORE INSERT) fait primer l'organisation de la liste d'inscription (v.barbot →
+   * Segré) ; excluded porte la valeur APRÈS le trigger, l'update réécrivait donc Segré. L'écran, optimiste, affichait
+   * Thouaré ; la base n'avait jamais changé. Désormais : UPDATE direct (le trigger ne touche pas un UPDATE), la ligne
+   * d'inscription exacte suit (sinon la prochaine naissance du profil le ramènerait), et on RELIT la ligne — si la base
+   * dit autre chose que l'écran, l'écran le dit. Le RPC ne sert plus que si la ligne de profil n'existe pas encore.
+   */
   const saveOrganisation = async (a: Account, raw: string) => {
     const org = raw.trim() || DEFAULT_ORG;
     if (org === (a.organisation || DEFAULT_ORG)) return;
     setAccounts((list) => list.map((x) => (x.id === a.id ? { ...x, organisation: org } : x)));
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const r = await (supabase as any).rpc('admin_set_organisation', { p_user: a.id, p_org: org });
-    if (r.error) { setError(`Organisation de ${a.email} NON enregistrée : ${/does not exist|function|schema cache/i.test(r.error.message) ? 'colle la migration 20261012130000 (organisations).' : r.error.message}`); void reload(); }
+    const fail = (why: string) => { setError(`Organisation de ${a.email} NON enregistrée : ${why}`); void reload(); };
+    const { data: upd, error: e1 } = await supabase.from('profiles').update({ organisation: org } as never).eq('id', a.id).select('id');
+    if (e1) { fail(e1.message); return; }
+    if (!upd?.length) {
+      // Pas encore de ligne de profil : le RPC la crée (SQL 20261012140000).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const r = await (supabase as any).rpc('admin_set_organisation', { p_user: a.id, p_org: org });
+      if (r.error) { fail(/does not exist|function|schema cache/i.test(r.error.message) ? 'colle la migration 20261012130000 (organisations).' : r.error.message); return; }
+    }
+    // La liste d'inscription (adresse exacte seulement : une ligne « @domaine » est partagée) suit le compte.
+    await supabase.from('auth_allowlist').update({ organisation: org } as never).eq('email', a.email.toLowerCase());
+    const { data: check } = await supabase.from('profiles').select('organisation').eq('id', a.id).maybeSingle();
+    const got = (check as { organisation?: string | null } | null)?.organisation ?? null;
+    if (got !== org) fail(`la base dit « ${got ?? DEFAULT_ORG} » (sa ligne d'inscription impose peut-être une autre organisation — colle la migration 20261122100000).`);
   };
 
   const createOrg = async (e: React.FormEvent) => {

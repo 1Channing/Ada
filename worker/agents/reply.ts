@@ -11,6 +11,7 @@
  * qui écrire, et le vrai premier mail est préparé pour lui (à valider) ;
  * la réponse à l'aiguilleur le remercie, simplement.
  */
+import { agentInstructions } from '../../src/lib/agents/danaDoctrine';
 import { OPUS } from '../../src/lib/agents/aiCost';
 import { replySystem, replyPrompt, REPLY_SCHEMA, checkReply, INTENT_LABEL, givenContact, type ReplyOutput, type ReplyTurn } from '../../src/lib/agents/reply';
 import { hasMx } from './qualify';
@@ -96,7 +97,7 @@ export async function draftReply(messageId: string, a: AiAgent, taskId: string |
   const ask = all.find((m) => m.direction === 'out' && m.ai_notes?.aiguillage)?.ai_notes?.aiguillage ?? null;
   const routing = ask ? { cherche: ask.cherche ?? 'pouvait nous aider', cible: ask.cible ?? null } : null;
   const lessons = await lessonsBlock(a.agent, 'mail', {});
-  const base = replyPrompt({ role, company, person: who, summary, history, instructions: a.instructions ?? '', routing });
+  const base = replyPrompt({ role, company, person: who, summary, history, instructions: agentInstructions(a.agent, a.instructions), routing });
   const prompt = lessons.length ? `${base}\n\n${lessons.join('\n')}` : base;
 
   live(taskId, `${who} a répondu : ${a.display_name} prépare la réponse (IA)`);

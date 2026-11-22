@@ -53,7 +53,7 @@ export function IntraShowcase() {
         <Megaphone className="w-4 h-4 text-brand-ocean" />
         {/* « Bonnes affaires », pas « vitrine » (13/10, Channing). */}
         <span className="text-xs uppercase tracking-wide text-slate-500">Bonnes affaires — véhicules disponibles</span>
-        <span className="text-xs text-slate-400">{items.length} véhicule{items.length > 1 ? 's' : ''} publié{items.length > 1 ? 's' : ''} par l'équipe MC Export · prix MC Export HT · marché français</span>
+        <span className="text-xs text-slate-400">{items.length} véhicule{items.length > 1 ? 's' : ''} publié{items.length > 1 ? 's' : ''} par l'équipe MC Export · prix MC Export HT (ou TTC en TVA sur marge) · marché français</span>
       </div>
       {error && <p className="mx-5 mb-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{error}</p>}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 px-5 pb-5">
@@ -92,7 +92,7 @@ export function IntraShowcase() {
                   </div>
                   <div className="text-right shrink-0">
                     <p className="font-bold text-brand-encre tabular-nums">{it.price_ht != null ? fmtEur(it.price_ht) : 'sur proposition'}</p>
-                    {it.price_ht != null && <p className="text-[10px] text-slate-400">HT</p>}
+                    {it.price_ht != null && <p className="text-[10px] text-slate-400">{it.vehicle.vat_recoverable === false ? 'TTC · TVA sur marge' : 'HT'}</p>}
                   </div>
                 </div>
                 <p className="text-[11px] text-slate-500">{chips.join(' · ')}{v.damages ? ` · dommages ${fmtEur(v.damages)}` : ''}</p>
@@ -101,7 +101,8 @@ export function IntraShowcase() {
               <div className="flex items-center gap-2 flex-wrap">
                 {countries.length > 0 ? countries.map((c) => {
                   const res = it.market?.[c];
-                  const verdict = verdictOf(it.price_ht, res, c);
+                  // 21/11 : en TVA sur marge, le prix publié est déjà TTC — pas de TVA à ajouter face au marché.
+                  const verdict = verdictOf(it.price_ht, res, c, it.vehicle.vat_recoverable === false);
                   const ref = res?.attackTtc ?? res?.medianTtc ?? null;
                   return (
                     <span key={c} title={`${countryLabel(c)} : ${verdict.text}${ref != null ? ` · prix d'attaque ${fmtEur(ref)} TTC · ${res?.competitors ?? 0} annonce(s)` : ''}${COUNTRY_CAVEAT[c] ? ` · ${COUNTRY_CAVEAT[c]}` : ''}`} className={`text-[11px] px-2 py-0.5 rounded-full border ${VERDICT_CLASS[verdict.tone]}`}>

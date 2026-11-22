@@ -38,7 +38,7 @@ export function normalizeModel(brand: string | null | undefined, model: string |
   return list.map((x) => x.toUpperCase()).includes(g) ? g : m;
 }
 import { powerFromText, samePower } from '../lib/powerText';
-import { fuelFamily, type FuelFamily } from '../lib/vehicleFamilies';
+import { fuelFamily, type FuelFamily, vehicleFuelFamily } from '../lib/vehicleFamilies';
 export { fuelFamily, type FuelFamily };
 import { resolveSettings, supplierHtWith } from '../lib/offers/offerSettings';
 
@@ -201,7 +201,7 @@ export async function loadOurOffers(): Promise<{ rows: OurVehicle[]; error: stri
       out.push({
         kind: 'offer', id: v.id, label: `${v.brand} ${v.model}${v.version ? ` · ${v.version}` : ''}`, brand: v.brand, model: v.model,
         year: v.year ?? yearOf(v.reg_date), km: v.km, price: buy,
-        fuel: fuelFamily(v.fuel) ?? fuelFamily(v.version), trim: trimOf(v.version), power: v.power_ch ?? powerFromText(v.version),
+        fuel: vehicleFuelFamily(v.fuel, v.version), trim: trimOf(v.version), power: v.power_ch ?? powerFromText(v.version),
         detail: [o.title || o.source_filename, o.supplier].filter(Boolean).join(' · '), date: o.updated_at ?? null, offerId: o.id, selected: !!v.selected,
       });
     }
@@ -238,7 +238,7 @@ export function sameSegment(
 }
 /** Énergie et finition d'une voiture du contact : colonne énergie du relevé, sinon le titre. */
 export function theirsFuelTrim(t: StockVehicle): { fuel: FuelFamily | null; trim: string | null; power: number | null } {
-  return { fuel: fuelFamily(t.fuel) ?? fuelFamily(t.title), trim: trimOf(t.title), power: t.power_ch ?? powerFromText(t.title) };
+  return { fuel: vehicleFuelFamily(t.fuel, t.title), trim: trimOf(t.title), power: t.power_ch ?? powerFromText(t.title) };
 }
 
 export function compareStock(theirs: StockVehicle[], ours: OurVehicle[], threshold: number, vat = 0.2, known: KnownModels | null = null): CompareResult {

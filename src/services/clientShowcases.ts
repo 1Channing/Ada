@@ -13,7 +13,7 @@
 import { supabase } from '../lib/supabase';
 import { brandKey, refModelKey } from './marketData';
 import { fuelFamily, trimOf, normalizeModel, KM_TOLERANCE, type FuelFamily, type KnownModels } from './stockCompare';
-import { gearboxFamily, type GearboxFamily } from '../lib/vehicleFamilies';
+import { gearboxFamily, type GearboxFamily, vehicleFuelFamily } from '../lib/vehicleFamilies';
 export { gearboxFamily, type GearboxFamily };
 import { powerFromText, samePower } from '../lib/powerText';
 import { toEur } from './fxRates';
@@ -41,7 +41,7 @@ export const yearOfDate = (iso: string | null | undefined): number | null => { i
 export function lotVehiclesOf(vehicles: OfferVehicle[], priceHtOf: (v: OfferVehicle) => number | null): LotVehicle[] {
   return vehicles.map((v) => ({
     id: v.id, year: v.year ?? yearOfDate(v.reg_date), km: v.km,
-    fuel: fuelFamily(v.fuel) ?? fuelFamily(v.version), gearbox: gearboxFamily(v.gearbox) ?? gearboxFamily(v.version), trim: trimOf(v.version), power: v.power_ch ?? powerFromText(v.version), priceHt: priceHtOf(v),
+    fuel: vehicleFuelFamily(v.fuel, v.version), gearbox: gearboxFamily(v.gearbox) ?? gearboxFamily(v.version), trim: trimOf(v.version), power: v.power_ch ?? powerFromText(v.version), priceHt: priceHtOf(v),
   }));
 }
 

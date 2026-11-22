@@ -14,11 +14,12 @@
  *   et ses règles fixes, qui ne se changent pas.
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { BookOpen, Check, X, Pencil, Trash2, Plus, FlaskConical, Lock, Users, Mail, ChevronRight } from 'lucide-react';
+import { BookOpen, Check, X, Pencil, Trash2, Plus, FlaskConical, Lock, Users, Mail, ChevronRight, Compass } from 'lucide-react';
 import {
-  listLessons, decideLesson, addLesson, deleteLesson, queueBench, listBenchRuns, AGENT_LABEL,
+  listLessons, decideLesson, addLesson, deleteLesson, queueBench, listBenchRuns, listSettings, updateMailSettings, AGENT_LABEL,
   type AgentKey, type AgentTask,
 } from '../../services/agents';
+import { DANA_DOCTRINE_DEFAULT, doctrineOf } from '../../lib/agents/danaDoctrine';
 import { LESSON_SCOPE_LABEL, type Lesson, type LessonScope } from '../../lib/agents/lessons';
 import { methodText, ROLES_BY_SEGMENT, localTitles } from '../../lib/agents/roles';
 import { SEGMENTS, COUNTRY_FR, RESEARCH_COUNTRIES } from '../../lib/agents/research';
@@ -140,6 +141,60 @@ function BenchRun({ t }: { t: AgentTask }) {
   );
 }
 
+/**
+ * SA DOCTRINE (22/11, le brief de Channing : « il faut repenser la partie agent… on travaille ça en diamant poli »).
+ * Un seul texte, lisible et modifiable ici, qui part dans tous les mails de Dana (campagnes ciblées et aiguillages,
+ * réponses, relances) : ce qu'on cherche, ce qu'on achète, ce qu'on vend, le déroulé, les réponses, les relances, la
+ * forme. Stocké dans agent_settings.instructions (le même champ que « Vos consignes » des Réglages) ; vide = le texte
+ * par défaut, affiché tel quel.
+ */
+function Doctrine({ agent, isAdmin, userId, refreshKey, onError, onInfo }: Props) {
+  const [stored, setStored] = useState<string | null>(null);
+  const [draft, setDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [autoDraft, setAutoDraft] = useState(0);
+  const load = useCallback(async () => {
+    const r = await listSettings();
+    const s = r.rows.find((x) => x.agent === agent);
+    setStored(s?.instructions ?? '');
+    setAutoDraft(s?.auto_draft_per_day ?? 0);
+  }, [agent]);
+  useEffect(() => { void load(); }, [load, refreshKey]);
+  const current = doctrineOf(stored);
+  const isDefault = !(stored ?? '').trim();
+  const save = async (text: string) => {
+    setSaving(true);
+    const e = await updateMailSettings(agent, { instructions: text.trim() === DANA_DOCTRINE_DEFAULT.trim() ? '' : text.trim(), auto_draft_per_day: autoDraft }, userId);
+    setSaving(false);
+    if (e) { onError(e); return; }
+    setDraft(null);
+    onInfo(text.trim() ? 'Doctrine enregistrée : elle part dans ses prochains mails.' : 'Doctrine par défaut rétablie.');
+    void load();
+  };
+  return (
+    <Section icon={<Compass className="w-4 h-4 text-teal-700" />} title="Sa doctrine" hint="ce qu'elle cherche, ce qu'on achète, ce qu'on vend, les réponses, les relances — dans tous ses mails">
+      {draft == null ? (
+        <>
+          <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed text-slate-800 rounded-xl bg-slate-50 border border-slate-200 p-3 max-h-[420px] overflow-auto">{current}</pre>
+          <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500">
+            <span>{isDefault ? 'Texte par défaut (brief du 22/11).' : 'Texte écrit par l\'équipe — il remplace le texte par défaut.'}</span>
+            {isAdmin && <button type="button" className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50" onClick={() => setDraft(current)}><Pencil className="w-3 h-3" /> Modifier</button>}
+            {isAdmin && !isDefault && <button type="button" className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50" onClick={() => { if (window.confirm('Revenir au texte par défaut ? Le texte de l\'équipe sera effacé.')) void save(''); }}>Texte par défaut</button>}
+          </div>
+        </>
+      ) : (
+        <>
+          <textarea className={`${field} w-full min-h-[360px] font-sans text-[13px] leading-relaxed`} value={draft} onChange={(e) => setDraft(e.target.value)} />
+          <div className="flex items-center gap-2">
+            <button type="button" disabled={saving} className="inline-flex items-center gap-1 rounded-lg bg-brand-encre px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-ocean disabled:opacity-50" onClick={() => void save(draft)}><Check className="w-3 h-3" /> Enregistrer</button>
+            <button type="button" className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs hover:bg-slate-50" onClick={() => setDraft(null)}><X className="w-3 h-3" /> Annuler</button>
+          </div>
+        </>
+      )}
+    </Section>
+  );
+}
+
 export function Savoir({ agent, isAdmin, userId, refreshKey, onError, onInfo }: Props) {
   const name = AGENT_LABEL[agent].name;
   const side = agent === 'dana' ? 'dana' : 'ada';
@@ -197,6 +252,7 @@ export function Savoir({ agent, isAdmin, userId, refreshKey, onError, onInfo }: 
         Ce qui guide {name}, en plus de vos consignes (Réglages) et des notes que vous lui laissez sur une recherche : sa méthode, qui elle contacte, ses règles fixes — et ses <span className="font-medium">leçons</span>, tirées de vos corrections, que vous validez ici. Le <span className="font-medium">banc d'essai</span> mesure si elle progresse.
       </div>
 
+      {agent === 'dana' && <Doctrine agent={agent} isAdmin={isAdmin} userId={userId} refreshKey={refreshKey} onError={onError} onInfo={onInfo} />}
       <Section icon={<BookOpen className="w-4 h-4 text-indigo-600" />} title={`Ses leçons (${active.length} active${active.length > 1 ? 's' : ''})`} hint={`elles partent dans ses consignes${proposed.length ? ` ; ${proposed.length} à valider` : ''}`}>
         {lessonsError && <p className="text-xs text-amber-800">{lessonsError}</p>}
         {proposed.length > 0 && (

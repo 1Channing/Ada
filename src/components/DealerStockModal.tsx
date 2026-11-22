@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
+import { vehicleFuelFamily } from '../lib/vehicleFamilies';
 import { ExternalLink, RefreshCw, X, Loader2 } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { listStockRuns, listStockVehicles, STATUS_LABEL, priceMoves, startDealerScan, isDealerScanning, subscribeDealerScans, takeDealerScanOutcome, type StockRun, type StockVehicle } from '../services/dealerStock';
 import { currentFx, toEur } from '../services/fxRates';
 import { fmtMoney } from '../lib/fx';
-import { trimOf, fuelFamily, FUEL_LABEL, type FuelFamily } from '../services/stockCompare';
+import { trimOf, FUEL_LABEL, type FuelFamily } from '../services/stockCompare';
 import { BarChart3 } from 'lucide-react';
 
 const eur = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} €`;
@@ -281,7 +282,7 @@ export function DealerStockModal({ contactId, name, url, onClose }: { contactId:
   // Énergie et finition lues une fois par véhicule (colonne du relevé, sinon le titre).
   const facets = useMemo(() => {
     const m = new Map<string, { fuel: FuelFamily | null; trim: string | null }>();
-    for (const v of vehicles) m.set(v.id, { fuel: fuelFamily(v.fuel) ?? fuelFamily(v.title), trim: trimOf(v.title) });
+    for (const v of vehicles) m.set(v.id, { fuel: vehicleFuelFamily(v.fuel, v.title), trim: trimOf(v.title) });
     return m;
   }, [vehicles]);
   const uniq = (xs: Array<string | null | undefined>) => [...new Set(xs.map((x) => (x ?? '').trim().toUpperCase()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));

@@ -112,6 +112,19 @@ export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
     [next[i], next[j]] = [next[j], next[i]];
     void persist(next);
   };
+  // GLISSER-DÉPOSER (20/11, l'équipe : « glisser-déposer les photos pour les déplacer plutôt que de les cliquer une par
+  // une ») : la photo prise est insérée à la place de celle sur laquelle on la lâche, les autres se décalent.
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
+  const dropAt = (to: number) => {
+    const from = dragFrom;
+    setDragFrom(null); setDragOver(null);
+    if (from == null || from === to) return;
+    const next = [...photos];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    void persist(next);
+  };
 
   const run = async (label: string, fn: () => Promise<void>) => {
     setBusy(label); setError(null);
@@ -240,8 +253,15 @@ export function NegotiationPhotosModal({ nego, onClose, onChanged }: Props) {
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {photos.map((url, i) => (
-                <div key={url} className="relative group rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
-                  <img src={shown[i] ?? url} alt={`photo ${i + 1}`} loading="lazy" className="w-full h-36 object-cover" />
+                <div key={url} draggable
+                  onDragStart={(e) => { setDragFrom(i); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', String(i)); } catch { /* navigateur sans dataTransfer */ } }}
+                  onDragOver={(e) => { if (dragFrom == null) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOver !== i) setDragOver(i); }}
+                  onDragLeave={() => { if (dragOver === i) setDragOver(null); }}
+                  onDrop={(e) => { e.preventDefault(); dropAt(i); }}
+                  onDragEnd={() => { setDragFrom(null); setDragOver(null); }}
+                  title="Glisser pour déplacer"
+                  className={`relative group rounded-lg overflow-hidden border bg-slate-50 cursor-grab active:cursor-grabbing transition-shadow ${dragOver === i && dragFrom !== i ? 'border-brand-ocean ring-2 ring-brand-ocean/50' : 'border-slate-200'} ${dragFrom === i ? 'opacity-40' : ''}`}>
+                  <img src={shown[i] ?? url} alt={`photo ${i + 1}`} loading="lazy" draggable={false} className="w-full h-36 object-cover" />
                   <span className="absolute top-1.5 left-1.5 text-[11px] font-semibold bg-black/60 text-white rounded px-1.5 py-0.5">{i + 1}</span>
                   <div className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 bg-gradient-to-t from-black/60 to-transparent p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     <IconBtn title="Reculer" onClick={() => move(i, -1)} disabled={i === 0}><ArrowLeft className="w-4 h-4" /></IconBtn>

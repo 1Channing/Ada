@@ -179,7 +179,8 @@ const MC_EXPORT_FORM: ContactForm = {
 // direction 'sale'     = MC Export vend   (MC = vendeur, le client est acheteur)
 const DOCS_BY_DIRECTION: Record<'purchase' | 'sale', string[]> = {
   purchase: ['Certificat de cession', "Bon d'achat", 'Fiche enlèvement', "Déclaration d'achat"],
-  sale: ['Certificat de cession', 'Réception / Expédition'],
+  // 20/11 (l'équipe) : côté vente aussi, la déclaration d'achat — MC Export en vendeur, le client en acheteur-déclarant.
+  sale: ['Certificat de cession', "Déclaration d'achat", 'Réception / Expédition'],
 };
 
 const EMPTY_CONTACT_FORM: ContactForm = {
@@ -3215,7 +3216,7 @@ export function Administrative() {
           <p className="text-sm text-slate-500 mb-6">
             {transactionType === 'purchase'
               ? 'MC Export achète — documents côté achat (MC Export pré-rempli en acheteur).'
-              : 'MC Export vend — documents côté vente (MC Export pré-rempli en vendeur).'}
+              : 'MC Export vend — documents côté vente (MC Export pré-rempli en vendeur ; sur la déclaration d\'achat, le client est le déclarant).'}
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
