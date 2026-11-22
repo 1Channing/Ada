@@ -28,7 +28,7 @@ import { loadOffers, type AiAgent } from './qualify';
 import { sb, journal, loadSuppressions } from './store';
 
 interface Task { id: string; agent: string; kind: string; params: Record<string, unknown>; created_by: string | null }
-export interface Campaign { id: string; pays: string; marques: string[]; consignes: string }
+export interface Campaign { id: string; pays: string; marques: string[]; consignes: string; /** 22/11 : contacts directs ou aiguillage (vide = mélange). */ mode?: 'direct' | 'aiguillage' }
 interface ContactRow {
   id: string; name: string; kind: string | null; country: string | null; city: string | null;
   contact_name: string | null; email: string | null; stock_total: number | null;

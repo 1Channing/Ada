@@ -23,6 +23,7 @@ import { loadNetwork, KIND_LABEL, type NetworkContact } from '../../services/net
 import { CARTE_CAMPAIGN_DEFAULT_INSTRUCTIONS } from '../../lib/agents/firstMail';
 import { COUNTRY_FR } from '../../lib/agents/research';
 import { brandKey } from '../../lib/agents/opportunity';
+import { addressKind } from '../../lib/agents/qualification';
 import { INTENT_LABEL, type REPLY_INTENTS } from '../../lib/agents/reply';
 import { workHoursLabel } from '../../lib/agents/sendPolicy';
 import { Banner } from './shared';
@@ -40,6 +41,18 @@ interface Props {
 }
 
 type Step = 'choisir' | 'relire' | 'suivi';
+/**
+ * DIRECT OU AIGUILLAGE (22/11, Channing : « trier entre les contacts directs acheteurs VO des groupes, et les autres à
+ * qui on fait de l'aiguillage ») : direct = une personne nommée ET son adresse à elle (règle d'adresse de Dana :
+ * « prenom.nom@ », pas info@ / predaj@ / contact@) ; tout le reste part en aiguillage (on demande le bon interlocuteur).
+ */
+export type ContactMode = 'direct' | 'aiguillage';
+export function contactModeOf(c: Pick<NetworkContact, 'contact_name' | 'email'>): ContactMode {
+  const person = (c.contact_name ?? '').split(/\s+[—–-]\s+/)[0].trim();
+  if (!person || !c.email) return 'aiguillage';
+  return addressKind(c.email.trim().toLowerCase(), null, person) === 'personne' ? 'direct' : 'aiguillage';
+}
+const MODE_LABEL: Record<ContactMode, string> = { direct: 'Contacts directs', aiguillage: 'Aiguillage' };
 const STEP: Record<Step, { label: string; icon: React.ReactNode }> = {
   choisir: { label: '1. Choisir', icon: <ListChecks className="w-4 h-4" /> },
   relire: { label: '2. Relire et envoyer', icon: <Eye className="w-4 h-4" /> },
@@ -58,6 +71,7 @@ export function Campagne({ settings, isAdmin, userId, refreshKey, onError, onInf
   const [inThreads, setInThreads] = useState<{ ids: Set<string>; emails: Set<string> }>({ ids: new Set(), emails: new Set() });
   const [country, setCountry] = useState('');
   const [picked, setPicked] = useState<string[]>([]);
+  const [mode, setMode] = useState<ContactMode | ''>('');
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [consignes, setConsignes] = useState(CARTE_CAMPAIGN_DEFAULT_INSTRUCTIONS);
   const [loading, setLoading] = useState(true);
@@ -120,9 +134,16 @@ export function Campagne({ settings, isAdmin, userId, refreshKey, onError, onInf
   const inDiscussion = useCallback((c: NetworkContact) => inThreads.ids.has(c.id) || inThreads.emails.has((c.email ?? '').toLowerCase()), [inThreads]);
   const listed = useMemo(() => {
     const keys = new Set(picked.map(brandKey));
-    return inCountry.filter((c) => keys.size === 0 || (brands.get(c.id) ?? []).some((b) => keys.has(brandKey(b.brand))))
+    return inCountry.filter((c) => (keys.size === 0 || (brands.get(c.id) ?? []).some((b) => keys.has(brandKey(b.brand)))) && (!mode || contactModeOf(c) === mode))
       .sort((x, y) => Number(inDiscussion(x)) - Number(inDiscussion(y)) || (y.stock_total ?? 0) - (x.stock_total ?? 0) || x.name.localeCompare(y.name));
-  }, [inCountry, picked, brands, inDiscussion]);
+  }, [inCountry, picked, brands, inDiscussion, mode]);
+  /** Les deux familles dans le pays et les marques choisis (avant le tri par mode), pour les compteurs des boutons. */
+  const modeCounts = useMemo(() => {
+    const keys = new Set(picked.map(brandKey));
+    const c = { direct: 0, aiguillage: 0 };
+    for (const x of inCountry) if (keys.size === 0 || (brands.get(x.id) ?? []).some((b) => keys.has(brandKey(b.brand)))) c[contactModeOf(x)]++;
+    return c;
+  }, [inCountry, picked, brands]);
   // Une même adresse sur plusieurs fiches (un groupe, ses sites : Hedin ×5) : un seul mail, à la fiche au plus gros stock ; les autres le disent.
   const sameAs = useMemo(() => {
     const first = new Map<string, NetworkContact>(), out = new Map<string, NetworkContact>();
@@ -146,7 +167,7 @@ export function Campagne({ settings, isAdmin, userId, refreshKey, onError, onInf
     const pays = country || 'tous';
     if (!window.confirm(`Dana rédige ${ids.length} mail${ids.length > 1 ? 's' : ''} (${pays}${picked.length ? `, ${picked.join(', ')}` : ''}), un par contact, dans la langue du pays. Rien ne part : vous relirez et enverrez un par un. Lancer ?`)) return;
     setBusy(true);
-    const campagne: Campaign = { id: crypto.randomUUID(), pays, marques: picked, consignes: consignes.trim() };
+    const campagne: Campaign = { id: crypto.randomUUID(), pays, marques: picked, consignes: consignes.trim(), mode: mode || undefined };
     const e = await queueCampaign(ids, campagne, userId);
     setBusy(false);
     if (e) { onError(e); return; }
@@ -215,7 +236,7 @@ export function Campagne({ settings, isAdmin, userId, refreshKey, onError, onInf
           frequency={showcaseFor.stock_frequency ?? null} unreadable={showcaseFor.showcase_unreadable ?? null} onClose={() => setShowcaseFor(null)} />
       )}
       {step === 'choisir' && (
-        <Choose loading={loading} brandsLoading={brandsLoading} countries={countries} country={country} setCountry={(c) => { setCountry(c); setPicked([]); }}
+        <Choose loading={loading} brandsLoading={brandsLoading} countries={countries} country={country} setCountry={(c) => { setCountry(c); setPicked([]); }} mode={mode} setMode={setMode} modeCounts={modeCounts}
           brandChoices={brandChoices} picked={picked} setPicked={setPicked} listed={listed} brands={brands} already={already} whyNot={whyNot}
           checked={checked} setChecked={setChecked} consignes={consignes} setConsignes={setConsignes} busy={busy} isAdmin={isAdmin} onPrepare={() => void prepare()} onShowcase={setShowcaseFor} />
       )}
@@ -278,7 +299,7 @@ export function Campagne({ settings, isAdmin, userId, refreshKey, onError, onInf
 }
 
 function Choose(p: {
-  loading: boolean; brandsLoading: boolean; countries: Array<[string, number]>; country: string; setCountry: (c: string) => void;
+  loading: boolean; brandsLoading: boolean; countries: Array<[string, number]>; mode: ContactMode | ''; setMode: (m: ContactMode | '') => void; modeCounts: Record<ContactMode, number>; country: string; setCountry: (c: string) => void;
   brandChoices: Array<{ brand: string; contacts: number }>; picked: string[]; setPicked: (b: string[]) => void;
   listed: NetworkContact[]; brands: Map<string, Array<{ brand: string; n: number }>>; already: (c: NetworkContact) => boolean; whyNot: (c: NetworkContact) => string;
   checked: Set<string>; setChecked: (s: Set<string>) => void; consignes: string; setConsignes: (s: string) => void;
@@ -297,6 +318,12 @@ function Choose(p: {
             {p.countries.map(([c, k]) => <option key={c} value={c}>{COUNTRY_FR[c] ?? c} ({k})</option>)}
           </select>
         </label>
+        <span className="inline-flex rounded-lg border border-slate-300 overflow-hidden text-xs" role="group" aria-label="Type de contact">
+          {([['', 'Tous'], ['direct', `${MODE_LABEL.direct} (${p.modeCounts.direct})`], ['aiguillage', `${MODE_LABEL.aiguillage} (${p.modeCounts.aiguillage})`]] as Array<[ContactMode | '', string]>).map(([m, label]) => (
+            <button key={m || 'tous'} type="button" onClick={() => p.setMode(m)} title={m === 'direct' ? 'Une personne nommée et son adresse à elle' : m === 'aiguillage' ? 'Adresse générale ou personne inconnue : on demande le bon interlocuteur' : ''}
+              className={`px-2.5 py-1.5 ${p.mode === m ? 'bg-brand-encre text-white' : 'bg-white text-slate-700 hover:bg-slate-50'}`}>{label}</button>
+          ))}
+        </span>
         {p.loading && <span className="inline-flex items-center gap-1.5 text-xs text-slate-500"><Loader2 className="w-3.5 h-3.5 animate-spin" />lecture de la Carte…</span>}
       </div>
       <div>
@@ -336,7 +363,10 @@ function Choose(p: {
                     <div className={`font-medium ${done ? '' : 'text-slate-900'}`}>{c.name}</div>
                     <div className="text-xs text-slate-500">{[KIND_LABEL[c.kind], c.city].filter(Boolean).join(' · ')}{done ? ` · ${p.whyNot(c)}` : ''}</div>
                   </td>
-                  <td className="px-3 py-1.5">{c.contact_name || <span className="text-slate-400">— (salutation générale)</span>}</td>
+                  <td className="px-3 py-1.5">
+                    <span className={`mr-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${contactModeOf(c) === 'direct' ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>{contactModeOf(c) === 'direct' ? 'direct' : 'aiguillage'}</span>
+                    {c.contact_name || <span className="text-slate-400">— (salutation générale)</span>}
+                  </td>
                   <td className="px-3 py-1.5 text-xs">{c.email}</td>
                   <td className="px-3 py-1.5 text-xs">{bs.length ? [...bs].sort((x, y) => Number(keys.has(brandKey(y.brand))) - Number(keys.has(brandKey(x.brand))) || y.n - x.n).slice(0, 4).map((b) => `${b.brand} ${b.n}`).join(', ') : <span className="text-slate-400">vitrine non relevée</span>}</td>
                   <td className="px-3 py-1.5 text-right">

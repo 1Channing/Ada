@@ -51,7 +51,7 @@ export interface AgentSettings {
 export type EditableSettings = Pick<AgentSettings, 'sender_name' | 'signature' | 'daily_first_contact_cap' | 'send_days' | 'send_from' | 'send_to' | 'min_gap_seconds' | 'max_gap_seconds' | 'owner_id'>;
 
 /** Une campagne depuis la Carte (19/11) : son identifiant, le pays, les marques choisies, les consignes données à Dana. */
-export interface Campaign { id: string; pays: string; marques: string[]; consignes: string }
+export interface Campaign { id: string; pays: string; marques: string[]; consignes: string; /** 22/11 : contacts directs ou aiguillage (vide = mélange). */ mode?: 'direct' | 'aiguillage' }
 
 export interface AgentThread {
   id: string; agent: AgentKey; mailbox: string; gmail_thread_id: string | null; subject: string;
