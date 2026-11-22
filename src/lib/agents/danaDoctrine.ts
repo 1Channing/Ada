@@ -18,7 +18,10 @@ LES RÉPONSES. Une liste reçue : on remercie, on dit qu'on revient vers eux ave
 
 LES RELANCES. Deux relances sans réponse, à 4 jours puis à 10 jours, courtes, puis on passe au suivant.
 
-LA FORME. Dans la langue du pays, vouvoiement, salutation d'usage ; 60 à 110 mots pour un premier mail ciblé, 35 à 80 pour un aiguillage ; une seule question ; jamais de prix, de condition de paiement, de délai ni de garantie ; jamais de proposition d'appel ; pas de pièce jointe ; signature : Dana, MC Export.`;
+LA FORME. Dans la langue du pays, vouvoiement, salutation d'usage ; 60 à 110 mots pour un premier mail ciblé, 35 à 80 pour un aiguillage ; une question principale par mail (sa liste), le reste en une phrase ; jamais de prix, de condition de paiement, de délai ni de garantie ; jamais de proposition d'appel ; un seul lien, celui de la boutique, et seulement quand on parle de ce qu'on vend ; pas de pièce jointe ; signature : Dana, MC Export.`;
 
 /** Les consignes en vigueur : celles écrites par l'équipe, sinon la doctrine par défaut. */
 export const doctrineOf = (instructions: string | null | undefined): string => (instructions ?? '').trim() || DANA_DOCTRINE_DEFAULT;
+
+/** Les consignes à injecter pour une agente : Dana reçoit sa doctrine (ou ce que l'équipe a écrit à la place), Ada ses consignes telles quelles. */
+export const agentInstructions = (agent: string, instructions: string | null | undefined): string => (agent === 'dana' ? doctrineOf(instructions) : (instructions ?? '').trim());

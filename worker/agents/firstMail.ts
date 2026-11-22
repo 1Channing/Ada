@@ -38,6 +38,7 @@
  * Rien ne part sans le clic d'un administrateur ; l'envoi par la boîte de
  * l'agente respecte les horaires, le plafond du jour et l'étalement.
  */
+import { agentInstructions } from '../../src/lib/agents/danaDoctrine';
 import { OPUS } from '../../src/lib/agents/aiCost';
 import {
   FIRST_MAIL_SYSTEM, FIRST_MAIL_SCHEMA, firstMailPrompt, checkFirstMail, withAgentSignature, LANG_OF_COUNTRY,
@@ -211,7 +212,7 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
     ours = lotLines;
     base = danaFirstMailPrompt({
       company: p.name, country: p.country, city: p.city, language, contact, kind: p.kind, group: p.group_name, summary: p.summary,
-      stock: { listings: listings.length, byBrand: brandsTop }, lots: lotLines, account, instructions: a.instructions ?? '',
+      stock: { listings: listings.length, byBrand: brandsTop }, lots: lotLines, account, instructions: agentInstructions(a.agent, a.instructions),
     });
   } else {
     const vat = countryVat((p.country ?? 'FR').toUpperCase());
@@ -229,7 +230,7 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
       company: p.name, country: p.country, city: p.city, language, contact,
       kind: p.kind, group: p.group_name, officialBrands: p.brands_official ?? [], summary: p.summary,
       stock: { listings: listings.length, byBrand: brandsTop, models: [...models].sort((x, y) => y[1] - x[1]).slice(0, 8).map(([m, n]) => `${m} (${n})`) },
-      account, gaps, offers: offerFacts, instructions: a.instructions ?? '',
+      account, gaps, offers: offerFacts, instructions: agentInstructions(a.agent, a.instructions),
     });
   }
   // 19/10 : les chiffres de l'entreprise elle-même (taille, volumes…) — un mail qui les récite est signalé.
@@ -251,7 +252,7 @@ export async function draftFirstMail(prospectId: string, a: AiAgent, taskId: str
     const wanted = routingWanted(role, segKey ?? p.kind);
     const targetName = p.best_contact?.nom ?? null;
     const rp = withLessons(routingPrompt({
-      role, company: p.name, country: p.country, language, router, target: { name: targetName, role: p.best_contact?.fonction ?? null }, wanted, instructions: a.instructions ?? '',
+      role, company: p.name, country: p.country, language, router, target: { name: targetName, role: p.best_contact?.fonction ?? null }, wanted, instructions: agentInstructions(a.agent, a.instructions),
     }));
     let ro: RoutingOutput | null = null;
     let rcost = 0;

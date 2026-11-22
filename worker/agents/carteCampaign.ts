@@ -13,18 +13,29 @@
  * d'envoi (./outbox.ts) les envoie dans ses horaires, au rythme réglé, sous le plafond du jour.
  * Garde-fous : pas d'e-mail → ignoré ; adresse sur « ne plus contacter » → ignoré ; un fil déjà ouvert avec cette
  * adresse ou ce contact → ignoré (pas de doublon à froid).
+ *
+ * DEUX MAILS SELON LE CONTACT (22/11, Channing : « deux types de campagnes : l'aiguillage lorsqu'on n'a pas le contact
+ * direct d'un acheteur, et le ciblé » ; « les acheteurs VO ont la main sur les stocks, c'est notre priorité ; sinon le
+ * responsable VO ; les vendeurs en tout dernier recours pour l'aiguillage, jamais en contact direct »). Le rôle lu sur la
+ * fiche décide (contactModeOf) : acheteur VO ou responsable VO nommé à son adresse → mail ciblé (ses listes, ses
+ * critères, la boutique) ; tout le reste → mail d'aiguillage (le nom et l'adresse de l'acheteur VO), avec la cible
+ * nommée quand on la connaît sans la joindre (« M. Slobodník, est-ce bien lui ? »). La doctrine de Dana (« Ce qu'elle
+ * sait », agent_settings.instructions, sinon le texte par défaut) part dans les deux prompts.
  */
 import { OPUS } from '../../src/lib/agents/aiCost';
+import { contactModeOf, contactRoleOf, splitContactName, ROLE_LABEL } from '../../src/lib/agents/campaignContacts';
+import { doctrineOf } from '../../src/lib/agents/danaDoctrine';
 import {
-  CARTE_CAMPAIGN_SYSTEM, carteCampaignPrompt, checkCampaignMail, withAgentSignature, FIRST_MAIL_SCHEMA, LANG_OF_COUNTRY,
-  type CarteCampaignMaterial, type FirstMailOutput,
+  carteCampaignSystem, carteCampaignPrompt, checkCampaignMail, withAgentSignature, FIRST_MAIL_SCHEMA, LANG_OF_COUNTRY,
+  routingSystem, routingPrompt, checkRouting, ROUTING_SCHEMA, CAMPAIGN_ROUTING_WANTED,
+  type CarteCampaignMaterial, type FirstMailOutput, type RoutingOutput,
 } from '../../src/lib/agents/firstMail';
 import { brandKey } from '../../src/lib/agents/opportunity';
 import { addressKind } from '../../src/lib/agents/qualification';
 import { suppressionMatch } from '../../src/lib/agents/sendPolicy';
 import { callClaude, BudgetReached, AiUnavailable } from './claude';
 import { live } from './live';
-import { loadOffers, type AiAgent } from './qualify';
+import type { AiAgent } from './qualify';
 import { sb, journal, loadSuppressions } from './store';
 
 interface Task { id: string; agent: string; kind: string; params: Record<string, unknown>; created_by: string | null }
@@ -57,26 +68,6 @@ async function stockOf(contactId: string): Promise<{ brands: Array<{ brand: stri
   return { brands: [...b.values()].sort(by).slice(0, 8), models: [...m.values()].sort(by).slice(0, 5) };
 }
 
-/** Nos véhicules en vente des mêmes marques, groupés par modèle — sans prix. */
-async function oursFor(brands: string[]): Promise<string[]> {
-  if (brands.length === 0) return [];
-  const order = [...new Set(brands.map(brandKey))];
-  const keys = new Set(order);
-  const offers = (await loadOffers()).filter((o) => keys.has(brandKey(o.brand)));
-  const by = new Map<string, { label: string; n: number; years: number[] }>();
-  for (const o of offers) {
-    const k = `${brandKey(o.brand)}|${o.model.toUpperCase()}`;
-    const g = by.get(k) ?? by.set(k, { label: `${o.brand} ${o.model}`.trim(), n: 0, years: [] }).get(k)!;
-    g.n++;
-    if (o.year) g.years.push(o.year);
-  }
-  const rank = (label: string) => { const i = order.findIndex((k) => brandKey(label).startsWith(k)); return i < 0 ? order.length : i; };
-  return [...by.values()].sort((x, y) => rank(x.label) - rank(y.label) || y.n - x.n).slice(0, 6).map((g) => {
-    const ys = [...new Set(g.years)].sort();
-    return `${g.label} ×${g.n}${ys.length ? ` (${ys.length > 1 ? `${ys[0]}–${ys[ys.length - 1]}` : ys[0]})` : ''}`;
-  });
-}
-
 export async function draftContactMail(contactId: string, a: AiAgent, taskId: string, camp: Campaign): Promise<Outcome> {
   const { data } = await sb.from('network_contacts').select('id, name, kind, country, city, contact_name, email, stock_total').eq('id', contactId).maybeSingle();
   const c = data as ContactRow | null;
@@ -99,41 +90,68 @@ export async function draftContactMail(contactId: string, a: AiAgent, taskId: st
   const models = focus.length
     ? [...new Set([...stock.models.filter((x) => focus.some((f) => brandKey(x.model).startsWith(brandKey(f.brand)))), ...stock.models])].slice(0, 5)
     : stock.models;
-  const ours = await oursFor([...focus, ...stock.brands].map((b) => b.brand));
-  // « Kovács Gábor — direction « … » » (fiches de Dana) : le nom, puis la fonction.
-  const [name, ...roleParts] = (c.contact_name ?? '').split(/\s+[—–-]\s+/);
-  const person = name.trim() || null;
-  const kind = email ? addressKind(email, null, person) : null;
-  const material: CarteCampaignMaterial = {
-    company: c.name, country: c.country, city: c.city, language,
-    contact: { name: person, role: roleParts.join(' — ').trim() || null, email, address: kind },
-    kind: c.kind ? KIND_FR[c.kind] ?? c.kind : null,
-    focus, brands: stock.brands, models, ours,
-    instructions: camp.consignes,
-  };
-  const prompt = carteCampaignPrompt(material);
+  // « Kovács Gábor — direction « … » » (fiches de Dana) : le nom, puis la fonction. Le rôle décide du mail.
+  const { person, role: roleText } = splitContactName(c.contact_name);
+  const kind = addressKind(email, null, person);
+  const mode = contactModeOf(c);
+  const role = contactRoleOf(c);
+  const doctrine = doctrineOf(a.instructions);
   const budget = Number(a.daily_budget_usd);
-  live(taskId, `${c.name} : rédaction du mail (IA, ${language})`);
   let out: FirstMailOutput | null = null;
   let cost = 0;
+  let prompt = '';
+  let warnings: string[] = [];
+  let words = 0;
+  let aiguillage: { cherche: string; cible: string | null } | null = null;
   try {
-    const r = await callClaude<FirstMailOutput>({
-      agent: a.agent, budgetUsd: Number.isFinite(budget) ? budget : 0, purpose: 'campagne_carte', model: OPUS,
-      system: CARTE_CAMPAIGN_SYSTEM, user: prompt, schema: FIRST_MAIL_SCHEMA as unknown as Record<string, unknown>,
-      maxTokens: 6000, effort: 'medium', taskId, fallbacks: true,
-    });
-    out = r.data;
-    cost = r.costUsd;
+    if (mode === 'direct') {
+      const material: CarteCampaignMaterial = {
+        company: c.name, country: c.country, city: c.city, language,
+        contact: { name: person, role: roleText, email, address: kind },
+        kind: c.kind ? KIND_FR[c.kind] ?? c.kind : null,
+        focus, brands: stock.brands, models, role: role === 'inconnu' ? roleText : ROLE_LABEL[role],
+        instructions: camp.consignes,
+      };
+      prompt = carteCampaignPrompt(material);
+      live(taskId, `${c.name} : mail ciblé à ${person ?? email} (IA, ${language})`);
+      const r = await callClaude<FirstMailOutput>({
+        agent: a.agent, budgetUsd: Number.isFinite(budget) ? budget : 0, purpose: 'campagne_carte', model: OPUS,
+        system: carteCampaignSystem(doctrine), user: prompt, schema: FIRST_MAIL_SCHEMA as unknown as Record<string, unknown>,
+        maxTokens: 6000, effort: 'medium', taskId, fallbacks: true,
+      });
+      out = r.data;
+      cost = r.costUsd;
+      if (out?.corps?.trim()) { const ch = checkCampaignMail(out, prompt); warnings = ch.warnings; words = ch.words; }
+    } else {
+      // Aiguillage : on écrit à qui est joignable (un vendeur VO, le service, l'adresse générale) pour obtenir l'acheteur VO.
+      // Si on connaît déjà son nom sans le joindre (acheteur VO sur info@), on le nomme : est-ce bien lui, et comment le joindre ?
+      const known = person && (role === 'acheteur' || role === 'responsable') && kind !== 'personne';
+      const router = known
+        ? { name: null, role: null, email, address: kind }
+        : { name: person, role: roleText, email, address: kind };
+      const target = known ? { name: person, role: roleText } : { name: null, role: null };
+      aiguillage = { cherche: CAMPAIGN_ROUTING_WANTED, cible: target.name };
+      prompt = routingPrompt({ role: 'dana', company: c.name, country: c.country, language, router, target, wanted: CAMPAIGN_ROUTING_WANTED, instructions: camp.consignes });
+      live(taskId, `${c.name} : mail d'aiguillage à ${person ?? email} pour obtenir l'acheteur VO (IA, ${language})`);
+      const r = await callClaude<RoutingOutput>({
+        agent: a.agent, budgetUsd: Number.isFinite(budget) ? budget : 0, purpose: 'aiguillage', model: OPUS,
+        system: routingSystem('dana', doctrine), user: prompt, schema: ROUTING_SCHEMA as unknown as Record<string, unknown>,
+        maxTokens: 3000, effort: 'low', taskId, fallbacks: true,
+      });
+      out = r.data ? { ...r.data, faits: [] } : null;
+      cost = r.costUsd;
+      if (out?.corps?.trim()) { const ch = checkRouting(out, 'dana'); warnings = ch.warnings; words = ch.words; }
+    }
   } catch (e) {
     if (e instanceof BudgetReached || e instanceof AiUnavailable) throw e;
     return { status: 'echec', name: c.name, detail: e instanceof Error ? e.message : String(e), cost: 0 };
   }
   if (!out?.corps?.trim() || !out.objet?.trim()) return { status: 'echec', name: c.name, detail: 'réponse de l\'IA sans mail', cost };
-  const check = checkCampaignMail(out, prompt);
   const notes = {
-    modele: OPUS, cout_usd: Math.round(cost * 10_000) / 10_000, langue: language, mots: check.words, faits: (out.faits ?? []).slice(0, 12), alertes: check.warnings,
+    modele: OPUS, cout_usd: Math.round(cost * 10_000) / 10_000, langue: language, mots: words, faits: (out.faits ?? []).slice(0, 12), alertes: warnings,
     texte_initial: out.corps.trim(),
-    campagne: { id: camp.id, pays: camp.pays, marques: camp.marques, marques_contact: stock.brands.slice(0, 4).map((b) => b.brand) },
+    campagne: { id: camp.id, pays: camp.pays, marques: camp.marques, marques_contact: stock.brands.slice(0, 4).map((b) => b.brand), mode, role },
+    ...(aiguillage ? { aiguillage } : {}),
   };
   const subject = out.objet.trim().slice(0, 200);
   const { data: t, error: e1 } = await sb.from('agent_threads').insert({
@@ -152,11 +170,11 @@ export async function draftContactMail(contactId: string, a: AiAgent, taskId: st
     return { status: 'echec', name: c.name, detail: `brouillon non enregistré : ${e2?.message ?? '?'}`, cost };
   }
   await sb.from('agent_threads').update({ last_message_at: new Date().toISOString(), last_direction: 'out' }).eq('id', threadId);
-  const points = check.warnings.length ? ` — ${check.warnings.length} point${check.warnings.length > 1 ? 's' : ''} à vérifier` : '';
+  const points = warnings.length ? ` — ${warnings.length} point${warnings.length > 1 ? 's' : ''} à vérifier` : '';
   await journal({
     agent: a.agent, actor: a.agent, kind: 'campagne_carte', threadId, messageId,
-    summary: `Campagne ${camp.pays}${camp.marques.length ? ` ${camp.marques.join('/')}` : ''} : mail rédigé pour ${c.name} (${c.country ?? '?'}) → ${email}, à valider${points}`,
-    details: { contact_id: c.id, campagne: camp.id, cost_usd: notes.cout_usd, langue: language, marques: stock.brands.map((b) => b.brand) },
+    summary: `Campagne ${camp.pays}${camp.marques.length ? ` ${camp.marques.join('/')}` : ''} : ${mode === 'direct' ? 'mail ciblé' : 'mail d\'aiguillage'} rédigé pour ${c.name} (${c.country ?? '?'}) → ${email}, à valider${points}`,
+    details: { contact_id: c.id, campagne: camp.id, mode, role, cost_usd: notes.cout_usd, langue: language, marques: stock.brands.map((b) => b.brand) },
   });
   return { status: 'redige', name: c.name, detail: email, cost, threadId };
 }
@@ -166,7 +184,7 @@ export async function runCarteCampaign(t: Task, a: AiAgent): Promise<{ result: R
   const raw = (t.params.campagne ?? {}) as Partial<Campaign>;
   const camp: Campaign = {
     id: String(raw.id ?? t.id), pays: String(raw.pays ?? '').toUpperCase(), marques: Array.isArray(raw.marques) ? raw.marques.map(String) : [],
-    consignes: String(raw.consignes ?? ''),
+    consignes: String(raw.consignes ?? ''), mode: raw.mode === 'direct' || raw.mode === 'aiguillage' ? raw.mode : undefined,
   };
   const ids = (Array.isArray(t.params.contact_ids) ? t.params.contact_ids : []).map(String).slice(0, 5);
   if (ids.length === 0) throw new Error('aucun contact');
