@@ -244,4 +244,14 @@ Toutes les vitrines inscrites : 372, dont 337 relevées, 253 complètes et 162 4
 | Spazio Torino (Spazio Group) | occasions /tipologia/usato/ + km 0 /tipologia/km0/ | rswusato | 783 (572 + 211) | 100 % partout |
 | Centroauto Viterbo (Centroauto VT) | tout le stock /ricerca-auto | cardveicolo | 116 (107 VO + 9 neuves) | 100 % ; année 92 % (les 9 neuves ne sont pas immatriculées) |
 
-Non ajoutés (noms seulement dans un annuaire non daté, à confirmer par Channing) : Ceccato, Di.Ba. / Car Point, Intergea, Maldarizzi. Le détail est dans le BACKLOG.
+Le 23/11, après croisement avec LinkedIn, Di.Ba. et quatre vitrines d'Intergea ont été ajoutées (premier relevé au passage de rattrapage de 16 h 34 UTC, aucun échec) :
+
+| Fiche | Vitrines | Lecteur | Voitures en stock | Prix · km · année · énergie · boîte |
+|---|---|---|---:|---|
+| Di.Ba. Pesaro (Gruppo Di.Ba.) | occasions + km 0 | youcan | 1 116 (864 + 252) | 100 % ; énergie 83 % (187 km 0 sans énergie publiée, ni carte ni fiche) |
+| Autoingros Torino (Gruppo Intergea) | occasions + neuves / km 0 / société | ibilista | 1 019 (288 + 731) | prix, km 100 % ; année 44 % (575 neuves non immatriculées) ; énergie 99 % ; boîte 88 % |
+| Intergea Nord-Est Verona (Gruppo Intergea) | occasions et km 0 | nuxtvehicles | 1 418 | 100 % partout, avec VIN, plaque et date de mise en ligne |
+| DeniCar Milano (Gruppo Intergea) | occasions + km 0 | webspark | 294 (172 + 122) | 100 % partout |
+| Marelli & Pozzi Varese (Gruppo Intergea) | occasions et km 0 | webspark | 50 | 100 % partout |
+
+Non ajoutés : Ceccato et Maldarizzi (aucun acheteur VO actuel, même croisé avec LinkedIn). Non lues chez Intergea : Mocauto, Alessandria Auto, Carvillage, Logica, Torino Auto. Le détail est dans le BACKLOG.
