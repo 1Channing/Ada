@@ -14,9 +14,9 @@
  * Rien ne part sans validation d'un administrateur.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Inbox, Plus, Archive, ArchiveRestore, MailWarning, Ban, Send, X, Reply, PenLine, Linkedin, Store } from 'lucide-react';
+import { Inbox, Plus, Archive, ArchiveRestore, MailWarning, Ban, Send, X, Reply, PenLine, Linkedin, Store, Sparkles } from 'lucide-react';
 import {
-  listMailbox, getThread, startConversation, addToThread, setThreadFlags, addSuppression, replyDraft, withSignature,
+  listMailbox, getThread, startConversation, addToThread, setThreadFlags, addSuppression, replyDraft, withSignature, queueReplyDraft,
   type AgentKey, type AgentThread, type AgentMessage, type AgentSettings, type AgentCounts, type Draft, type MailboxThread,
   contactOfThread, type ThreadContact,
 } from '../../services/agents';
@@ -66,6 +66,9 @@ export function Messagerie({ agent, settings, counts, isAdmin, userId, openThrea
   const [selected, setSelected] = useState<string | null>(openThreadId);
   const [detail, setDetail] = useState<{ thread: AgentThread | null; messages: AgentMessage[] }>({ thread: null, messages: [] });
   const [reply, setReply] = useState<Draft | null>(null);
+  // 23/11 (Channing : « dans le fil, demander à l'agente d'écrire un brouillon en réponse avec une note pour l'aider,
+  // traduit avant l'envoi ») : la note, puis la tâche ; le fil se recharge seul le temps que le brouillon arrive.
+  const [asking, setAsking] = useState<{ note: string; waiting: boolean } | null>(null);
   const [composing, setComposing] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
   const byAgent = useMemo(() => Object.fromEntries(settings.map((s) => [s.agent, s])) as Partial<Record<AgentKey, AgentSettings>>, [settings]);
@@ -90,7 +93,7 @@ export function Messagerie({ agent, settings, counts, isAdmin, userId, openThrea
     const x = all.find((t) => t.id === openThreadId);
     if (x) setFolder(folderOf(x));
   }, [openThreadId, all.length]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setReply(null); if (selected) void loadDetail(selected); else setDetail({ thread: null, messages: [] }); }, [selected, loadDetail]);
+  useEffect(() => { setReply(null); setAsking(null); if (selected) void loadDetail(selected); else setDetail({ thread: null, messages: [] }); }, [selected, loadDetail]);
   useEffect(() => { if (selected) void loadDetail(selected); }, [refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshAll = async () => { await loadList(); if (selected) await loadDetail(selected); onChanged(); };
@@ -151,6 +154,26 @@ export function Messagerie({ agent, settings, counts, isAdmin, userId, openThrea
   const answered = detail.messages.some(isRealAnswer);
   const mailed = detail.messages.some((m) => m.direction === 'out' && m.channel === 'mail' && (m.status === 'envoye' || m.status === 'envoye_main'));
   const replyKind: 'reponse' | 'relance' | null = answered ? 'reponse' : mailed ? 'relance' : null;
+  const lastIn = [...detail.messages].reverse().find(isRealAnswer) ?? null;
+  const askDraft = async () => {
+    if (!t || !s || !lastIn || !asking) return;
+    setBusy(true);
+    const e = await queueReplyDraft(t.agent, lastIn.id, asking.note, userId);
+    setBusy(false);
+    if (e) { onError(e); return; }
+    const outBefore = detail.messages.filter((m) => m.direction === 'out').length;
+    setAsking({ note: asking.note, waiting: true });
+    onInfo?.(`${s.display_name} prépare la réponse : elle apparaît sous le mail reçu dans une minute, avec sa traduction française.`);
+    // Le fil se recharge toutes les 8 s, jusqu'au brouillon (3 min au plus).
+    const threadId = t.id;
+    for (let i = 0; i < 22; i++) {
+      await new Promise((r) => setTimeout(r, 8000));
+      const r = await getThread(threadId);
+      if (r.error) break;
+      if (r.messages.filter((m) => m.direction === 'out').length > outBefore) { await refreshAll(); setAsking(null); return; }
+    }
+    setAsking(null);
+  };
   const whoOf = (x: MailboxThread) => x.counterpart_name || x.counterpart_email || (x.linkedinOnly ? x.subject.replace(/^LinkedIn\s+—\s+/, '') : 'Sans destinataire');
   const whenOf = (x: MailboxThread) => (folder === 'reception' ? x.lastIn : folder === 'envoyes' ? x.lastOut : null) ?? x.last_message_at ?? x.created_at;
 
@@ -274,10 +297,26 @@ export function Messagerie({ agent, settings, counts, isAdmin, userId, openThrea
                   <button onClick={() => setReply(null)} className="text-xs text-slate-500 hover:text-slate-800">Annuler</button>
                 </div>
               </div>
+            ) : asking ? (
+              <div className="rounded-xl border border-violet-200 p-3 space-y-2 bg-violet-50/40">
+                <p className="text-xs text-slate-600">{s.display_name} écrit la réponse à {lastIn?.from_name || lastIn?.from_email || 'son dernier mail'}, dans sa langue, avec la traduction française à côté. Une note pour l'aider (facultatif) : ce que vous voulez lui dire, dans vos mots.</p>
+                <textarea disabled={asking.waiting} autoFocus rows={3} className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-ocean/40" placeholder="ex. : on n'est pas intéressés par son offre, on cherche surtout des PHEV, HEV et EV de moins de 100 000 km ; demander sa liste" value={asking.note} onChange={(e) => setAsking({ ...asking, note: e.target.value })} />
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button disabled={busy || asking.waiting} onClick={() => void askDraft()} className={`${btn} bg-violet-600 hover:bg-violet-700 text-white`}><Sparkles className="w-4 h-4" /> {asking.waiting ? `${s.display_name} écrit…` : 'Préparer la réponse'}</button>
+                  <button onClick={() => setAsking(null)} className="text-xs text-slate-500 hover:text-slate-800">{asking.waiting ? 'Fermer (le brouillon arrivera dans le fil)' : 'Annuler'}</button>
+                </div>
+              </div>
             ) : (
-              <button onClick={() => setReply(replyDraft(t, detail.messages, s))} className={`${btn} border border-slate-300 text-slate-700 hover:bg-slate-50`}>
-                <Reply className="w-4 h-4" /> {replyKind === 'reponse' ? 'Répondre' : 'Relancer'}
-              </button>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button onClick={() => setReply(replyDraft(t, detail.messages, s))} className={`${btn} border border-slate-300 text-slate-700 hover:bg-slate-50`}>
+                  <Reply className="w-4 h-4" /> {replyKind === 'reponse' ? 'Répondre' : 'Relancer'}
+                </button>
+                {replyKind === 'reponse' && lastIn && lastIn.channel === 'mail' && (
+                  <button onClick={() => setAsking({ note: '', waiting: false })} className={`${btn} border border-violet-300 bg-violet-50 text-violet-900 hover:bg-violet-100`} title={`${s.display_name} rédige un brouillon de réponse, avec votre note, traduit`}>
+                    <Sparkles className="w-4 h-4" /> Demander un brouillon à {s.display_name}
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         )}

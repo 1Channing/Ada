@@ -53,7 +53,10 @@ export async function queueReplyDraft(agent: string, threadId: string, messageId
   if (error) console.warn(`[AGENTS] ${agent} : réponse préparée non demandée (${error.message})`);
 }
 
-export async function draftReply(messageId: string, a: AiAgent, taskId: string | null): Promise<ReplyOutcome> {
+/** 23/11 : demandée à la main depuis le fil (avec une note) — on refait même si un brouillon attend déjà, et quelle que soit l'origine de la conversation. */
+export interface ReplyAsk { note?: string | null; manual?: boolean }
+const GONE = ['valide', 'envoi', 'envoye', 'envoye_main'];
+export async function draftReply(messageId: string, a: AiAgent, taskId: string | null, req: ReplyAsk = {}): Promise<ReplyOutcome> {
   const { data } = await sb.from('agent_messages').select('id, thread_id, agent, direction, from_email, from_name, subject, classification, auto_reply, received_at, created_at').eq('id', messageId).maybeSingle();
   const inMail = data as InMail | null;
   if (!inMail) return { status: 'echec', name: messageId, detail: 'mail reçu introuvable', cost: 0 };
@@ -73,10 +76,12 @@ export async function draftReply(messageId: string, a: AiAgent, taskId: string |
   const thread = th as { id: string; subject: string; prospect_id: string | null } | null;
   const all = (ms ?? []) as ThreadMail[];
   if (!thread) return { status: 'echec', name: who, detail: 'fil introuvable', cost: 0 };
-  if (all.some((m) => m.direction === 'out' && m.channel === 'mail' && m.created_at > inMail.created_at && ANSWERED.includes(m.status))) return skip('une réponse est déjà prête ou partie');
-  if (all.some((m) => m.direction === 'in' && m.id !== inMail.id && m.created_at > inMail.created_at)) return skip('un mail plus récent est arrivé : c\'est à lui qu\'on répondra');
+  const later = (m: ThreadMail) => m.direction === 'out' && m.channel === 'mail' && m.created_at > inMail.created_at;
+  if (all.some((m) => later(m) && GONE.includes(m.status))) return skip('une réponse est déjà partie ou va partir');
+  if (!req.manual && all.some((m) => later(m) && ANSWERED.includes(m.status))) return skip('une réponse est déjà prête');
+  if (!req.manual && all.some((m) => m.direction === 'in' && m.id !== inMail.id && m.created_at > inMail.created_at)) return skip('un mail plus récent est arrivé : c\'est à lui qu\'on répondra');
   const ours = all.some((m) => m.direction === 'out' && (m.status === 'envoye' || m.status === 'envoye_main'));
-  if (!thread.prospect_id && !ours) return skip('pas une conversation lancée par MC Export');
+  if (!req.manual && !thread.prospect_id && !ours) return skip('pas une conversation lancée par MC Export');
 
   // Le matériel : le fil (les mails partis et reçus), sa fiche, les consignes de Channing.
   let company: string | null = null;
@@ -97,10 +102,10 @@ export async function draftReply(messageId: string, a: AiAgent, taskId: string |
   const ask = all.find((m) => m.direction === 'out' && m.ai_notes?.aiguillage)?.ai_notes?.aiguillage ?? null;
   const routing = ask ? { cherche: ask.cherche ?? 'pouvait nous aider', cible: ask.cible ?? null } : null;
   const lessons = await lessonsBlock(a.agent, 'mail', {});
-  const base = replyPrompt({ role, company, person: who, summary, history, instructions: agentInstructions(a.agent, a.instructions), routing });
+  const base = replyPrompt({ role, company, person: who, summary, history, instructions: agentInstructions(a.agent, a.instructions), routing, note: req.note ?? null });
   const prompt = lessons.length ? `${base}\n\n${lessons.join('\n')}` : base;
 
-  live(taskId, `${who} a répondu : ${a.display_name} prépare la réponse (IA)`);
+  live(taskId, `${who} a répondu : ${a.display_name} prépare la réponse (IA${req.note?.trim() ? ', avec votre note' : ''})`);
   let out: ReplyOutput;
   let cost = 0;
   try {
@@ -132,6 +137,7 @@ export async function draftReply(messageId: string, a: AiAgent, taskId: string |
     ai_notes: {
       modele: OPUS, cout_usd: Math.round(cost * 10_000) / 10_000, langue: out.langue, mots: check.words, faits: (out.faits ?? []).slice(0, 12), alertes: check.warnings,
       resume: out.resume, intention: out.intention, appel: !!out.appel, texte_initial: out.corps.trim(), contact_donne: given ?? null,
+      ...(req.note?.trim() ? { note_de_channing: req.note.trim() } : {}),
     },
   }).select('id');
   const id = ((ins ?? []) as Array<{ id: string }>)[0]?.id;

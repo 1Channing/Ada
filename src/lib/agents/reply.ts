@@ -108,6 +108,8 @@ export interface ReplyMaterial {
   instructions: string;
   /** 19/10 : ce fil est un aiguillage — on lui avait demandé le contact de cette personne. */
   routing?: { cherche: string; cible: string | null } | null;
+  /** 23/11 (Channing : « demander à l'agente un brouillon en réponse avec une note pour l'aider ») : ce qu'il veut dire, dans ses mots. */
+  note?: string | null;
 }
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
@@ -131,6 +133,13 @@ export function replyPrompt(m: ReplyMaterial): string {
   if (m.routing) {
     l.push('');
     l.push(`<aiguillage>Notre premier mail lui demandait le contact direct de ${m.routing.cible ?? `la personne qui ${m.routing.cherche}`}. S'il le donne, rends-le dans « contact_donne » et remercie-le simplement.</aiguillage>`);
+  }
+  if (m.note?.trim()) {
+    l.push('');
+    l.push('<note_de_channing_pour_cette_reponse>');
+    l.push(m.note.trim());
+    l.push('</note_de_channing_pour_cette_reponse>');
+    l.push('C\'est ce que Channing veut dire à cette personne : rédige-le dans la langue du fil, poliment, dans l\'ordre qu\'il donne, sans ajouter d\'autre promesse ni d\'autre sujet. Un chiffre ou une condition qu\'il écrit dans sa note peut être repris tel quel.');
   }
   l.push('');
   l.push('<consignes_de_channing>');

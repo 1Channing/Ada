@@ -115,7 +115,7 @@ function startLabel(t: Task): string {
     const k = n(t.params.account_ids) + n(t.params.dealer_ids);
     return `${k} fiche${k > 1 ? 's' : ''} à préparer`;
   }
-  if (t.kind === 'premier_mail' && t.params.reponse_a) return 'réponse à un mail reçu, à préparer';
+  if (t.kind === 'premier_mail' && t.params.reponse_a) return typeof t.params.note === 'string' && t.params.note.trim() ? 'réponse à un mail reçu, à préparer avec votre note' : 'réponse à un mail reçu, à préparer';
   if (t.kind === 'premier_mail') { const k = n(t.params.prospect_ids); return `${k} premier${k > 1 ? 's' : ''} mail${k > 1 ? 's' : ''} à écrire`; }
   if (t.kind === 'recherche_comptes' && typeof t.params.notes === 'string' && t.params.notes.trim()) return 'recherche ciblée, avec vos notes';
   if (t.kind === 'recherche_comptes') return `recherche web — ${researchLabel(t.agent, t.params)}`;
@@ -251,7 +251,8 @@ async function runReply(t: Task): Promise<{ result: Record<string, unknown>; sum
   const a = await agentRow(t.agent);
   if (!a) throw new Error('agente introuvable');
   if (!aiConfigured()) throw new AiUnavailable(NO_KEY);
-  const o = await draftReply(String(t.params.reponse_a), a, t.id);
+  // 23/11 : demandée depuis le fil (created_by) = à la main, avec sa note ; sans created_by = automatique à la réception.
+  const o = await draftReply(String(t.params.reponse_a), a, t.id, { note: typeof t.params.note === 'string' ? t.params.note : null, manual: !!t.created_by });
   const result = { reponse: true, redige: o.status === 'redige', statut: o.status, cout_usd: Math.round(o.cost * 10_000) / 10_000, detail: o.detail };
   if (o.status === 'echec') throw new Error(`${o.name} : ${o.detail}`);
   const summary = o.status === 'redige' ? `Réponse préparée pour ${o.name} : ${o.detail} — à valider (${fmtUsd(o.cost)})` : `Pas de réponse préparée pour ${o.name} : ${o.detail}`;

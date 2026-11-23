@@ -1048,6 +1048,16 @@ export async function listBenchRuns(agent: AgentKey): Promise<{ rows: AgentTask[
 // --- La campagne depuis la Carte (19/11) ---------------------------------------------------------
 
 /** Lance la rédaction : une tâche de Dana par 5 contacts, toutes marquées de la même campagne. */
+/**
+ * 23/11 (Channing : « dans le fil, pouvoir demander à l'agente d'écrire un brouillon en réponse avec une note pour
+ * l'aider, traduit avant l'envoi ») : la réponse préparée à ce mail reçu, demandée à la main — le worker la rédige dans la
+ * langue du fil avec sa traduction française, et la range « à valider » sous le mail reçu.
+ */
+export async function queueReplyDraft(agent: AgentKey, messageId: string, note: string, userId: string | null): Promise<string | null> {
+  const { error } = await sb.from('agent_tasks').insert({ agent, kind: 'premier_mail', params: { reponse_a: messageId, note: note.trim() || undefined, manuel: true }, created_by: userId });
+  return error ? errMails(error.message) : null;
+}
+
 export async function queueCampaign(contactIds: string[], campagne: Campaign, userId: string | null): Promise<string | null> {
   const ids = [...new Set(contactIds)];
   for (let i = 0; i < ids.length; i += 5) {
