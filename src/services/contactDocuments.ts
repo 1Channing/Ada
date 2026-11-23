@@ -21,9 +21,9 @@ export interface ContactDocument {
 export type ContactCategory = 'pro' | 'particulier';
 
 /** Pro ou particulier : la catégorie enregistrée, sinon déduite (société ou SIREN → pro). */
-export function contactCategory(c: { category?: string | null; company_name?: string | null; siren?: string | null }): ContactCategory {
+export function contactCategory(c: { category?: string | null; company_name?: string | null; siren?: string | null; vat_number?: string | null }): ContactCategory {
   if (c.category === 'pro' || c.category === 'particulier') return c.category;
-  return (c.company_name ?? '').trim() || (c.siren ?? '').trim() ? 'pro' : 'particulier';
+  return (c.company_name ?? '').trim() || (c.siren ?? '').trim() || (c.vat_number ?? '').trim() ? 'pro' : 'particulier';
 }
 
 /** Clé de doublon : mots du nom canonisés et triés + code postal (« Roudier

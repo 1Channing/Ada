@@ -47,6 +47,8 @@ type Contact = {
   birth_date?: string | null;
   birth_place?: string | null;
   siren?: string | null;
+  /** N° de TVA intracommunautaire d'un professionnel (23/11, Channing) : « FI12345678 », « FR12345678901 ». */
+  vat_number?: string | null;
   address_line1?: string | null;
   address_line2?: string | null;
   postal_code?: string | null;
@@ -107,6 +109,8 @@ type ContactForm = {
   city: string;
   country: string;
   siren: string;
+  /** N° de TVA intracommunautaire (23/11) — professionnels. */
+  vat_number?: string;
   /** E-mail du contact (27/09) : destinataire des cessions à signer. */
   email?: string;
 };
@@ -201,9 +205,27 @@ const EMPTY_CONTACT_FORM: ContactForm = {
  */
 function nullifyBlanks(form: ContactForm): Record<string, string | null> {
   return Object.fromEntries(
-    Object.entries(form).map(([k, v]) => [k, v === '' ? null : v]),
+    Object.entries(form).map(([k, v]) => [k, v === '' ? null : k === 'vat_number' && v ? normalizeVat(v) : v]),
   );
 }
+/** « fi 1234 5678 » → « FI12345678 » : majuscules, sans espaces, points ni tirets. */
+export const normalizeVat = (v: string): string => v.toUpperCase().replace(/[\s.-]/g, '');
+/**
+ * Écriture d'une fiche contact tant que la colonne vat_number n'existe pas (SQL du 23/11 à coller) : on réessaie
+ * sans elle, rien ne bloque — la TVA n'est simplement pas enregistrée.
+ */
+let vatColumnMissing = false;
+async function writeContactRow(run: (payload: Record<string, unknown>) => PromiseLike<{ error: { message: string } | null }>, payload: Record<string, unknown>): Promise<{ message: string } | null> {
+  const r = await run(payload);
+  if (r.error && /vat_number/i.test(r.error.message)) {
+    vatColumnMissing = true;
+    const { vat_number: _vat, ...rest } = payload;
+    void _vat;
+    return (await run(rest)).error;
+  }
+  return r.error;
+}
+const VAT_SQL_HINT = 'le n° de TVA n\'est pas enregistré : colle le SQL du 23/11 (contacts.vat_number).';
 
 // Un dossier = une voiture = deux contreparties externes qui ne changent pas
 // quand on bascule d'un côté à l'autre : le fournisseur (MC Export lui achète)
@@ -651,6 +673,7 @@ export function Administrative() {
     city: c.city || '',
     country: c.country || 'FR',
     siren: c.siren || '',
+    vat_number: c.vat_number || '',
     email: c.email || '',
   });
 
@@ -713,7 +736,8 @@ export function Administrative() {
       contact.first_name?.toLowerCase().includes(lowerQuery) ||
       contact.last_name?.toLowerCase().includes(lowerQuery) ||
       contact.company_name?.toLowerCase().includes(lowerQuery) ||
-      contact.siren?.toLowerCase().includes(lowerQuery)
+      contact.siren?.toLowerCase().includes(lowerQuery) ||
+      contact.vat_number?.toLowerCase().includes(lowerQuery)
     );
   };
 
@@ -843,7 +867,7 @@ export function Administrative() {
     // corrigés librement). Nom différent = autre entité → on cherche ou on
     // crée, la fiche d'origine reste intacte.
     if (selected && sameContactIdentity(selected, form)) {
-      await supabase.from('contacts').update(clean).eq('id', selected.id);
+      await writeContactRow((p) => supabase.from('contacts').update(p as never).eq('id', selected.id), clean);
       return selected.id;
     }
     // Filet anti-doublon par SIREN (classe du doublon MC Export 30/07 et du
@@ -856,7 +880,7 @@ export function Administrative() {
         .from('contacts').select('id').eq('siren', form.siren.trim())
         .order('created_at', { ascending: true }).limit(1).maybeSingle();
       if (bySiren) {
-        await supabase.from('contacts').update(clean).eq('id', bySiren.id);
+        await writeContactRow((p) => supabase.from('contacts').update(p as never).eq('id', bySiren.id), clean);
         return bySiren.id;
       }
     }
@@ -870,15 +894,16 @@ export function Administrative() {
         .filter((c) => contactDuplicateKey(c) === key)
         .sort((a, b) => String((a as { created_at?: string }).created_at ?? '').localeCompare(String((b as { created_at?: string }).created_at ?? '')))[0];
       if (same) {
-        await supabase.from('contacts').update(clean).eq('id', same.id);
+        await writeContactRow((p) => supabase.from('contacts').update(p as never).eq('id', same.id), clean);
         return same.id;
       }
     }
     if (hasName) {
-      const { data, error } = await supabase
-        .from('contacts').insert({ type, ...clean }).select('id').single();
-      if (error) throw error;
-      return data.id;
+      // Colonne vat_number absente (SQL du 23/11 non collé) : on réessaie sans elle.
+      let ins = await supabase.from('contacts').insert({ type, ...clean } as never).select('id').single();
+      if (ins.error && /vat_number/i.test(ins.error.message)) { const { vat_number: _vat, ...rest } = clean; void _vat; ins = await supabase.from('contacts').insert({ type, ...rest } as never).select('id').single(); }
+      if (ins.error) throw ins.error;
+      return (ins.data as { id: string }).id;
     }
     return null;
   };
@@ -998,7 +1023,7 @@ export function Administrative() {
     setContactDocs([]); setContactDocsError(null); setRenamingDocId(null);
   };
   /** Catégorie effective du formulaire : choix explicite, sinon déduite de la société / du SIREN. */
-  const formCategory: ContactCategory = newContactCategory ?? contactCategory({ company_name: newContact.company_name, siren: newContact.siren });
+  const formCategory: ContactCategory = newContactCategory ?? contactCategory({ company_name: newContact.company_name, siren: newContact.siren, vat_number: newContact.vat_number });
   const uploadDocForEditing = async (files: FileList | null) => {
     if (!editingContactId || !files?.length) return;
     setUploadingDoc(true); setContactDocsError(null);
@@ -1070,14 +1095,16 @@ export function Administrative() {
           return;
         }
       }
-      let error = await write(withCat);
-      if (error && /category/i.test(error.message)) error = await write(clean as unknown as Record<string, unknown>);
+      const writeSafe = (payload: Record<string, unknown>) => writeContactRow(async (p) => ({ error: await write(p) }), payload);
+      let error = await writeSafe(withCat);
+      if (error && /category/i.test(error.message)) error = await writeSafe(clean as unknown as Record<string, unknown>);
       if (error) throw new Error(error.message);
+      const vatLost = vatColumnMissing && !!newContact.vat_number?.trim();
       if (editingContactId) {
-        setContactNotice({ ok: true, text: `« ${label} » mis à jour.` });
+        setContactNotice(vatLost ? { ok: false, text: `« ${label} » mis à jour, mais ${VAT_SQL_HINT}` } : { ok: true, text: `« ${label} » mis à jour.` });
         setEditingContactId(null);
       } else {
-        setContactNotice({ ok: true, text: `« ${label} » ajouté (${formCategory === 'pro' ? 'professionnel' : 'particulier'}).` });
+        setContactNotice(vatLost ? { ok: false, text: `« ${label} » ajouté, mais ${VAT_SQL_HINT}` } : { ok: true, text: `« ${label} » ajouté (${formCategory === 'pro' ? 'professionnel' : 'particulier'}).` });
       }
       setNewContactCategory(null); setContactDocs([]);
       // Formulaire vidé UNIQUEMENT après une écriture réussie.
@@ -1236,6 +1263,7 @@ export function Administrative() {
       city: contact.city || '',
       country: contact.country || 'FR',
       siren: contact.siren || '',
+      vat_number: contact.vat_number || '',
       email: contact.email || '',
     };
 
@@ -1392,10 +1420,12 @@ export function Administrative() {
             city: form.city || null,
             country: form.country || 'FR',
             siren: form.siren || null,
-          })
+            vat_number: form.vat_number ? normalizeVat(form.vat_number) : null,
+          } as never)
           .eq('id', selectedContact.id);
 
-        if (error) throw error;
+        if (error && /vat_number/i.test(error.message)) setSaveMessage({ type: 'error', text: 'N° de TVA non enregistré : colle le SQL du 23/11 (contacts.vat_number).' });
+        else if (error) throw error;
         setSaveMessage({ type: 'success', text: 'Contact updated successfully!' });
       } else {
         const { error } = await supabase
@@ -1413,9 +1443,11 @@ export function Administrative() {
             city: form.city || null,
             country: form.country || 'FR',
             siren: form.siren || null,
-          });
+            vat_number: form.vat_number ? normalizeVat(form.vat_number) : null,
+          } as never);
 
-        if (error) throw error;
+        if (error && /vat_number/i.test(error.message)) setSaveMessage({ type: 'error', text: 'N° de TVA non enregistré : colle le SQL du 23/11 (contacts.vat_number).' });
+        else if (error) throw error;
         setSaveMessage({ type: 'success', text: 'Contact created successfully!' });
       }
 
@@ -1857,9 +1889,7 @@ export function Administrative() {
                       {contact.company_name || `${contact.first_name} ${contact.last_name}`}
                     </div>
                     <div className="text-xs text-slate-600 mt-0.5">
-                      {contact.siren && <span>SIREN: {contact.siren}</span>}
-                      {contact.siren && contact.city && <span className="mx-2">•</span>}
-                      {contact.city && <span>{contact.city}</span>}
+                      {[contact.siren && `SIREN ${contact.siren}`, contact.vat_number && `TVA ${contact.vat_number}`, contact.city].filter(Boolean).join(' • ')}
                     </div>
                   </button>
                 ))
@@ -1925,6 +1955,17 @@ export function Administrative() {
             type="text"
             value={form.siren}
             onChange={(e) => setForm({ ...form, siren: e.target.value })}
+            className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
+          />
+        </div>}
+
+        {!compact && <div>
+          <label className="block text-sm font-medium mb-1 text-slate-700">N° TVA intracommunautaire</label>
+          <input
+            type="text"
+            value={form.vat_number ?? ''}
+            onChange={(e) => setForm({ ...form, vat_number: e.target.value })}
+            placeholder="FR12345678901, FI12345678…"
             className="w-full px-3 py-2 bg-slate-200 border border-slate-300 rounded focus:outline-none focus:border-blue-500"
           />
         </div>}
@@ -2542,6 +2583,12 @@ export function Administrative() {
                 placeholder="SIREN (optionnel)"
                 className="px-3 py-2 bg-white border border-slate-300 rounded text-sm"
               />
+              {formCategory === 'pro' && <input
+                value={newContact.vat_number ?? ''}
+                onChange={(e) => setNewContact((c) => ({ ...c, vat_number: e.target.value }))}
+                placeholder="N° TVA intracom. (FR12345678901, FI12345678…)"
+                className="px-3 py-2 bg-white border border-slate-300 rounded text-sm"
+              />}
               <input
                 type="email"
                 value={newContact.email ?? ''}
@@ -2649,7 +2696,7 @@ export function Administrative() {
                       {nDocs > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600" title="Documents enregistrés">{nDocs} doc{nDocs > 1 ? 's' : ''}</span>}
                     </div>
                     <div className="text-xs text-slate-500 truncate">
-                      {[c.address_line1, loc, c.siren && `SIREN ${c.siren}`].filter(Boolean).join(' · ')}
+                      {[c.address_line1, loc, c.siren && `SIREN ${c.siren}`, c.vat_number && `TVA ${c.vat_number}`].filter(Boolean).join(' · ')}
                     </div>
                   </div>
                   <div className="shrink-0 flex items-center gap-4">

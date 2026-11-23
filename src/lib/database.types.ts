@@ -802,6 +802,7 @@ export type Database = {
           birth_date: string | null
           birth_place: string | null
           siren: string | null
+          vat_number: string | null
           address_line1: string | null
           address_line2: string | null
           postal_code: string | null
@@ -821,6 +822,7 @@ export type Database = {
           birth_date?: string | null
           birth_place?: string | null
           siren?: string | null
+          vat_number?: string | null
           address_line1?: string | null
           address_line2?: string | null
           postal_code?: string | null
@@ -840,6 +842,7 @@ export type Database = {
           birth_date?: string | null
           birth_place?: string | null
           siren?: string | null
+          vat_number?: string | null
           address_line1?: string | null
           address_line2?: string | null
           postal_code?: string | null
