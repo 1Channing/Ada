@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'estorik' | 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused' | 'kiaosp' | 'pappas' | 'jpauto' | 'fwcars' | 'mbmauto' | 'dunaauto' | 'schiller' | 'petranyi' | 'leierauto' | 'skodastock' | 'kiaihned' | 'autobazareu' | 'hedin' | 'kiaused' | 'todosjazdene' | 'cardveicolo';
-const PROVIDERS_KNOWN: DealerProvider[] = ['estorik', 'dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused', 'kiaosp', 'pappas', 'jpauto', 'fwcars', 'mbmauto', 'dunaauto', 'schiller', 'petranyi', 'leierauto', 'skodastock', 'kiaihned', 'autobazareu', 'hedin', 'kiaused', 'todosjazdene', 'cardveicolo'];
+export type DealerProvider = 'estorik' | 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused' | 'kiaosp' | 'pappas' | 'jpauto' | 'fwcars' | 'mbmauto' | 'dunaauto' | 'schiller' | 'petranyi' | 'leierauto' | 'skodastock' | 'kiaihned' | 'autobazareu' | 'hedin' | 'kiaused' | 'todosjazdene' | 'cardveicolo' | 'youcan' | 'ibilista' | 'nuxtvehicles';
+const PROVIDERS_KNOWN: DealerProvider[] = ['estorik', 'dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused', 'kiaosp', 'pappas', 'jpauto', 'fwcars', 'mbmauto', 'dunaauto', 'schiller', 'petranyi', 'leierauto', 'skodastock', 'kiaihned', 'autobazareu', 'hedin', 'kiaused', 'todosjazdene', 'cardveicolo', 'youcan', 'ibilista', 'nuxtvehicles'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -346,6 +346,15 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   // cardveicolo (Centroauto VT, 22/11) : site Next.js, cartes « CardVeicolo-module__<empreinte>__card » rendues côté
   // serveur (titre, « 2021 · 108.688 km · Gasolio · Manuale », « Sede di … », prix), « 116 auto trovate », « ?pagina=N ».
   if (/class="CardVeicolo-module__[\w-]+__card"/.test(html) && /CardVeicolo-module__[\w-]+__dati/.test(html)) return 'cardveicolo';
+  // youcan (Gruppo Di.Ba., 23/11) : sites de l'agence You-Can.it, cartes « annuncio » + « info-auto » + « prezzofinale »,
+  // « 865 auto trovate - Pagina 1 di 44 », pages « ?pag=N ».
+  if (/<div class="annuncio\b/.test(html) && /class="info-auto\b/.test(html) && /class="prezzofinale\b/.test(html)) return 'youcan';
+  // ibilista (Autoingros / Gruppo Intergea, 23/11) : sites de l'éditeur IBI, cartes « thmb_veicolo » + « main_data »
+  // (Chilometri, Immatricolazione, Alimentazione, Cambio) + « prezzo_esposto », pages « …&page=N » jusqu'à « MaxPage ».
+  if (/class="thmb_veicolo\b/.test(html) && /class="main_data\b/.test(html) && /prezzo_esposto/.test(html)) return 'ibilista';
+  // nuxtvehicles (Intergea Nord-Est, 23/11) : Nuxt 2, les cartes n'ont que titre et prix ; l'état de la page
+  // (« window.__NUXT__=(function(a,b,…){…}(…)) ») porte chaque voiture : km, immatriculation, énergie, boîte, VIN…
+  if (/window\.__NUXT__=\(function\(/.test(html) && /serialNumber:"/.test(html) && /mileageKm:/.test(html)) return 'nuxtvehicles';
   // eveho (VPN Autos, 05/11) : Nuxt rendu serveur, cartes « component-single-vehicle » (marque/modèle, version, prix,
   // « filedKmYear » km et année, « otherFields » énergie et boîte, lieu), 23 par page « ?page=N », « N résultats ».
   if (/class="component-single-vehicle"/.test(html) && /filedKmYear/.test(html)) return 'eveho';
@@ -2089,8 +2098,9 @@ export function websparkLdById(html: string): Map<string, WebsparkLd> {
   }
   return out;
 }
-/** Total annoncé par une liste webspark : « <strong>3193</strong> résultats trouvés ». */
-export const websparkDeclared = (html: string): number | null => num(html.match(/results-counter[^>]*>\s*<strong>\s*([\d\s  .]+)<\/strong>\s*résultats? trouvés?/)?.[1]?.replace(/[\s  .]/g, ''));
+/** Total annoncé par une liste webspark : « <strong>3193</strong> résultats trouvés » — le nombre du compteur, quelle que
+ *  soit la langue (23/11 : « <strong>174</strong> risultati trovati » chez DeniCar n'était pas lu, total inconnu). */
+export const websparkDeclared = (html: string): number | null => num(html.match(/results-counter[^>]*>\s*<strong>\s*([\d\s  .]+)<\/strong>/)?.[1]?.replace(/[\s  .]/g, ''));
 
 /** « vehiculeinfos » d'une carte openflex lu par FORME (18/11, Vikings) : « 2016 / 123844km / Essence »,
  *  « 2026 / Essence » (neuve : pas de km), « / Diesel » (sans année), « 2020 / 102666km / Essence / Electrique »
@@ -2397,7 +2407,8 @@ const pairsOf = (tokens: string[], labels: RegExp): Map<string, string> => {
   for (let i = 0; i + 1 < tokens.length; i++) if (labels.test(tokens[i]) && !m.has(tokens[i].toLowerCase())) m.set(tokens[i].toLowerCase().replace(/[:\s]+$/, ''), tokens[i + 1]);
   return m;
 };
-const gearboxOf = (t: string | null | undefined): string | null => (!t ? null : /auto|dsg|dct|eat|bva|cvt|steptronic|s-?tronic|tiptronic|powershift|séquentielle|sequentielle/i.test(t) ? 'Automatique' : /manu|schalt|bvm|handgeschakeld/i.test(t) ? 'Manuelle' : t);
+// « Cambio sequenziale » (italien, 23/11 : Gruppo Di.Ba., 11 cartes sur 20) = boîte robotisée, automatique.
+const gearboxOf = (t: string | null | undefined): string | null => (!t ? null : /auto|dsg|dct|eat|bva|cvt|steptronic|s-?tronic|tiptronic|powershift|séquentielle|sequentielle|sequenzial/i.test(t) ? 'Automatique' : /manu|schalt|bvm|handgeschakeld/i.test(t) ? 'Manuelle' : t);
 const euro = (t: string | null | undefined): number | null => {
   // « 34.999,00 € », « 11 955€ », « € 64.990,- », « 17.500€ » → entier d'euros.
   const m = (t ?? '').match(/(\d{1,3}(?:[\s .]\d{3})+|\d+)(?:[.,]\d{1,2})?\s*(?:€|&euro;|,-)|(?:€|&euro;)\s*(\d{1,3}(?:[\s .]\d{3})+|\d+)/);
@@ -3350,6 +3361,239 @@ async function scrapeCardVeicolo(url: string, firstHtml: string): Promise<Dealer
   const { pages, warnings } = await paginate(firstHtml, parse, pageUrl, { cap: Math.min(MAX_PAGES, last + 2) });
   if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
   return { provider: 'cardveicolo', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
+}
+
+// ── youcan (Gruppo Di.Ba., 23/11) : site de l'agence You-Can.it (pied de page « by You-Can.it »), cartes « annuncio »
+//    rendues côté serveur : marque et modèle (h3), version, détails reconnus à leur icône (« 20.255 chilometri »,
+//    « Ibrida/Benzina », « Cambio sequenziale », « 03/2025 », « Suv »), prix « 105.990 € » ; une bannière publicitaire
+//    « annuncio-banner » s'intercale entre les cartes (écartée) ; « 865 auto trovate - Pagina 1 di 44 », « ?pag=N ».
+export function parseYoucan(html: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  for (const part of html.split(/<div class="annuncio\b/).slice(1)) {
+    const cls = part.match(/^[^"]*"/)?.[0] ?? '';
+    if (/annuncio-banner/.test(part.slice(0, 200)) || /banner/.test(cls)) continue;
+    const href = (part.match(/location\.href='([^']+)'/)?.[1] ?? part.match(/<a class="details" href="([^"]+)"/)?.[1] ?? '').trim();
+    const id = href.match(/\/(\d+)(?:[?#]|$)/)?.[1] ?? part.match(/data-attr="(\d+)"/)?.[1];
+    if (!href || !id) continue;
+    const head = htmlText(part.match(/<h3>([\s\S]*?)<\/h3>/)?.[1] ?? '');
+    const version = htmlText(part.match(/<span class="versione">([\s\S]*?)<\/span>/)?.[1] ?? '');
+    const info = (icon: string) => htmlText(part.match(new RegExp(`<i class="[^"]*\\b(?:${icon})\\b[^"]*"><\\/i>([^<]*)<`))?.[1] ?? '');
+    const km = num(info('fa-road').match(/(\d[\d.]*)\s*(?:chilometri|km)/i)?.[1]?.replace(/\./g, ''));
+    // Le dernier montant du bloc prix (un prix barré de promotion le précéderait).
+    const amounts = [...htmlText(part.match(/<span class="prezzofinale[^"]*">([\s\S]*?)<\/span>/)?.[1] ?? '').matchAll(/(\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?\s*€/g)];
+    const price = amounts.length ? euro(`${amounts[amounts.length - 1][1]} €`) : null;
+    const kind = htmlText(part.match(/<span class="cerchio-gruppo[^"]*">([^<]*)</)?.[1] ?? '');
+    const { brand, model } = splitTitle(head);
+    out.push({
+      external_id: id, url: href, title: [head, version].filter(Boolean).join(' '), brand, model, price, km,
+      year: yearOf(info('fa-calendar(?:-check|-day|-alt)?')), fuel: info('fa-gas-pump') || null, gearbox: gearboxOf(info('fa-cogs?|fa-gears?') || null),
+      plate: null, vin: null, body: [info('fa-car-side'), /km\s*0/i.test(kind) ? 'km 0' : /nuov/i.test(kind) ? 'neuve en stock' : ''].filter(Boolean).join(' · ') || null,
+      image: part.match(/<img src="([^"]+)"/)?.[1] ?? null, listed_at: null,
+      status: /vendut/i.test(kind) ? 'sold' : /prenotat/i.test(kind) ? 'reserved' : price == null ? 'price_on_request' : null,
+      currency: 'EUR', power_ch: powerFromText(version),
+    });
+  }
+  return out;
+}
+async function scrapeYoucan(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const head = htmlText(firstHtml.match(/<span class="descrizione">([\s\S]*?)<\/span>/)?.[1] ?? '');
+  const declared = num(head.match(/(\d[\d.]*)\s*auto trovat/i)?.[1]?.replace(/\./g, ''));
+  const last = num(head.match(/Pagina\s+\d+\s+di\s+(\d+)/i)?.[1]) ?? 1;
+  const parse = (html: string): number => {
+    let cards = 0;
+    for (const v of parseYoucan(html)) { cards++; if (seen.has(v.external_id)) continue; seen.add(v.external_id); out.push(v); }
+    return cards;
+  };
+  const u = new URL(url); u.searchParams.delete('pag');
+  const pageUrl = (p: number) => { const x = new URL(u.toString()); x.searchParams.set('pag', String(p)); return x.toString(); };
+  const { pages, warnings } = await paginate(firstHtml, parse, pageUrl, { cap: Math.min(MAX_PAGES, last + 1) });
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  return { provider: 'youcan', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
+}
+
+// ── ibilista (Autoingros / Gruppo Intergea, 23/11) : site de l'éditeur IBI (logos « loghiqr.ibi.it »), cartes
+//    « thmb_veicolo » : marque, modèle, version, champs NOMMÉS (Chilometri, Immatricolazione, Alimentazione, Cambio),
+//    prix « prezzo_esposto », ville dans l'adresse de la fiche (« /auto/usato/asti/…/u2739675/ ») ; 12 par page. Le site
+//    ne publie pas de total : la dernière page est dans « MaxPage », l'adresse des pages est celle de ses propres liens
+//    (« ?FiltroTipologia=usato&Ordinamento=0&page=N » — le filtre du type doit suivre).
+export function parseIbiLista(html: string, origin: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  for (const part of html.split(/<a class="thmb_veicolo\b/).slice(1)) {
+    const href = part.match(/^[^>]*href="([^"]+)"/)?.[1];
+    if (!href) continue;
+    const field = (label: string) => htmlText(part.match(new RegExp(`<strong>\\s*${label}\\s*<\\/strong>\\s*<span>([^<]*)<\\/span>`, 'i'))?.[1] ?? '');
+    const brandRaw = htmlText(part.match(/<strong class="[^"]*\bmarca\b[^"]*">([\s\S]*?)<\/strong>/)?.[1] ?? '');
+    const brand = brandRaw ? brandRaw.toLowerCase().replace(/(^|[\s-])\p{L}/gu, (m) => m.toUpperCase()).replace(/^Bmw$/, 'BMW').replace(/^Mg$/, 'MG').replace(/^Ds$/, 'DS') : null;
+    const model = htmlText(part.match(/<span class="modello">([\s\S]*?)<\/span>/)?.[1] ?? '') || null;
+    const version = htmlText(part.match(/<span class="allestimento[^"]*">([\s\S]*?)<\/span>/)?.[1] ?? '');
+    const amounts = [...htmlText(part.match(/class="[^"]*\bprezzo_esposto\b[^"]*">([\s\S]*?)<\/p>/)?.[1] ?? '').matchAll(/(\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?\s*€/g)];
+    const price = amounts.length ? euro(`${amounts[amounts.length - 1][1]} €`) : null;
+    const kind = href.match(/^\/auto\/([a-z0-9]+)\//)?.[1] ?? '';
+    out.push({
+      // Numéro de la fiche : « u2739675 » (occasion), « n2668936 » (neuve, société) — lettre comprise, les deux séries se chevauchent.
+      external_id: href.match(/\/([a-z]\d+)\/?$/)?.[1] ?? href, url: href.startsWith('http') ? href : origin + href,
+      title: [brand, model, version].filter(Boolean).join(' '), brand, model, price, km: kmOf(field('Chilometri')), year: yearOf(field('Immatricolazione')),
+      // « Assente » (pas de boîte : électrique, hybride à train épicycloïdal) n'est pas une boîte.
+      fuel: field('Alimentazione') || null, gearbox: gearboxOf(field('Cambio').replace(/^(assente|-+|n\.?d\.?)$/i, '') || null), plate: null, vin: null,
+      // Type dans l'adresse : « usato », « km0 », « nuovo », « aziendale » (voiture de société / démonstration).
+      body: /km0|km-0|kmzero/.test(kind) ? 'km 0' : /nuov/.test(kind) ? 'neuve en stock' : /aziendal/.test(kind) ? 'démonstration' : null,
+      image: part.match(/<img class="picture[^"]*" src="([^"]+)"/)?.[1] ?? null, listed_at: null,
+      status: price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: powerFromText(version),
+      location: (href.match(/^\/auto\/[a-z0-9]+\/([a-z0-9-]+)\//)?.[1] ?? '').replace(/-/g, ' ').replace(/(^|\s)\p{L}/gu, (m) => m.toUpperCase()) || null,
+    });
+  }
+  return out;
+}
+async function scrapeIbiLista(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const parse = (html: string): number => {
+    let cards = 0;
+    for (const v of parseIbiLista(html, origin)) { cards++; if (seen.has(v.external_id)) continue; seen.add(v.external_id); out.push(v); }
+    return cards;
+  };
+  const last = num(firstHtml.match(/id="MaxPage" value="(\d+)"/)?.[1]) ?? 1;
+  // Modèle d'adresse : un lien de page du site (« …&amp;page=2 »), le numéro remplacé.
+  const tpl = unesc(firstHtml.match(/class="flx_itm\s+ricerca_page_button" href="([^"]*[?&](?:amp;)?page=)\d+"/)?.[1] ?? '');
+  const pageUrl = (p: number) => (tpl ? new URL(tpl + p, origin).toString() : (() => { const x = new URL(url); x.searchParams.set('page', String(p)); return x.toString(); })());
+  const { pages, warnings } = await paginate(firstHtml, parse, pageUrl, { cap: Math.min(MAX_PAGES, last) });
+  if (pages < last) warnings.push(`${pages} page(s) lue(s) sur ${last} annoncée(s)`);
+  return { provider: 'ibilista', total: out.length, declared: null, vehicles: out, pages, warnings };
+}
+
+/** Fin d'une chaîne JS « "…" » commençant à `i` (indice du guillemet ouvrant) : indice du guillemet fermant. */
+const jsStringEnd = (t: string, i: number): number => { let j = i + 1; while (j < t.length && t[j] !== '"') j += t[j] === '\\' ? 2 : 1; return j; };
+/** Accolade / crochet fermant qui répond à celui ouvert en `i`, chaînes sautées ; -1 si absent. */
+function jsMatch(t: string, i: number): number {
+  let depth = 0;
+  for (let j = i; j < t.length; j++) {
+    const c = t[j];
+    if (c === '"') { j = jsStringEnd(t, j); continue; }
+    if (c === '{' || c === '[' || c === '(') depth++;
+    else if (c === '}' || c === ']' || c === ')') { depth--; if (depth === 0) return j; }
+  }
+  return -1;
+}
+/**
+ * ÉTAT NUXT 2 LU SANS L'EXÉCUTER (23/11, Intergea Nord-Est). La page porte
+ * « window.__NUXT__=(function(a,b,c,…){ …corps… }(1,"Diesel",null,…)) » : les valeurs répétées sont des paramètres de
+ * la fonction, données en arguments à la fin. Rend le corps et la valeur de chaque paramètre (les littéraux : chaînes,
+ * nombres, vrai / faux / nul ; un objet, un tableau ou « Array(3) » en argument restent inconnus). Aucun code du site
+ * n'est exécuté (une page téléchargée n'est qu'une donnée).
+ */
+export function nuxt2State(html: string): { body: string; vars: Map<string, unknown> } | null {
+  const i = html.indexOf('window.__NUXT__=(function(');
+  if (i < 0) return null;
+  const pOpen = i + 'window.__NUXT__=(function('.length;
+  const pClose = html.indexOf(')', pOpen);
+  const params = html.slice(pOpen, pClose).split(',').map((x) => x.trim());
+  const bOpen = html.indexOf('{', pClose);
+  const bClose = jsMatch(html, bOpen);
+  if (bOpen < 0 || bClose < 0 || html[bClose + 1] !== '(') return null;
+  const aClose = jsMatch(html, bClose + 1);
+  if (aClose < 0) return null;
+  const args = html.slice(bClose + 2, aClose);
+  const vals: unknown[] = [];
+  for (let j = 0; j < args.length;) {
+    while (j < args.length && /[\s,]/.test(args[j])) j++;
+    if (j >= args.length) break;
+    const c = args[j];
+    if (c === '"') { const e = jsStringEnd(args, j); try { vals.push(JSON.parse(args.slice(j, e + 1))); } catch { vals.push(undefined); } j = e + 1; continue; }
+    if (c === '{' || c === '[') { j = jsMatch(args, j) + 1 || args.length; vals.push(undefined); continue; }
+    const m = args.slice(j).match(/^(-?\d+(?:\.\d+)?(?:e[+-]?\d+)?|true|false|null|void 0|undefined|[A-Za-z_$][\w$.]*(?:\([^()]*\))?)/);
+    if (!m) { vals.push(undefined); j = args.indexOf(',', j) < 0 ? args.length : args.indexOf(',', j) + 1; continue; }
+    const tok = m[1];
+    vals.push(/^-?\d/.test(tok) ? Number(tok) : tok === 'true' ? true : tok === 'false' ? false : tok === 'null' ? null : undefined);
+    j += tok.length;
+  }
+  const vars = new Map<string, unknown>();
+  params.forEach((p, k) => vars.set(p, vals[k]));
+  return { body: html.slice(bOpen + 1, bClose), vars };
+}
+/** Objets de l'état Nuxt 2 qui contiennent la clé `key` (une voiture par « serialNumber ») : le texte de chacun. */
+export function nuxt2Objects(body: string, key: string): string[] {
+  const out: string[] = [];
+  let from = 0;
+  for (;;) {
+    const k = body.indexOf(`${key}:`, from);
+    if (k < 0) break;
+    // Accolade ouvrante de l'objet qui contient la clé (en remontant, chaînes et objets voisins sautés).
+    let depth = 0, j = k;
+    while (--j >= 0) {
+      const c = body[j];
+      if (c === '"') { let q = j - 1; while (q >= 0 && !(body[q] === '"' && body[q - 1] !== '\\')) q--; j = q; continue; }
+      if (c === '}' || c === ']') depth++;
+      else if (c === '{' || c === '[') { if (depth === 0) break; depth--; }
+    }
+    const end = j >= 0 ? jsMatch(body, j) : -1;
+    if (j < 0 || end < 0) { from = k + key.length; continue; }
+    out.push(body.slice(j, end + 1));
+    from = end + 1;
+  }
+  return out;
+}
+/** Valeur de la PREMIÈRE clé `key` d'un objet de l'état Nuxt 2 : littéral, ou paramètre résolu. */
+export function nuxt2Value(obj: string, key: string, vars: Map<string, unknown>): unknown {
+  const m = obj.match(new RegExp(`[{,]${key}:("(?:[^"\\\\]|\\\\.)*"|-?\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?|[A-Za-z_$][\\w$]*)`));
+  if (!m) return undefined;
+  const v = m[1];
+  if (v.startsWith('"')) { try { return JSON.parse(v); } catch { return undefined; } }
+  if (/^-?\d/.test(v)) return Number(v);
+  if (v === 'true' || v === 'false') return v === 'true';
+  if (v === 'null') return null;
+  return vars.get(v);
+}
+// ── nuxtvehicles (Intergea Nord-Est, 23/11) : 1 426 occasions, 15 par page, « ?page=N », « 1426 risultati di ricerca ».
+//    Chaque voiture de l'état : serialNumber (numéro de l'adresse « /auto/<slug> »), marque, modèle, version, prix
+//    affiché (« displayPrice » ; « marketPrice » = prix barré), km, date d'immatriculation, énergie, boîte, chevaux,
+//    VIN, plaque, ville du site, type (usato / km0 / nuovo), date de création de l'annonce.
+export function nuxtVehicles(html: string, origin: string): DealerVehicle[] {
+  const st = nuxt2State(html);
+  if (!st) return [];
+  const out: DealerVehicle[] = [];
+  const str = (x: unknown) => (typeof x === 'string' && x.trim() ? x.trim() : null);
+  const nb = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : typeof x === 'string' && /^\d+(\.\d+)?$/.test(x) ? Number(x) : null);
+  for (const o of nuxt2Objects(st.body, 'serialNumber')) {
+    const v = (k: string) => nuxt2Value(o, k, st.vars);
+    const id = str(v('serialNumber')), slug = str(v('slug'));
+    if (!id || !slug) continue;
+    // Version parfois préfixée de la marque et du modèle (« AUDI A6 ALLROAD QUATTRO ») : ils ne sont pas répétés au titre.
+    const brand = str(v('brand')), model = str(v('model'));
+    const version = (str(v('version')) ?? '').replace(new RegExp(`^${(brand ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+`, 'i'), '') || null;
+    const reg = str(v('registrationDate'));
+    const kind = (str(v('realType')) ?? str(v('type')) ?? '').toLowerCase();
+    const price = priceOrNull(nb(v('displayPrice')) ?? nb(v('price')));
+    const created = str(v('createdAt'));
+    out.push({
+      external_id: id, url: `${origin}/auto/${slug}`, title: [brand, version && model && !version.toLowerCase().startsWith(model.toLowerCase()) ? `${model} ${version}` : version ?? model].filter(Boolean).join(' '),
+      brand, model, price, km: nb(v('mileageKm')), year: yearOf(reg) ?? nb(v('computedVehicleYear')), fuel: str(v('fuelType')), gearbox: gearboxOf(str(v('gearType'))),
+      plate: str(v('plate')), vin: /^[A-HJ-NPR-Z0-9]{17}$/.test(str(v('vin')) ?? '') ? str(v('vin')) : null, body: /km\s*0|km0/.test(kind) ? 'km 0' : /nuov|new/.test(kind) ? 'neuve en stock' : null,
+      image: str(v('imageUrl')), listed_at: created && /^\d{4}-\d{2}-\d{2}/.test(created) ? created : null,
+      status: price == null ? 'price_on_request' : null, currency: 'EUR', power_ch: nb(v('hp')), location: str(v('venueTown')),
+    });
+  }
+  return out;
+}
+async function scrapeNuxtVehicles(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const declared = num(htmlText(firstHtml).match(/(\d[\d.]*)\s*risultati di ricerca/i)?.[1]?.replace(/\./g, ''));
+  const parse = (html: string): number => {
+    let cards = 0;
+    for (const v of nuxtVehicles(html, origin)) { cards++; if (seen.has(v.external_id)) continue; seen.add(v.external_id); out.push(v); }
+    return cards;
+  };
+  const per = Math.max(1, nuxtVehicles(firstHtml, origin).length);
+  const last = declared ? Math.ceil(declared / per) : 1;
+  const u = new URL(url); u.searchParams.delete('page');
+  const pageUrl = (p: number) => { const x = new URL(u.toString()); x.searchParams.set('page', String(p)); return x.toString(); };
+  const { pages, warnings } = await paginate(firstHtml, parse, pageUrl, { cap: Math.min(MAX_PAGES, last + 2) });
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  return { provider: 'nuxtvehicles', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
 }
 
 // ── eveho (VPN Autos, 05/11) : 1 461 voitures, 23 par page, « ?page=N ».
@@ -7026,6 +7270,9 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'vehiclelistapi') return scrapeVehicleListApi(url);
   if (provider === 'rswusato') return scrapeRswUsato(url, first.text);
   if (provider === 'cardveicolo') return scrapeCardVeicolo(url, first.text);
+  if (provider === 'youcan') return scrapeYoucan(url, first.text);
+  if (provider === 'ibilista') return scrapeIbiLista(url, first.text);
+  if (provider === 'nuxtvehicles') return scrapeNuxtVehicles(url, first.text);
   if (provider === 'eveho') return scrapeEveho(url, first.text);
   if (provider === 'autopalace') return scrapeAutopalace(url, first.text);
   if (provider === 'estorik') return scrapeEstorik(url, first.text);

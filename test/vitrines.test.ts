@@ -644,6 +644,89 @@ console.log('\n=== ITALIE (22/11) : SPAZIO GROUP (rswusato par type, tris réuni
     cv.vehicles.map((v) => [v.external_id, v.price, v.km, v.year, v.fuel, v.gearbox, v.body, v.status]));
 }
 
+console.log('\n=== ITALIE (23/11) : DI.BA. (youcan), AUTOINGROS (ibilista), INTERGEA NORD-EST (état Nuxt 2), MOTORK EN ITALIEN ===\n');
+{
+  const dsj = await import('../worker/dealerStock');
+  // Di.Ba. : carte réelle (gruppodiba.it/auto-usate, 22/11), allégée ; une bannière publicitaire entre les cartes.
+  const yc = (id: number, h3: string, km: string, fuel: string, gear: string, date: string, price: string) => `<div class="annuncio col-12 float-left reset-padding" onclick="location.href='https://yc.test/bmw-xm-usate/suv-${id}euro/${id}?customlabel=high'">
+    <div class="titolo-auto col-12 float-left"><i class="far fa-heart" data-attr="${id}"></i><h3>${h3}</h3><span class="versione">XM 4.4 phev auto</span></div>
+    <div class="foto-auto col-7 col-md-4 col-xl-5 float-left"><span class="cerchio-gruppo usate">Usata</span><img src="https://yc.test/foto/medium/${id}/1.jpg" alt=""/></div>
+    <div class="info-auto col-5 col-md-3 col-xl-4 float-left">
+      <span><i class="fas fa-road"></i> ${km} chilometri</span>
+      <span><i class="fas fa-gas-pump"></i> ${fuel}</span>
+      <span><i class="fas fa-cogs"></i> ${gear}</span>
+      <span><i class="far fa-calendar-check"></i> ${date}</span>
+      <span><i class="fas fa-car-side"></i> Suv</span>
+    </div>
+    <div class="prezzo-auto col-12 col-md-5 col-xl-3 float-left"><span class="prezzofinale d-flex justify-content-between"><font class="title">Prezzo:</font><font class="value"> ${price} &euro; </font></span></div></div>`;
+  const banner = `<div class="annuncio col-12 float-left reset-padding annuncio-banner" onclick="location.href='https://yc.test/noleggio-breve-termine'"><img src="https://yc.test/banner.jpg" alt=""/></div>`;
+  const ycHead = (n: number, p: number, of: number) => `<span class="descrizione">${n} auto trovate - Pagina ${p} di ${of}</span><a href="https://yc.test/auto-usate?pag=2 ">2</a>`;
+  pages['https://yc.test/auto-usate'] = ycHead(3, 1, 2) + yc(94772, 'BMW XM', '20.255', 'Ibrida/Benzina', 'Cambio sequenziale', '03/2025', '105.990') + banner + yc(95650, 'BMW Serie 7 Berlina', '16.441', 'Ibrida/Diesel', 'Cambio manuale', '07/2024', '83.700');
+  pages['https://yc.test/auto-usate?pag=2'] = ycHead(3, 2, 2) + yc(90001, 'Fiat Panda', '1.200', 'Benzina', 'Cambio automatico', '01/2026', '14.900');
+  ok(dsj.detectDealerProvider(pages['https://yc.test/auto-usate']) === 'youcan', 'Di.Ba. : cartes « annuncio / info-auto / prezzofinale » reconnues (youcan)');
+  const ycs = await dsj.fetchDealerStock('https://yc.test/auto-usate');
+  const xm = ycs.vehicles.find((v) => v.external_id === '94772');
+  ok(ycs.vehicles.length === 3 && ycs.declared === 3 && !ycs.vehicles.some((v) => /noleggio/.test(v.url ?? '')),
+    'Di.Ba. : « 3 auto trovate », deux pages « ?pag=N », la bannière publicitaire n\'est pas une voiture', ycs.vehicles.map((v) => v.external_id));
+  ok(xm?.km === 20255 && xm?.year === 2025 && xm?.fuel === 'Ibrida/Benzina' && xm?.gearbox === 'Automatique' && xm?.price === 105990 && xm?.brand === 'BMW' && xm?.body === 'Suv'
+    && ycs.vehicles.find((v) => v.external_id === '95650')?.gearbox === 'Manuelle',
+    'Di.Ba. : « 20.255 chilometri », « 03/2025 », « Cambio sequenziale » = automatique, prix', xm);
+
+  // Autoingros : carte réelle (autoingros.it, 22/11), allégée ; champs nommés ; pages par les liens du site.
+  const ib = (id: string, city: string, kind: string, km: string, year: string, fuel: string, gear: string, price: string) => `<li class="glide__slide">
+	<a class="thmb_veicolo  brdr_rad_std bkg_clr_bw_fff pos_rel items_out" href="/auto/${kind}/${city}/alfa-romeo-tonale-tonale-1-6-sprint-130cv-tct6-diesel/${id}/">
+		<div class="first_part pos_rel"><p class="marca_modello tac"><strong class="font_clr_col_01 uppercase marca">ALFA ROMEO</strong>
+				<span class="modello">Tonale</span><br /><span class="allestimento text_clamp line_2 font_clr_gry_04">Tonale 1.6 Sprint 130cv tct6</span></p></div>
+		<div class="media pos_rel"><img class="picture absolut_cntr fit_contain w_100" src="https://img.test/${id}.jpg" alt="" /></div>
+		<div class="main_data d_flx j_start ai_center ac_center">
+				<div class="item"><i class="fa-solid fa-road"></i><p><strong>Chilometri</strong><span>${km}</span></p></div>
+				<div class="item"><i class="fa-solid fa-calendar-day"></i><p><strong>Immatricolazione</strong><span>${year}</span></p></div>
+				<div class="item"><i class="fa-solid fa-gas-pump"></i><p><strong>Alimentazione</strong><span>${fuel}</span></p></div>
+				<div class="item"><i class="fa-solid fa-gear"></i><p><strong>Cambio</strong><span>${gear}</span></p></div>
+		</div>
+		<div class="prezzo promozione d_flx ac_center ai_center brdr_rad_std"><p class="tac prezzo_esposto"><strong> ${price} € </strong></p></div></a></li>`;
+  const ibNav = '<input type="hidden" id="MaxPage" value="2" /><a class="flx_itm  ricerca_page_button" href="/auto-usate-torino?FiltroTipologia=usato&amp;Ordinamento=0&amp;page=2" title="vai alla pagina 2">2</a>';
+  pages['https://ib.test/auto-usate-torino/'] = ib('u2741861', 'rosta', 'usato', '41.000 km', '2023', 'Diesel', 'Semiautomatico', '21.900') + ib('u2739675', 'asti', 'usato', '41.000 km', '2023', 'Elettrica/Benzina', 'Manuale', '22.900') + ibNav;
+  pages['https://ib.test/auto-usate-torino?FiltroTipologia=usato&Ordinamento=0&page=2'] = ib('u2742992', 'torino', 'aziendale', '10 km', '2025', 'Benzina', 'Manuale', '19.500')
+    + ib('n2668936', 'rosta', 'nuovo', '0 km', '', 'Elettrica', 'Assente', '46.200') + ibNav;
+  ok(dsj.detectDealerProvider(pages['https://ib.test/auto-usate-torino/']) === 'ibilista', 'Autoingros : cartes « thmb_veicolo / main_data / prezzo_esposto » reconnues (ibilista)');
+  const ibs = await dsj.fetchDealerStock('https://ib.test/auto-usate-torino/');
+  const t1 = ibs.vehicles.find((v) => v.external_id === 'u2741861');
+  ok(ibs.vehicles.length === 4 && ibs.pages === 2 && !ibs.warnings.some((w) => /page\(s\) lue\(s\)/.test(w)),
+    'Autoingros : la page 2 suit le lien du site (filtre du type gardé), jusqu\'à « MaxPage »', [ibs.vehicles.length, ibs.pages, ibs.warnings]);
+  ok(t1?.brand === 'Alfa Romeo' && t1?.model === 'Tonale' && t1?.km === 41000 && t1?.year === 2023 && t1?.fuel === 'Diesel' && t1?.gearbox === 'Automatique' && t1?.price === 21900 && t1?.location === 'Rosta'
+    && ibs.vehicles.find((v) => v.external_id === 'u2742992')?.body === 'démonstration',
+    'Autoingros : champs nommés, « Semiautomatico » = automatique, ville de l\'adresse, voiture « aziendale » = démonstration', t1);
+  const nv1 = ibs.vehicles.find((v) => v.external_id === 'n2668936');
+  ok(nv1?.body === 'neuve en stock' && nv1?.gearbox === null && nv1?.year === null && nv1?.km === 0,
+    'Autoingros : neuve « n2668936 » (lettre gardée dans le numéro), boîte « Assente » = inconnue, pas d\'année', nv1);
+
+  // Intergea Nord-Est : état Nuxt 2 (forme réelle du 22/11) — valeurs répétées passées en arguments, lues SANS exécuter.
+  const nuxt = (vehs: string[], n: number) => `<p class="text-sm mt-2 mb-0 md:pb-0 md:block"> ${n} risultati di ricerca </p><script>window.__NUXT__=(function(a,b,c,d,f,q,I,ek){`
+    + `dt.price={min:b,max:176010};${vehs.map((v, k) => `ed[${k}]=${v};`).join('')}return {layout:"default",data:[{}]}}(false,0,"",1,"used","Manuale","Benzina","208"));</script>`;
+  const nv = (serial: string, extra: string) => `{id:"x${serial}",erpId:"U${serial}",price:7900,displayPrice:7400,marketPrice:8100,promo:{name:"Super \\u002F offerta",legal:"Rate {12} da 77€, \\"TAN\\" 9%"},serialNumber:"${serial}",brand:"Peugeot",model:ek,`
+    + `${extra},slug:"peugeot-208-12-puretech-autoteam9-${serial}",type:f,realType:f,createdAt:"2026-11-04T06:12:18+00:00",tech:{hp:"82",kw:60,fuelType:I,gearType:q},venue:{venueTown:"Verona"},imageUrl:"https:\\u002F\\u002Fimg.test\\u002F${serial}.jpg"}`;
+  pages['https://nx.test/auto?conditions=used'] = nuxt([nv('12216320', 'mileageKm:95757,plate:"FC037RE",registrationDate:"2016-02-24",version:"208 1.2 PureTech 82cv Access",vin:"VF3CCHMZ6FT177661"'),
+    nv('12466718', 'mileageKm:115000,plate:"FA750SP",registrationDate:"2015-10-19",version:"208 5p 1.6 bluehdi Active 75cv",vin:"VF3CCBHW6FT137200"')], 3);
+  pages['https://nx.test/auto?conditions=used&page=2'] = nuxt([nv('11760906', 'mileageKm:100241,plate:"FS924SJ",registrationDate:"2018-08-29",version:"Up! 1.0 eco up! Move up! 68cv",vin:"WVWZZZAAZJD190389"')], 3);
+  ok(dsj.detectDealerProvider(pages['https://nx.test/auto?conditions=used']) === 'nuxtvehicles', 'Intergea Nord-Est : état Nuxt 2 avec les voitures reconnu (nuxtvehicles)');
+  const nxs = await dsj.fetchDealerStock('https://nx.test/auto?conditions=used');
+  const p208 = nxs.vehicles.find((v) => v.external_id === '12216320');
+  ok(nxs.vehicles.length === 3 && nxs.declared === 3, 'Intergea Nord-Est : « 3 risultati di ricerca », pages « &page=N » : 3 voitures sur 3', nxs.vehicles.map((v) => v.external_id));
+  ok(p208?.price === 7400 && p208?.km === 95757 && p208?.year === 2016 && p208?.fuel === 'Benzina' && p208?.gearbox === 'Manuelle' && p208?.model === '208' && p208?.vin === 'VF3CCHMZ6FT177661'
+    && p208?.plate === 'FC037RE' && p208?.power_ch === 82 && p208?.location === 'Verona' && p208?.listed_at === '2026-11-04T06:12:18+00:00' && p208?.image === 'https://img.test/12216320.jpg'
+    && p208?.url === 'https://nx.test/auto/peugeot-208-12-puretech-autoteam9-12216320',
+    'Intergea Nord-Est : prix affiché, km, immatriculation, énergie et boîte (paramètres de la fonction), VIN, plaque, chevaux, ville, date de mise en ligne', p208);
+  const st = dsj.nuxt2State(pages['https://nx.test/auto?conditions=used']);
+  ok(st?.vars.get('f') === 'used' && st?.vars.get('b') === 0 && st?.vars.get('a') === false && dsj.nuxt2Objects(st!.body, 'serialNumber').length === 2,
+    'état Nuxt 2 : arguments de la fonction relus comme littéraux (rien n\'est exécuté), un objet par voiture malgré les accolades des textes', [...(st?.vars ?? [])]);
+
+  // MotorK en italien : le total du compteur (« <strong>174</strong> risultati trovati ») est lu.
+  ok(dsj.websparkDeclared('<span class="stock-listing__results-counter" x-ref="resultsFoundText">\n        <strong>174</strong> risultati trovati\n    </span>') === 174
+    && dsj.websparkDeclared('<span class="stock-listing__results-counter" x-ref="resultsFoundText"><strong>3 193</strong> résultats trouvés</span>') === 3193,
+    'MotorK : total du compteur lu en italien comme en français');
+}
+
 console.log('\n=== POLITESSE : PAS PLUS D\'UNE REQUÊTE TOUTES LES 350 MS PAR SITE ===\n');
 {
   const { reserveSiteSlot, SITE_MIN_GAP_MS } = await import('../worker/dealerStock');
