@@ -25,7 +25,7 @@ import { GroupMailModal } from '../components/GroupMailModal';
 import { listLatestStockRuns, listRunningStockRuns, subscribeDealerScans, isDealerScanning, activeDealerScans, queueDealerScans, queuedDealerScans, cancelQueuedDealerScans, type LatestStockRun } from '../services/dealerStock';
 import {
   loadNetwork, saveContact, deleteContact, moveContact, saveContactModels, subscribeNetwork, contactMatchesQuery,
-  KIND_LABEL, ROLE_LABEL, RELATION_LABEL, RELATION_SUGGESTIONS, isAiContact, AI_SOURCE_LABEL,
+  KIND_LABEL, ROLE_LABEL, RELATION_LABEL, RELATION_SUGGESTIONS, RELATION_HELP, relationLevelOf, latestAgentThread, isAiContact, AI_SOURCE_LABEL,
   type NetworkContact, type ContactInput, type ContactKind, type ContactRole,
 } from '../services/network';
 import { CITIES, COUNTRY_NAMES, COUNTRY_CENTROIDS, NETWORK_COUNTRIES, findCities, findCity } from '../data/cities';
@@ -57,7 +57,10 @@ function unproject(px: number, py: number): [number, number] {
 interface CountryGeo { id: string; name: string; rings: Array<Array<[number, number]>> }
 interface View { k: number; tx: number; ty: number }
 const ROLE_COLOR: Record<ContactRole, string> = { vendeur: '#2C5F9E', acheteur: '#EA7A2B', les_deux: '#0f9d8a' };
-const RELATION_COLOR: Record<string, string> = { chaud: '#ef4444', tiede: '#f59e0b', froid: '#94a3b8', nouveau: '#8b5cf6' };
+// 23/11 : Partenaire (deal fait) vert, Discussion (il a répondu à Dana) bleu, Prospect (acheteur VO connu) ambre, Données gris.
+const RELATION_COLOR: Record<string, string> = { partenaire: '#16a34a', discussion: '#2563eb', prospect: '#f59e0b', donnees: '#94a3b8', chaud: '#ef4444', tiede: '#f59e0b', froid: '#94a3b8', nouveau: '#8b5cf6' };
+/** Niveau affiché d'une fiche : son mot enregistré, les anciens mots traduits (chaud → Discussion…). */
+const levelOf = (c: { relation: string }): string | null => relationLevelOf(c.relation);
 const FLAG: Record<string, string> = { FR: '🇫🇷', NL: '🇳🇱', BE: '🇧🇪', DE: '🇩🇪', DK: '🇩🇰', SE: '🇸🇪', IT: '🇮🇹', ES: '🇪🇸', HU: '🇭🇺', LT: '🇱🇹', LU: '🇱🇺', AT: '🇦🇹', CH: '🇨🇭', PL: '🇵🇱', CZ: '🇨🇿', PT: '🇵🇹', NO: '🇳🇴', FI: '🇫🇮', IE: '🇮🇪', GB: '🇬🇧', EE: '🇪🇪', LV: '🇱🇻', RO: '🇷🇴', SK: '🇸🇰', SI: '🇸🇮', HR: '🇭🇷', BG: '🇧🇬', GR: '🇬🇷', RS: '🇷🇸', MA: '🇲🇦', TR: '🇹🇷', UA: '🇺🇦', GE: '🇬🇪' };
 
 const emptyInput = (country = 'NL'): ContactInput => ({
@@ -329,7 +332,7 @@ export function Carte() {
     && (!countryFilter || c.country === countryFilter)
     && (!kindFilter || c.kind === kindFilter)
     && (!brandFilter || c.models.some((m) => m.brand.trim().toUpperCase() === brandFilter))
-    && (!relationFilter || c.relation === relationFilter)
+    && (!relationFilter || levelOf(c) === relationFilter)
     && (!aiOnly || isAiContact(c))
     && contactMatchesQuery(c, query)), [contacts, roleFilter, countryFilter, kindFilter, brandFilter, relationFilter, aiOnly, query]);
   const kinds = useMemo(() => (Object.keys(KIND_LABEL) as ContactKind[]).filter((k) => contacts.some((c) => c.kind === k)), [contacts]);
@@ -469,10 +472,11 @@ export function Carte() {
               }
               const c = single.c;
               const color = ROLE_COLOR[c.role];
-              const rel = RELATION_COLOR[c.relation];
+              const lvl = levelOf(c);
+              const rel = lvl ? RELATION_COLOR[lvl] : undefined;
               return (
                 <g key={c.id} data-x={single.x} data-y={single.y} data-pin={c.id} transform={`translate(${sx} ${sy})`} className="cursor-pointer">
-                  {c.relation === 'chaud' && <circle r={isSel ? 20 : 16} fill={rel} opacity={0.18}><animate attributeName="r" values={`${isSel ? 16 : 12};${isSel ? 24 : 20};${isSel ? 16 : 12}`} dur="2.2s" repeatCount="indefinite" /></circle>}
+                  {lvl === 'discussion' && <circle r={isSel ? 20 : 16} fill={rel} opacity={0.18}><animate attributeName="r" values={`${isSel ? 16 : 12};${isSel ? 24 : 20};${isSel ? 16 : 12}`} dur="2.2s" repeatCount="indefinite" /></circle>}
                   {rel && <circle r={isSel ? 12.5 : 10.5} fill="none" stroke={rel} strokeWidth={2} opacity={0.9} />}
                   <g filter="url(#pinShadow)">
                     <circle r={isSel ? 9 : 7} fill={color} stroke="#fff" strokeWidth={2} strokeDasharray={single.placed ? undefined : '2 2'} opacity={single.placed ? 1 : 0.75} />
@@ -518,7 +522,7 @@ export function Carte() {
           ))}
           <div className="border-t border-slate-200 my-0.5" />
           {RELATION_SUGGESTIONS.map((r) => (
-            <button key={r} onClick={() => setRelationFilter((f) => (f === r ? null : r))} className={`flex items-center gap-2 rounded px-1 -mx-1 ${relationFilter === r ? 'bg-slate-100 font-semibold' : 'hover:bg-slate-50'}`}>
+            <button key={r} title={RELATION_HELP[r]} onClick={() => setRelationFilter((f) => (f === r ? null : r))} className={`flex items-center gap-2 rounded px-1 -mx-1 ${relationFilter === r ? 'bg-slate-100 font-semibold' : 'hover:bg-slate-50'}`}>
               <span className="w-2.5 h-2.5 rounded-full border-2" style={{ borderColor: RELATION_COLOR[r] }} /> {RELATION_LABEL[r]}
             </button>
           ))}
@@ -638,7 +642,7 @@ export function Carte() {
                     <span className="w-2.5 h-2.5 rounded-full shrink-0 border border-white shadow" style={{ background: ROLE_COLOR[c.role] }} />
                     <span className="font-medium text-slate-900 truncate">{c.name}</span>
                     {isAiContact(c) && <span title="Ajouté par une agente IA" className="text-[10px] font-medium rounded-full px-1.5 py-0.5 bg-violet-50 text-violet-700 border border-violet-200 shrink-0">{AI_SOURCE_LABEL[c.source as 'ada' | 'dana']}</span>}
-                    {c.relation && <span className="ml-auto text-[10px] font-semibold uppercase tracking-wide rounded-full px-1.5 py-0.5 text-white shrink-0" style={{ background: RELATION_COLOR[c.relation] ?? '#64748b' }}>{RELATION_LABEL[c.relation] ?? c.relation}</span>}
+                    {levelOf(c) && <span title={RELATION_HELP[levelOf(c)!]} className="ml-auto text-[10px] font-semibold uppercase tracking-wide rounded-full px-1.5 py-0.5 text-white shrink-0" style={{ background: RELATION_COLOR[levelOf(c)!] ?? '#64748b' }}>{RELATION_LABEL[levelOf(c)!]}</span>}
                   </div>
                   <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
                     <span>{FLAG[c.country] ?? ''} {c.city ?? <em className="text-amber-600 not-italic">à placer</em>}</span>
@@ -762,7 +766,10 @@ function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, on
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
         </div>
         <div className="flex flex-wrap gap-1.5 mt-3">
-          {c.relation && <span className="text-[11px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 text-white" style={{ background: RELATION_COLOR[c.relation] ?? '#64748b' }}>{RELATION_LABEL[c.relation] ?? c.relation}</span>}
+          {levelOf(c) && <span title={RELATION_HELP[levelOf(c)!]} className="text-[11px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 text-white" style={{ background: RELATION_COLOR[levelOf(c)!] ?? '#64748b' }}>{RELATION_LABEL[levelOf(c)!]}</span>}
+          {/* FIL DE L'AGENTE (23/11, Channing : « un raccourci vers le fil de conversation dans la campagne de Dana ») :
+              le fil le plus récent rattaché à la fiche s'ouvre dans la Messagerie de l'agente. */}
+          <ThreadLink contactId={c.id} />
           {isAiContact(c) && <span className="text-[11px] font-medium rounded-full px-2 py-0.5 bg-violet-50 text-violet-700 border border-violet-200">Ajouté par {c.source === 'ada' ? 'Ada' : 'Dana'} (IA){c.ai_added_at ? ` le ${new Date(c.ai_added_at).toLocaleDateString('fr-FR')}` : ''}</span>}
           {c.market_share != null && <span className="text-[11px] bg-slate-100 text-slate-600 rounded-full px-2 py-0.5">{c.market_share.toLocaleString('fr-FR')} % du panel</span>}
           <StockFigure c={c} run={run} chip scanning={scanning} />
@@ -947,9 +954,12 @@ function ContactForm({ value: v, models, onChange, onModels, onPlace, onCancel, 
           <label className={label}>Relation</label>
           <div className="flex flex-wrap gap-1.5">
             {RELATION_SUGGESTIONS.map((r) => (
-              <button type="button" key={r} onClick={() => set({ relation: v.relation === r ? '' : r })} className={`text-xs rounded-full px-2.5 py-1 border transition-colors ${v.relation === r ? 'text-white border-transparent' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`} style={v.relation === r ? { background: RELATION_COLOR[r] } : undefined}>{RELATION_LABEL[r]}</button>
+              <button type="button" key={r} title={RELATION_HELP[r]} onClick={() => set({ relation: relationLevelOf(v.relation) === r ? '' : r })} className={`text-xs rounded-full px-2.5 py-1 border transition-colors ${relationLevelOf(v.relation) === r ? 'text-white border-transparent' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`} style={relationLevelOf(v.relation) === r ? { background: RELATION_COLOR[r] } : undefined}>{RELATION_LABEL[r]}</button>
             ))}
           </div>
+          {/* Ce que l'on coche (23/11) : la définition du niveau choisi ; chaque nuit, Ada relève le niveau quand les faits le
+              justifient (deal dans les Ventes, réponse à Dana, acheteur VO connu) et n'abaisse jamais un niveau posé à la main. */}
+          <p className="text-[11px] text-slate-500 mt-1">{relationLevelOf(v.relation) ? RELATION_HELP[relationLevelOf(v.relation)!] : 'Aucun niveau posé : Ada le calcule chaque nuit (deal dans les Ventes, réponse à Dana, acheteur VO connu).'}</p>
         </div>
         <div className="grid grid-cols-2 gap-2">
           <div><label className={label}>Type de véhicules</label><input value={v.vehicle_types} onChange={(e) => set({ vehicle_types: e.target.value })} className={inp} placeholder="Hybrids / EV / LCV" /></div>
@@ -1034,3 +1044,20 @@ const isNetworkCountry = (name: string): boolean => { const iso = isoOf(name); r
 const titleCase = (s: string) => s.toLowerCase().replace(/(^|[\s-])\p{L}/gu, (m) => m.toUpperCase()).replace(/\bBmw\b/g, 'BMW').replace(/\bMg\b/g, 'MG').replace(/\bByd\b/g, 'BYD').replace(/\bVw\b/g, 'VW');
 // Le dictionnaire de villes est exporté pour les tests de placement.
 export const CITY_COUNT = CITIES.length;
+
+/** Lien vers le fil le plus récent de l'agente (Dana ou Ada) rattaché à la fiche, s'il y en a un (23/11). */
+function ThreadLink({ contactId }: { contactId: string }) {
+  const [thread, setThread] = useState<{ id: string; agent: string } | null>(null);
+  useEffect(() => {
+    let live = true;
+    setThread(null);
+    void latestAgentThread(contactId).then((t) => { if (live) setThread(t); });
+    return () => { live = false; };
+  }, [contactId]);
+  if (!thread) return null;
+  const who = thread.agent === 'ada' ? 'Ada' : 'Dana';
+  return (
+    <a href={`/agents?agente=${encodeURIComponent(thread.agent)}&fil=${encodeURIComponent(thread.id)}`} title={`Ouvrir la conversation avec ce contact dans la Messagerie de ${who}`}
+      className="text-[11px] font-medium rounded-full px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100">Fil {who} →</a>
+  );
+}

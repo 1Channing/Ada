@@ -6,12 +6,13 @@
  * sans droit voit ses écritures refusées par la base, pas seulement par
  * l'écran). Temps réel : la carte suit les modifications des autres.
  */
+import { RELATION_LEVELS, RELATION_LEVEL_LABEL, RELATION_LEVEL_HELP, relationLevelOf } from '../lib/network/relations';
 import { supabase } from '../lib/supabase';
 import { brandKey, canonKey } from './marketData';
 import { capped } from './capacity';
 
 // 07/11 (Channing) : « dissocier loueur et leasing » — Hertz, Europcar… sont des loueurs ; Leasys, Agilauto, Ayvens… du leasing.
-export type ContactKind = 'concession' | 'loueur' | 'leasing' | 'trader' | 'convoyeur' | 'autre';
+export type ContactKind = 'concession' | 'loueur' | 'leasing' | 'flotte' | 'trader' | 'convoyeur' | 'autre';
 export type ContactRole = 'vendeur' | 'acheteur' | 'les_deux';
 
 export interface NetworkContact {
@@ -73,16 +74,28 @@ export interface NetworkContactModel {
 }
 
 export const KIND_LABEL: Record<ContactKind, string> = {
-  concession: 'Concession', loueur: 'Loueur', leasing: 'Leasing', trader: 'Trader', convoyeur: 'Convoyeur', autre: 'Autre',
+  concession: 'Concession', loueur: 'Loueur', leasing: 'Leasing', flotte: 'Flotte', trader: 'Trader', convoyeur: 'Convoyeur', autre: 'Autre',
 };
 export const ROLE_LABEL: Record<ContactRole, string> = {
   vendeur: 'Vendeur', acheteur: 'Acheteur', les_deux: 'Acheteur & vendeur',
 };
-export const RELATION_SUGGESTIONS = ['froid', 'tiede', 'chaud', 'nouveau'];
-export const RELATION_LABEL: Record<string, string> = { froid: 'Froid', tiede: 'Tiède', chaud: 'Chaud', nouveau: 'Nouveau' };
+/** NIVEAUX DE RELATION (23/11, Channing : « des noms parlants, qu'on sache ce qu'on coche ») — définis et calculés dans
+ *  src/lib/network/relations.ts ; les anciens mots (chaud, tiède, froid, nouveau) restent lisibles jusqu'au classement. */
+export const RELATION_SUGGESTIONS: string[] = [...RELATION_LEVELS];
+export const RELATION_LABEL: Record<string, string> = { ...RELATION_LEVEL_LABEL, froid: 'Froid', tiede: 'Tiède', chaud: 'Chaud', nouveau: 'Nouveau' };
+export const RELATION_HELP: Record<string, string> = { ...RELATION_LEVEL_HELP };
+export { relationLevelOf };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const sb = supabase as any;
+
+/** Fil le plus récent d'une agente rattaché à la fiche (23/11) : le raccourci « Fil Dana » de la Carte. */
+export async function latestAgentThread(contactId: string): Promise<{ id: string; agent: string } | null> {
+  const { data } = await sb.from('agent_threads').select('id, agent, last_message_at').eq('network_contact_id', contactId)
+    .order('last_message_at', { ascending: false, nullsFirst: false }).limit(1);
+  const t = (data ?? [])[0] as { id: string; agent: string } | undefined;
+  return t ? { id: t.id, agent: t.agent } : null;
+}
 
 export async function loadNetwork(): Promise<{ contacts: NetworkContact[]; error: string | null }> {
   const [{ data: c, error: e1 }, { data: m, error: e2 }] = await Promise.all([

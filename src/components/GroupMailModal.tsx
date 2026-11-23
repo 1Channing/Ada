@@ -44,6 +44,17 @@ const TEMPLATES: Record<ContactKind, Record<Lang, { subject: string; body: strin
       body: 'Hello {prenom},\n\nMC Export buys end-of-lease and returned vehicles for export, in volume, with fast payment and collection.\n\nDo you have an updated list of returned vehicles available for sale (make, model, year, mileage, fuel, price)? We also take part in tenders and batch sales.\n\nThank you in advance,\n{signature}',
     },
   },
+  // Flotte d'entreprise (23/11, Channing : « on garde bien les différenciations Loueur / concession / trader / fleet »).
+  flotte: {
+    fr: {
+      subject: 'MC Export – reprise des véhicules de votre flotte',
+      body: 'Bonjour {prenom},\n\nMC Export rachète pour l\'export les véhicules sortants des flottes d\'entreprise, à l\'unité ou en lot, avec paiement et enlèvement rapides.\n\nAuriez-vous une liste des véhicules que vous allez renouveler ou céder (marque, modèle, année, kilométrage, énergie, prix souhaité) ?\n\nMerci d\'avance,\n{signature}',
+    },
+    en: {
+      subject: 'MC Export – purchase of your outgoing fleet vehicles',
+      body: 'Hello {prenom},\n\nMC Export buys outgoing company fleet vehicles for export, one by one or in batches, with fast payment and collection.\n\nDo you have a list of the vehicles you are about to renew or sell (make, model, year, mileage, fuel, asking price)?\n\nThank you in advance,\n{signature}',
+    },
+  },
   concession: {
     fr: {
       subject: 'MC Export – vos véhicules d\'occasion disponibles pour l\'export',
