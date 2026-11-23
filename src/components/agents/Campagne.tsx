@@ -14,9 +14,9 @@
  * Le worker rédige (worker/agents/carteCampaign.ts) ; rien ne part sans un clic ici.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Send, SkipForward, Ban, Loader2, Megaphone, ListChecks, Eye, Mail, Store } from 'lucide-react';
+import { Send, SkipForward, Ban, Loader2, Megaphone, ListChecks, Eye, Mail, Store, Sparkles } from 'lucide-react';
 import {
-  queueCampaign, listCampaignMessages, contactsInThreads, brandsOfContacts, editDraft, setMessageStatus, listTasks,
+  queueCampaign, listCampaignMessages, contactsInThreads, brandsOfContacts, editDraft, setMessageStatus, listTasks, queueRewrite, getMessage,
   type AgentSettings, type CampaignMessage, type Campaign,
 } from '../../services/agents';
 import { loadNetwork, KIND_LABEL, type NetworkContact } from '../../services/network';
@@ -252,7 +252,7 @@ export function Campagne({ settings, isAdmin, userId, refreshKey, onError, onInf
           checked={checked} setChecked={setChecked} consignes={consignes} setConsignes={setConsignes} busy={busy} isAdmin={isAdmin} onPrepare={() => void prepare()} onShowcase={setShowcaseFor} />
       )}
       {step === 'relire' && (
-        <Review rows={toReview} pending={pending} isAdmin={isAdmin} onError={onError} onInfo={onInfo} onChanged={() => void loadMessages()} onOpenThread={onOpenThread} />
+        <Review rows={toReview} pending={pending} isAdmin={isAdmin} userId={userId} onError={onError} onInfo={onInfo} onChanged={() => void loadMessages()} onOpenThread={onOpenThread} />
       )}
       {step === 'suivi' && (
         <div className="space-y-3">
@@ -419,8 +419,8 @@ function Choose(p: {
   );
 }
 
-function Review({ rows, pending, isAdmin, onError, onInfo, onChanged, onOpenThread }: {
-  rows: CampaignMessage[]; pending: number; isAdmin: boolean; onError: (m: string) => void; onInfo: (m: string) => void; onChanged: () => void; onOpenThread: (id: string) => void;
+function Review({ rows, pending, isAdmin, userId, onError, onInfo, onChanged, onOpenThread }: {
+  rows: CampaignMessage[]; pending: number; isAdmin: boolean; userId: string | null; onError: (m: string) => void; onInfo: (m: string) => void; onChanged: () => void; onOpenThread: (id: string) => void;
 }) {
   const [i, setI] = useState(0);
   const [subject, setSubject] = useState('');
@@ -429,7 +429,28 @@ function Review({ rows, pending, isAdmin, onError, onInfo, onChanged, onOpenThre
   const [skipped, setSkipped] = useState<Set<string>>(new Set());
   const queue = useMemo(() => rows.filter((m) => !skipped.has(m.id)), [rows, skipped]);
   const m = queue[Math.min(i, Math.max(0, queue.length - 1))];
-  useEffect(() => { if (m) { setSubject(m.subject); setBody(m.body_text); } }, [m?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 23/11 : le mail se recharge aussi quand Dana l'a corrigé (updated_at change, l'identifiant non).
+  useEffect(() => { if (m) { setSubject(m.subject); setBody(m.body_text); } }, [m?.id, m?.updated_at]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 23/11 (Channing : « dans Relire, demander une modification à l'agente avec une note ») : la note, la tâche, puis
+  // on relit le mail toutes les 6 s jusqu'à la correction (3 min au plus).
+  const [asking, setAsking] = useState<{ note: string; waiting: boolean } | null>(null);
+  useEffect(() => { setAsking(null); }, [m?.id]);
+  const askRewrite = async () => {
+    if (!m || !asking?.note.trim()) return;
+    setBusy(true);
+    const e = await queueRewrite('dana', m.id, asking.note, userId);
+    setBusy(false);
+    if (e) { onError(e); return; }
+    const before = m.updated_at;
+    setAsking({ note: asking.note, waiting: true });
+    for (let k = 0; k < 30; k++) {
+      await new Promise((r) => setTimeout(r, 6000));
+      const fresh = await getMessage(m.id);
+      if (fresh && fresh.updated_at !== before) { setAsking(null); onInfo('Dana a corrigé le mail : relisez-le.'); onChanged(); return; }
+    }
+    setAsking(null);
+    onError('Pas de correction reçue en 3 minutes : regardez l\'onglet Live.');
+  };
   if (!m) {
     return (
       <div className="space-y-2">
@@ -494,8 +515,19 @@ function Review({ rows, pending, isAdmin, onError, onInfo, onChanged, onOpenThre
         </button>
         <button type="button" disabled={busy} onClick={skip} className={`${btn} border border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}><SkipForward className="w-4 h-4" />Passer</button>
         <button type="button" disabled={!isAdmin || busy} onClick={() => void refuse()} className={`${btn} border border-red-200 bg-white text-red-700 hover:bg-red-50`}><Ban className="w-4 h-4" />Refuser</button>
+        {!asking && <button type="button" disabled={busy} onClick={() => setAsking({ note: '', waiting: false })} className={`${btn} border border-violet-300 bg-violet-50 text-violet-900 hover:bg-violet-100`} title="Dana corrige ce mail selon votre note, et le remet ici à relire"><Sparkles className="w-4 h-4" />Demander une modification à Dana</button>}
         <button type="button" onClick={() => onOpenThread(m.thread_id)} className="text-xs text-brand-ocean hover:underline ml-auto">ouvrir le fil</button>
       </div>
+      {asking && (
+        <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-3 space-y-2">
+          <p className="text-xs text-slate-600">Ce qu'il faut changer, dans vos mots : Dana corrige le mail en {m.ai_notes?.langue ?? 'sa langue'}, la traduction suit, et il revient ici à relire.{changed ? ' Vos corrections à la main dans le texte ne sont pas envoyées à Dana : enregistrez-les d\'abord en validant, ou dites-les dans la note.' : ''}</p>
+          <textarea disabled={asking.waiting} autoFocus rows={3} className={`${input} w-full`} placeholder="ex. : plus court ; ne pas citer ses modèles ; demander aussi s'il a des utilitaires" value={asking.note} onChange={(e) => setAsking({ ...asking, note: e.target.value })} />
+          <div className="flex items-center gap-2 flex-wrap">
+            <button type="button" disabled={busy || asking.waiting || !asking.note.trim()} onClick={() => void askRewrite()} className={`${btn} bg-violet-600 hover:bg-violet-700 text-white`}>{asking.waiting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}{asking.waiting ? 'Dana corrige…' : 'Corriger'}</button>
+            {!asking.waiting && <button type="button" onClick={() => setAsking(null)} className="text-xs text-slate-500 hover:text-slate-800">Annuler</button>}
+          </div>
+        </div>
+      )}
       {!isAdmin && <p className="text-xs text-slate-500">Seul un administrateur envoie.</p>}
     </div>
   );

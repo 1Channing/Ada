@@ -81,6 +81,9 @@ export interface AgentMessage {
     resume?: string; intention?: string; appel?: boolean;
     /** 19/10 : un mail d'aiguillage — qui on cherche, à qui on le demande. */
     aiguillage?: { cible: string | null; cherche: string; routeur: string | null; routeur_fonction?: string | null; adresse: 'personne' | 'service' | 'generique' } | null;
+    /** 23/11 : les corrections demandées depuis Relire (la note, la version d'avant). */
+    revisions?: Array<{ at: string; note: string; objet_avant: string; texte_avant: string; cout_usd?: number }>;
+    note_de_channing?: string;
     /** 19/10 : le contact donné dans une réponse ; l'adresse probable choisie par un administrateur ; le texte d'origine de l'agente. */
     contact_donne?: { nom: string | null; fonction: string | null; email: string; telephone: string | null } | null;
     adresse_probable?: string; motif_adresse?: string; texte_initial?: string | null;
@@ -365,6 +368,8 @@ export interface AgentTask {
     approfondie?: boolean; note?: string;
     /** 18/10 : la réponse à préparer à ce mail reçu (tâche « premier_mail »). */
     reponse_a?: string;
+    /** 23/11 : le mail à corriger selon la note (tâche « premier_mail »). */
+    reecrire?: string;
     /** 18/10 : une recherche ciblée (notes de Channing, types visés, limite de dépense) et le lancement dont elle fait partie. */
     notes?: string; segments?: string[]; limite_usd?: number; lot?: string;
     /** 19/10 : le banc d'essai ; le bon contact donné sur une fiche ; une copie de l'équipe ; le premier mail après un aiguillage ou à l'adresse probable. */
@@ -1053,6 +1058,18 @@ export async function listBenchRuns(agent: AgentKey): Promise<{ rows: AgentTask[
  * l'aider, traduit avant l'envoi ») : la réponse préparée à ce mail reçu, demandée à la main — le worker la rédige dans la
  * langue du fil avec sa traduction française, et la range « à valider » sous le mail reçu.
  */
+/** 23/11 (Channing : « dans Relire, demander une modification à l'agente avec une note ») : le mail est corrigé en place par le worker. */
+export async function queueRewrite(agent: AgentKey, messageId: string, note: string, userId: string | null): Promise<string | null> {
+  if (!note.trim()) return 'Écrivez ce qu\'il faut changer.';
+  const { error } = await sb.from('agent_tasks').insert({ agent, kind: 'premier_mail', params: { reecrire: messageId, note: note.trim() }, created_by: userId });
+  return error ? errMails(error.message) : null;
+}
+/** Un message seul, relu (pour attendre une correction). */
+export async function getMessage(id: string): Promise<AgentMessage | null> {
+  const { data } = await sb.from('agent_messages').select('*').eq('id', id).maybeSingle();
+  return (data as AgentMessage | null) ?? null;
+}
+
 export async function queueReplyDraft(agent: AgentKey, messageId: string, note: string, userId: string | null): Promise<string | null> {
   const { error } = await sb.from('agent_tasks').insert({ agent, kind: 'premier_mail', params: { reponse_a: messageId, note: note.trim() || undefined, manuel: true }, created_by: userId });
   return error ? errMails(error.message) : null;
