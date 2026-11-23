@@ -255,3 +255,15 @@ Le 23/11, après croisement avec LinkedIn, Di.Ba. et quatre vitrines d'Intergea 
 | Marelli & Pozzi Varese (Gruppo Intergea) | occasions et km 0 | webspark | 50 | 100 % partout |
 
 Non ajoutés : Ceccato et Maldarizzi (aucun acheteur VO actuel, même croisé avec LinkedIn). Non lues chez Intergea : Mocauto, Alessandria Auto, Carvillage, Logica, Torino Auto. Le détail est dans le BACKLOG.
+
+**BMW Autriche, le 23/11** (seules les concessions dont l'acheteur VO est certifié) — premier relevé au passage de rattrapage de 17 h 06 UTC, aucun échec :
+
+| Fiche | Vitrine | Lecteur | Voitures en stock | Prix · km · année · énergie · boîte |
+|---|---|---|---:|---|
+| BMW Wien Heiligenstadt (BMW Wien) | bourse BMW, concession 100 | bmwused (API v2) | 41 | 100 % partout |
+| BMW Wien Zentrum Gebrauchte Automobile (BMW Wien) | bourse BMW, concession 133 | bmwused (API v2) | 200 | 100 % partout |
+| BMW Wien Donaustadt (BMW Wien) | bourse BMW, concession 124 | bmwused (API v2) | 1 | 100 % partout |
+| BMW Grasmann Steinbach am Attersee (Grasmann) | bourse BMW, concession 307 | bmwused (API v2) | 24 | 100 % partout |
+| BMW Grasmann Bad Goisern (Grasmann) | bourse BMW, concession 340 | bmwused (API v2) | 34 | 100 % partout |
+
+Hongrie et Slovaquie : aucune concession BMW nouvelle ; 5 fiches slovaques ont reçu leur acheteur ou responsable VO certifié (détail dans le BACKLOG).
