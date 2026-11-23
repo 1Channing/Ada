@@ -269,3 +269,14 @@ Non ajoutés : Ceccato et Maldarizzi (aucun acheteur VO actuel, même croisé av
 Ajoutées ensuite sur décision de Channing (responsable VO confirmé, l'achat n'est pas écrit) : BMW Reiterer Deutschlandsberg (210), BMW Pestuka Zistersdorf (105), BMW Denzel Langenrohr (58), BMW Mann Pressbaum (52) — lues en direct à 100 % sur les cinq champs.
 
 Hongrie et Slovaquie : aucune concession BMW nouvelle ; 5 fiches slovaques ont reçu leur acheteur ou responsable VO certifié ; 94 fiches « (indépendant) » renommées « (sans groupe) » pour que la Campagne les compte comme concessions (détail dans le BACKLOG).
+
+**Clients des Ventes, le 23/11** (Channing : « ajoute les 16 clients ») — 12 fiches ajoutées en Partenaire ; premier relevé au passage de rattrapage de 20 h 48 UTC, aucun échec :
+
+| Fiche | Vitrine | Lecteur | Voitures en stock | Prix · km · année · énergie · boîte |
+|---|---|---|---:|---|
+| Van Ekris Mijdrecht (Van Ekris, 5 sites) | /toyota-occasions, tout le groupe | occasionload | 534 | 100 % ; km 98 % (neuves) ; énergie par le filtre « brandstof » du site |
+| Pedersen & Nielsen Sønderborg (11 sites au Jutland) | autohus.dk/brugte-biler, stock du groupe | autoit | 356 | prix 98 % (6 « Ring for pris ») ; année 73 % (neuves en stock) ; énergie 100 % ; boîte 96 % ; prix en couronnes |
+| S.E.J. Biler ApS | /brugte-biler | autoit | 93, dont 16 « Solgt » | 100 % ; boîte 91 % ; prix en couronnes |
+| Consilcar | /carros/usados, tout le stock en une page | easysite | 519, dont 150 « Vendido » | prix, km, année 100 % ; énergie 39 % et boîte 67 % le premier soir — fiches détail, 200 par nuit, complet en deux nuits |
+
+Sans vitrine lisible : Wilar (stock réservé aux marchands connectés), NENA et Issoire Parc Auto (stock seulement sur AutoScout24), SaleCar (pas de stock publié), Bellon Motorsport, JM Auto et Val de Loire Lease (pas de site), UAB GBY (transporteur). Détail dans le BACKLOG.
