@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Search, Plus, X, UserPlus, FileText, Download, History, Trash2, Pencil, Info } from 'lucide-react';
+import { Search, Plus, X, UserPlus, FileText, Download, History, Trash2, Pencil, Info, Save } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { saleMonthKey, currentMonthKey } from '../lib/saleMonth';
 import { generateAdminDocument } from '../lib/adminDocGenerator';
@@ -204,9 +204,14 @@ const EMPTY_CONTACT_FORM: ContactForm = {
  * nettoyaient déjà. Une seule implémentation pour les deux chemins.
  */
 function nullifyBlanks(form: ContactForm): Record<string, string | null> {
-  return Object.fromEntries(
+  const out = Object.fromEntries(
     Object.entries(form).map(([k, v]) => [k, v === '' ? null : k === 'vat_number' && v ? normalizeVat(v) : v]),
-  );
+  ) as Record<string, string | null>;
+  // 23/11 : le formulaire d'ajout n'a pas de champ pays (FR par défaut) — Kamux Oyj, Hämeenlinna, enregistré « FR ».
+  // Le préfixe du n° de TVA intracommunautaire dit le pays : FI → FI, EL → GR. Seulement quand le pays est resté à FR.
+  const prefix = (out.vat_number ?? '').slice(0, 2);
+  if (/^[A-Z]{2}$/.test(prefix) && prefix !== 'FR' && (out.country ?? 'FR') === 'FR') out.country = prefix === 'EL' ? 'GR' : prefix;
+  return out;
 }
 /** « fi 1234 5678 » → « FI12345678 » : majuscules, sans espaces, points ni tirets. */
 export const normalizeVat = (v: string): string => v.toUpperCase().replace(/[\s.-]/g, '');
@@ -345,7 +350,7 @@ export function Administrative() {
   const [supplier, setSupplier] = useState<Party>(emptyParty());
   const [client, setClient] = useState<Party>(emptyParty());
 
-  const [, setSaving] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
   const [savingSellerContact, setSavingSellerContact] = useState(false);
@@ -967,7 +972,24 @@ export function Administrative() {
     new Set(deals.map((d) => (d.commercial ?? '').trim()).filter(Boolean))
   ).sort((a, b) => a.localeCompare(b));
 
-  const backToList = () => {
+  /**
+   * ENREGISTRER UNE FICHE (23/11, Channing : « ça fait deux fois que j'ajoute le client Kamux sur le E860 mais le
+   * client ne s'ajoute pas »). Preuve : E860 en base sans acheteur ni client après deux tentatives. Cause : dans une
+   * fiche déjà créée, la SEULE chose qui écrivait les modifications en base était la génération d'un document
+   * (handleUpdateTransaction n'était appelé que là) ; choisir un acheteur puis revenir à la liste laissait le brouillon
+   * dans le navigateur, la base ne bougeait pas, et la liste disait « — ». Désormais un bouton « Enregistrer » dans
+   * l'en-tête, et le retour à la liste enregistre d'abord ce qui a changé (ou reste sur la fiche en montrant l'erreur).
+   */
+  const saveNow = async (): Promise<boolean> => {
+    try {
+      if (lastSavedTransactionId) await handleUpdateTransaction(); else await handleSave();
+      return true;
+    } catch {
+      return false; // le message d'erreur est déjà affiché par handleSave / handleUpdateTransaction
+    }
+  };
+  const backToList = async () => {
+    if (lastSavedTransactionId && isDirty && !(await saveNow())) return;
     setMode('list');
     setLastSavedTransactionId(null);
     setDossierDocs([]); setDossierDocsError(null);
@@ -993,7 +1015,7 @@ export function Administrative() {
       return;
     }
     if (tx?.vehicle_id) await supabase.from('vehicles_admin').delete().eq('id', tx.vehicle_id);
-    if (id === lastSavedTransactionId) backToList();
+    if (id === lastSavedTransactionId) void backToList();
     else await loadDeals();
   };
 
@@ -2456,7 +2478,7 @@ export function Administrative() {
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-3">
           {mode === 'editor' && (
-            <button onClick={backToList} className="text-slate-600 hover:text-slate-900 text-sm flex items-center gap-1">
+            <button onClick={() => void backToList()} className="text-slate-600 hover:text-slate-900 text-sm flex items-center gap-1">
               ← Ventes
             </button>
           )}
@@ -2482,13 +2504,24 @@ export function Administrative() {
               Nouvelle vente
             </button>
           ) : (
-            <button
-              onClick={handleClearForm}
-              className="flex items-center gap-2 px-4 py-2 bg-slate-200 hover:bg-slate-300 rounded-lg transition-colors font-medium"
-            >
-              <Trash2 size={18} />
-              Vider
-            </button>
+            <>
+              <button
+                onClick={() => void saveNow()}
+                disabled={saving}
+                title={lastSavedTransactionId ? (isDirty ? 'Des modifications ne sont pas encore en base' : 'Fiche à jour en base') : 'Créer la fiche en base'}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors font-medium disabled:opacity-60 ${isDirty || !lastSavedTransactionId ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-slate-200 hover:bg-slate-300'}`}
+              >
+                <Save size={18} />
+                {saving ? 'Enregistrement…' : isDirty || !lastSavedTransactionId ? 'Enregistrer' : 'Enregistré'}
+              </button>
+              <button
+                onClick={handleClearForm}
+                className="flex items-center gap-2 px-4 py-2 bg-slate-200 hover:bg-slate-300 rounded-lg transition-colors font-medium"
+              >
+                <Trash2 size={18} />
+                Vider
+              </button>
+            </>
           )}
           <button
             onClick={() => { window.history.pushState({}, '', '/admin/history'); }}
