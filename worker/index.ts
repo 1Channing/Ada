@@ -28,6 +28,7 @@ import { registerAgentRoutes, startAgents } from './agents';
 import { aiStatus } from './agents/claude';
 import { runDealerStock, failStaleStockRuns } from './dealerStock';
 import { startDealerStockScheduler } from './dealerStockScheduler';
+import { startCarteRelationsScheduler } from './carteRelations';
 import { getFxRates } from './fx';
 import { setFxRates } from '../src/lib/study-core/business-logic';
 
@@ -721,6 +722,8 @@ app.listen(PORT, "0.0.0.0", () => {
     startLegalWatchCollector();
     // Relevés de stock hebdomadaires des concessions de la Carte (11/10).
     startDealerStockScheduler();
+    // 23/11 (Channing) : niveaux de relation de la Carte (Partenaire / Discussion / Prospect / Données) et rôle, par les faits.
+    startCarteRelationsScheduler();
     void failStaleStockRuns();
     // Taux de change BCE (06/10) : au boot puis toutes les 6 h — les prix en
     // DKK/SEK/HUF (études, vitrines) sont convertis au taux du jour.
