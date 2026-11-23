@@ -266,4 +266,6 @@ Non ajoutés : Ceccato et Maldarizzi (aucun acheteur VO actuel, même croisé av
 | BMW Grasmann Steinbach am Attersee (Grasmann) | bourse BMW, concession 307 | bmwused (API v2) | 24 | 100 % partout |
 | BMW Grasmann Bad Goisern (Grasmann) | bourse BMW, concession 340 | bmwused (API v2) | 34 | 100 % partout |
 
-Hongrie et Slovaquie : aucune concession BMW nouvelle ; 5 fiches slovaques ont reçu leur acheteur ou responsable VO certifié (détail dans le BACKLOG).
+Ajoutées ensuite sur décision de Channing (responsable VO confirmé, l'achat n'est pas écrit) : BMW Reiterer Deutschlandsberg (210), BMW Pestuka Zistersdorf (105), BMW Denzel Langenrohr (58), BMW Mann Pressbaum (52) — lues en direct à 100 % sur les cinq champs.
+
+Hongrie et Slovaquie : aucune concession BMW nouvelle ; 5 fiches slovaques ont reçu leur acheteur ou responsable VO certifié ; 94 fiches « (indépendant) » renommées « (sans groupe) » pour que la Campagne les compte comme concessions (détail dans le BACKLOG).
