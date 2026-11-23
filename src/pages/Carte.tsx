@@ -25,8 +25,8 @@ import { GroupMailModal } from '../components/GroupMailModal';
 import { listLatestStockRuns, listRunningStockRuns, subscribeDealerScans, isDealerScanning, activeDealerScans, queueDealerScans, queuedDealerScans, cancelQueuedDealerScans, type LatestStockRun } from '../services/dealerStock';
 import {
   loadNetwork, saveContact, deleteContact, moveContact, saveContactModels, subscribeNetwork, contactMatchesQuery,
-  KIND_LABEL, ROLE_LABEL, RELATION_LABEL, RELATION_SUGGESTIONS, RELATION_HELP, relationLevelOf, latestAgentThread, isAiContact, AI_SOURCE_LABEL,
-  type NetworkContact, type ContactInput, type ContactKind, type ContactRole,
+  KIND_LABEL, RELATION_LABEL, RELATION_SUGGESTIONS, RELATION_HELP, relationLevelOf, latestAgentThread, isAiContact, AI_SOURCE_LABEL,
+  type NetworkContact, type ContactInput, type ContactKind,
 } from '../services/network';
 import { CITIES, COUNTRY_NAMES, COUNTRY_CENTROIDS, NETWORK_COUNTRIES, findCities, findCity } from '../data/cities';
 
@@ -56,11 +56,14 @@ function unproject(px: number, py: number): [number, number] {
 
 interface CountryGeo { id: string; name: string; rings: Array<Array<[number, number]>> }
 interface View { k: number; tx: number; ty: number }
-const ROLE_COLOR: Record<ContactRole, string> = { vendeur: '#2C5F9E', acheteur: '#EA7A2B', les_deux: '#0f9d8a' };
 // 23/11 : Partenaire (deal fait) vert, Discussion (il a répondu à Dana) bleu, Prospect (acheteur VO connu) ambre, Données gris.
+// 23/11 au soir (Channing : « je veux enlever acheteur / vendeur / acheteur & vendeur — on garde juste les critères en
+// dessous, une carte lisible, simple ») : l'épingle prend la couleur du niveau ; le rôle n'est plus affiché.
 const RELATION_COLOR: Record<string, string> = { partenaire: '#16a34a', discussion: '#2563eb', prospect: '#f59e0b', donnees: '#94a3b8', chaud: '#ef4444', tiede: '#f59e0b', froid: '#94a3b8', nouveau: '#8b5cf6' };
 /** Niveau affiché d'une fiche : son mot enregistré, les anciens mots traduits (chaud → Discussion…). */
 const levelOf = (c: { relation: string }): string | null => relationLevelOf(c.relation);
+/** Couleur d'une fiche sur la carte, dans la liste et la fiche : celle de son niveau (gris ardoise sans niveau posé). */
+const levelColor = (c: { relation: string }): string => { const l = levelOf(c); return (l && RELATION_COLOR[l]) || '#64748b'; };
 const FLAG: Record<string, string> = { FR: '🇫🇷', NL: '🇳🇱', BE: '🇧🇪', DE: '🇩🇪', DK: '🇩🇰', SE: '🇸🇪', IT: '🇮🇹', ES: '🇪🇸', HU: '🇭🇺', LT: '🇱🇹', LU: '🇱🇺', AT: '🇦🇹', CH: '🇨🇭', PL: '🇵🇱', CZ: '🇨🇿', PT: '🇵🇹', NO: '🇳🇴', FI: '🇫🇮', IE: '🇮🇪', GB: '🇬🇧', EE: '🇪🇪', LV: '🇱🇻', RO: '🇷🇴', SK: '🇸🇰', SI: '🇸🇮', HR: '🇭🇷', BG: '🇧🇬', GR: '🇬🇷', RS: '🇷🇸', MA: '🇲🇦', TR: '🇹🇷', UA: '🇺🇦', GE: '🇬🇪' };
 
 const emptyInput = (country = 'NL'): ContactInput => ({
@@ -83,7 +86,6 @@ export function Carte() {
   const [showcaseFor, setShowcaseFor] = useState<{ id: string; name: string; url: string | null; url2?: string | null; country: string | null; frequency: 'daily' | 'weekly' | 'off' | null; unreadable: string | null } | null>(null);
   const [hoverCountry, setHoverCountry] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const [roleFilter, setRoleFilter] = useState<'tous' | ContactRole>('tous');
   // Catégorie et marque (07/11, Channing : « trier par catégorie directement en plus des pays… et par marques »).
   const [kindFilter, setKindFilter] = useState<ContactKind | null>(null);
   const [brandFilter, setBrandFilter] = useState<string | null>(null);
@@ -328,16 +330,15 @@ export function Carte() {
 
   // ── Filtres ──
   const filtered = useMemo(() => contacts.filter((c) =>
-    (roleFilter === 'tous' || c.role === roleFilter || c.role === 'les_deux')
-    && (!countryFilter || c.country === countryFilter)
+    (!countryFilter || c.country === countryFilter)
     && (!kindFilter || c.kind === kindFilter)
     && (!brandFilter || c.models.some((m) => m.brand.trim().toUpperCase() === brandFilter))
     && (!relationFilter || levelOf(c) === relationFilter)
     && (!aiOnly || isAiContact(c))
-    && contactMatchesQuery(c, query)), [contacts, roleFilter, countryFilter, kindFilter, brandFilter, relationFilter, aiOnly, query]);
+    && contactMatchesQuery(c, query)), [contacts, countryFilter, kindFilter, brandFilter, relationFilter, aiOnly, query]);
   const kinds = useMemo(() => (Object.keys(KIND_LABEL) as ContactKind[]).filter((k) => contacts.some((c) => c.kind === k)), [contacts]);
   const brands = useMemo(() => { const m = new Map<string, number>(); for (const c of contacts) for (const b of new Set(c.models.map((x) => x.brand.trim().toUpperCase()).filter(Boolean))) m.set(b, (m.get(b) ?? 0) + 1); return [...m.entries()].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])); }, [contacts]);
-  const scopeLabel = [kindFilter && KIND_LABEL[kindFilter], countryFilter && (COUNTRY_NAMES[countryFilter] ?? countryFilter), brandFilter, relationFilter && RELATION_LABEL[relationFilter], roleFilter !== 'tous' && ROLE_LABEL[roleFilter], query && `« ${query} »`].filter(Boolean).join(' · ') || 'tous les contacts';
+  const scopeLabel = [kindFilter && KIND_LABEL[kindFilter], countryFilter && (COUNTRY_NAMES[countryFilter] ?? countryFilter), brandFilter, relationFilter && RELATION_LABEL[relationFilter], query && `« ${query} »`].filter(Boolean).join(' · ') || 'tous les contacts';
   const aiCount = useMemo(() => contacts.filter(isAiContact).length, [contacts]);
   const selected = contacts.find((c) => c.id === selectedId) ?? null;
   const countries = useMemo(() => [...new Set(contacts.map((c) => c.country))].sort(), [contacts]);
@@ -410,7 +411,6 @@ export function Carte() {
   };
 
   // ── Rendu ──
-  const stats = { total: contacts.length, acheteurs: contacts.filter((c) => c.role !== 'vendeur').length, vendeurs: contacts.filter((c) => c.role !== 'acheteur').length };
   return (
     <div className="-mx-6 -my-8 max-md:-mx-3 h-[calc(100vh-64px)] min-h-[560px] flex max-md:flex-col overflow-hidden bg-[#eef3f8]">
       {/* ── Carte ── */}
@@ -461,8 +461,9 @@ export function Carte() {
               const lv = viewRef.current;
               const sx = cl.x * lv.k + lv.tx, sy = cl.y * lv.k + lv.ty;
               if (!single) {
-                const roles = new Set(cl.items.map((p) => p.c.role));
-                const color = roles.size === 1 ? ROLE_COLOR[[...roles][0]] : '#475569';
+                // Groupe d'épingles : la couleur du niveau quand toutes l'ont, sinon neutre.
+                const levels = new Set(cl.items.map((p) => levelColor(p.c)));
+                const color = levels.size === 1 ? [...levels][0] : '#475569';
                 return (
                   <g key={`cl${i}`} data-x={cl.x} data-y={cl.y} data-cluster={i} transform={`translate(${sx} ${sy})`} className="cursor-pointer" filter="url(#pinShadow)">
                     <circle r={isSel ? 16 : 14} fill={color} stroke="#fff" strokeWidth={2.5} />
@@ -471,13 +472,11 @@ export function Carte() {
                 );
               }
               const c = single.c;
-              const color = ROLE_COLOR[c.role];
+              const color = levelColor(c);
               const lvl = levelOf(c);
-              const rel = lvl ? RELATION_COLOR[lvl] : undefined;
               return (
                 <g key={c.id} data-x={single.x} data-y={single.y} data-pin={c.id} transform={`translate(${sx} ${sy})`} className="cursor-pointer">
-                  {lvl === 'discussion' && <circle r={isSel ? 20 : 16} fill={rel} opacity={0.18}><animate attributeName="r" values={`${isSel ? 16 : 12};${isSel ? 24 : 20};${isSel ? 16 : 12}`} dur="2.2s" repeatCount="indefinite" /></circle>}
-                  {rel && <circle r={isSel ? 12.5 : 10.5} fill="none" stroke={rel} strokeWidth={2} opacity={0.9} />}
+                  {lvl === 'discussion' && <circle r={isSel ? 20 : 16} fill={color} opacity={0.18}><animate attributeName="r" values={`${isSel ? 16 : 12};${isSel ? 24 : 20};${isSel ? 16 : 12}`} dur="2.2s" repeatCount="indefinite" /></circle>}
                   <g filter="url(#pinShadow)">
                     <circle r={isSel ? 9 : 7} fill={color} stroke="#fff" strokeWidth={2} strokeDasharray={single.placed ? undefined : '2 2'} opacity={single.placed ? 1 : 0.75} />
                   </g>
@@ -515,15 +514,9 @@ export function Carte() {
         </div>
         {/* Légende */}
         <div className="absolute left-3 top-3 flex flex-col gap-1.5 text-[11px] text-slate-600 bg-white/85 backdrop-blur rounded-xl px-3 py-2 shadow-sm border border-slate-200">
-          {(['vendeur', 'acheteur', 'les_deux'] as ContactRole[]).map((r) => (
-            <button key={r} onClick={() => setRoleFilter((f) => (f === r ? 'tous' : r))} className={`flex items-center gap-2 rounded px-1 -mx-1 ${roleFilter === r ? 'bg-slate-100 font-semibold' : 'hover:bg-slate-50'}`}>
-              <span className="w-2.5 h-2.5 rounded-full border border-white shadow" style={{ background: ROLE_COLOR[r] }} /> {ROLE_LABEL[r]}
-            </button>
-          ))}
-          <div className="border-t border-slate-200 my-0.5" />
           {RELATION_SUGGESTIONS.map((r) => (
             <button key={r} title={RELATION_HELP[r]} onClick={() => setRelationFilter((f) => (f === r ? null : r))} className={`flex items-center gap-2 rounded px-1 -mx-1 ${relationFilter === r ? 'bg-slate-100 font-semibold' : 'hover:bg-slate-50'}`}>
-              <span className="w-2.5 h-2.5 rounded-full border-2" style={{ borderColor: RELATION_COLOR[r] }} /> {RELATION_LABEL[r]}
+              <span className="w-2.5 h-2.5 rounded-full border border-white shadow" style={{ background: RELATION_COLOR[r] }} /> {RELATION_LABEL[r]}
             </button>
           ))}
         </div>
@@ -548,7 +541,7 @@ export function Carte() {
               <div className="flex items-center gap-2">
                 <MapPin className="w-5 h-5 text-brand-ocean" />
                 <h1 className="text-lg font-bold text-slate-900">Carte du réseau</h1>
-                <span className="text-xs text-slate-400 ml-auto">{stats.total} contacts · {stats.vendeurs} vendeurs · {stats.acheteurs} acheteurs</span>
+                <span className="text-xs text-slate-400 ml-auto">{contacts.length} contacts</span>
               </div>
               <div className="relative">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -566,8 +559,8 @@ export function Carte() {
                     Ajoutés par IA <span className="opacity-70">{aiCount}</span>
                   </button>
                 )}
-                {(countryFilter || relationFilter || roleFilter !== 'tous' || query || aiOnly || kindFilter || brandFilter) && (
-                  <button onClick={() => { setCountryFilter(null); setRelationFilter(null); setRoleFilter('tous'); setQuery(''); setAiOnly(false); setKindFilter(null); setBrandFilter(null); }} className="text-xs text-slate-500 hover:text-slate-700 underline px-1">tout afficher</button>
+                {(countryFilter || relationFilter || query || aiOnly || kindFilter || brandFilter) && (
+                  <button onClick={() => { setCountryFilter(null); setRelationFilter(null); setQuery(''); setAiOnly(false); setKindFilter(null); setBrandFilter(null); }} className="text-xs text-slate-500 hover:text-slate-700 underline px-1">tout afficher</button>
                 )}
               </div>
               {/* Catégories (07/11) : loueurs et leasing séparés, comptes sous le filtre pays courant. */}
@@ -639,7 +632,7 @@ export function Carte() {
                 <button key={c.id} onClick={() => (groupMode ? (c.website ? togglePick(c.id) : undefined) : selectContact(c))} className={`w-full text-left px-4 py-3 transition-colors ${groupMode && !c.website ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50'} ${groupMode && picked.has(c.id) ? 'bg-sky-50' : ''}`}>
                   <div className="flex items-center gap-2">
                     {groupMode && <input type="checkbox" readOnly checked={picked.has(c.id)} disabled={!c.website} aria-label={`Relever ${c.name}`} className="shrink-0" />}
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0 border border-white shadow" style={{ background: ROLE_COLOR[c.role] }} />
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0 border border-white shadow" style={{ background: levelColor(c) }} />
                     <span className="font-medium text-slate-900 truncate">{c.name}</span>
                     {isAiContact(c) && <span title="Ajouté par une agente IA" className="text-[10px] font-medium rounded-full px-1.5 py-0.5 bg-violet-50 text-violet-700 border border-violet-200 shrink-0">{AI_SOURCE_LABEL[c.source as 'ada' | 'dana']}</span>}
                     {levelOf(c) && <span title={RELATION_HELP[levelOf(c)!]} className="ml-auto text-[10px] font-semibold uppercase tracking-wide rounded-full px-1.5 py-0.5 text-white shrink-0" style={{ background: RELATION_COLOR[levelOf(c)!] ?? '#64748b' }}>{RELATION_LABEL[levelOf(c)!]}</span>}
@@ -758,10 +751,10 @@ function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, on
     <div className="flex flex-col h-full">
       <div className="p-4 border-b border-slate-100">
         <div className="flex items-start gap-2">
-          <span className="w-3 h-3 mt-1.5 rounded-full shrink-0 border border-white shadow" style={{ background: ROLE_COLOR[c.role] }} />
+          <span className="w-3 h-3 mt-1.5 rounded-full shrink-0 border border-white shadow" style={{ background: levelColor(c) }} />
           <div className="min-w-0 flex-1">
             <h2 className="text-lg font-bold text-slate-900 leading-tight">{c.name}</h2>
-            <p className="text-xs text-slate-500 mt-0.5">{ROLE_LABEL[c.role]} · {KIND_LABEL[c.kind]} · {FLAG[c.country] ?? ''} {c.city ?? <span className="text-amber-600">à placer sur la carte</span>}{c.country ? `, ${COUNTRY_NAMES[c.country] ?? c.country}` : ''}</p>
+            <p className="text-xs text-slate-500 mt-0.5">{KIND_LABEL[c.kind]} · {FLAG[c.country] ?? ''} {c.city ?? <span className="text-amber-600">à placer sur la carte</span>}{c.country ? `, ${COUNTRY_NAMES[c.country] ?? c.country}` : ''}</p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
         </div>
@@ -864,13 +857,7 @@ function ContactForm({ value: v, models, onChange, onModels, onPlace, onCancel, 
           <label className={label}>Société *</label>
           <input value={v.name} onChange={(e) => set({ name: e.target.value })} required className={inp} placeholder="Van Mossel" />
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className={label}>Rôle</label>
-            <select value={v.role} onChange={(e) => set({ role: e.target.value as ContactRole })} className={inp}>
-              {(Object.keys(ROLE_LABEL) as ContactRole[]).map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
-            </select>
-          </div>
+        <div>
           <div>
             <label className={label}>Type</label>
             <select value={v.kind} onChange={(e) => set({ kind: e.target.value as ContactKind })} className={inp}>
