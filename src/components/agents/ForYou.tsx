@@ -48,8 +48,8 @@ function Sheet({ s }: { s: CallSheet }) {
 }
 
 /** Un grand compte, replié sur deux lignes (qui, note, ce qui est prêt, ce qui manque) ; ouvert : la fiche d'appel, l'aiguillage, le mail et les notes LinkedIn préparés. */
-export function ForYouCard({ items, settings, counts, isAdmin, onOpenThread, onChanged, onError, onInfo, onDeep, deeping, onRedo, redoing, twins = [], actions }: {
-  items: ForYouMessage[]; settings: AgentSettings | undefined; counts: AgentCounts | undefined; isAdmin: boolean;
+export function ForYouCard({ items, settings, counts, isAdmin, userId = null, onOpenThread, onChanged, onError, onInfo, onDeep, deeping, onRedo, redoing, twins = [], actions }: {
+  items: ForYouMessage[]; settings: AgentSettings | undefined; counts: AgentCounts | undefined; isAdmin: boolean; userId?: string | null;
   onOpenThread: (id: string) => void; onChanged: () => void; onError: (e: string) => void; onInfo?: (m: string) => void;
   /** La recherche approfondie de ce compte (18/10) : à lancer, ou en cours. */
   onDeep?: (prospectId: string, note: string) => void; deeping?: boolean;
@@ -149,7 +149,7 @@ export function ForYouCard({ items, settings, counts, isAdmin, onOpenThread, onC
         <button onClick={() => onOpenThread((directMails[0] ?? notes[0] ?? first).thread_id)} className="ml-auto text-brand-ocean hover:underline">Ouvrir le fil</button>
       </div>
       {sheet && <Sheet s={sheet} />}
-      {[...mail, ...notes].map((m) => <MessageCard key={`${m.id}-${m.updated_at}`} m={m} settings={settings} counts={counts} isAdmin={isAdmin} flat onChanged={onChanged} onError={onError} onInfo={onInfo} />)}
+      {[...mail, ...notes].map((m) => <MessageCard key={`${m.id}-${m.updated_at}`} m={m} settings={settings} counts={counts} isAdmin={isAdmin} userId={userId} flat onChanged={onChanged} onError={onError} onInfo={onInfo} />)}
       </div>}
     </div>
   );

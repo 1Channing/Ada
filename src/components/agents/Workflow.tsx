@@ -181,7 +181,7 @@ export function Workflow({ agent, settings, counts, isAdmin, userId, refreshKey,
   const unread = wf.discussions.filter((c) => c.unread).length;
   const failed = WF_COLUMNS.flatMap((k) => wf[k].filter((c) => c.pending.some((m) => m.status === 'echec')).map((c) => ({ k, name: c.lead.name })));
   const orphanFailed = wf.orphans.filter((m) => m.status === 'echec').length;
-  const cardProps = { settings: mine, counts: counts[agent], isAdmin, onOpenThread, onChanged: changed, onError, onInfo };
+  const cardProps = { settings: mine, counts: counts[agent], isAdmin, userId, onOpenThread, onChanged: changed, onError, onInfo };
   const talkButton = (p: ProspectDetail) => (
     <button type="button" onClick={() => void talk(p)} className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-white px-2 py-1 font-medium text-emerald-800 hover:bg-emerald-50"
       title="Vous l'avez contactée en dehors d'ADA (téléphone, salon…) : la fiche passe dans « Discussions en cours ».">

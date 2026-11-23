@@ -117,8 +117,8 @@ function Exchanges({ thread, messages, onOpenThread }: { thread: AgentThread; me
   );
 }
 
-export function DiscussionCard({ card, agentName, settings, counts, isAdmin, onOpenThread, onChanged, onError, onInfo, onStage, onNotes, onEdit, onDeep, deeping, onRequalify }: {
-  card: WfCard<ProspectDetail, ForYouMessage>; agentName: 'Ada' | 'Dana'; settings: AgentSettings | undefined; counts: AgentCounts | undefined; isAdmin: boolean;
+export function DiscussionCard({ card, agentName, settings, counts, isAdmin, userId = null, onOpenThread, onChanged, onError, onInfo, onStage, onNotes, onEdit, onDeep, deeping, onRequalify }: {
+  card: WfCard<ProspectDetail, ForYouMessage>; agentName: 'Ada' | 'Dana'; settings: AgentSettings | undefined; counts: AgentCounts | undefined; isAdmin: boolean; userId?: string | null;
   onOpenThread: (id: string) => void; onChanged: () => void; onError: (e: string) => void; onInfo?: (m: string) => void;
   onStage: (p: ProspectDetail, s: ProspectStage) => void; onNotes: (p: ProspectDetail, notes: string) => Promise<boolean>;
   onEdit: (p: ProspectDetail, patch: { name: string; phone: string; website: string }) => Promise<boolean>;
@@ -194,7 +194,7 @@ export function DiscussionCard({ card, agentName, settings, counts, isAdmin, onO
           {loaded === null
             ? <p className="text-xs text-slate-500 animate-pulse">Lecture des échanges…</p>
             : loaded.map((x) => <Exchanges key={x.thread.id} thread={x.thread} messages={x.messages} onOpenThread={onOpenThread} />)}
-          {card.pending.map((m) => <MessageCard key={`${m.id}-${m.updated_at}`} m={m} settings={settings} counts={counts} isAdmin={isAdmin} flat onChanged={onChanged} onError={onError} onInfo={onInfo} />)}
+          {card.pending.map((m) => <MessageCard key={`${m.id}-${m.updated_at}`} m={m} settings={settings} counts={counts} isAdmin={isAdmin} userId={userId} flat onChanged={onChanged} onError={onError} onInfo={onInfo} />)}
           {card.twins.length > 0 && (
             <p className="text-xs text-slate-600">Autres fiches de cette entreprise (même site ou même domaine d'adresse), réunies ici : {card.twins.map((t) => `${t.name}${t.city ? ` (${t.city})` : ''}${t.best_contact?.nom ? ` — ${t.best_contact.nom}` : ''}`).join(' · ')}.</p>
           )}

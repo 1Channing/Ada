@@ -283,7 +283,7 @@ export function Messagerie({ agent, settings, counts, isAdmin, userId, openThrea
             )}
             <div className="space-y-2">
               {detail.messages.map((m) => (
-                <MessageCard key={`${m.id}-${m.updated_at}`} m={m} settings={s} counts={counts[t.agent]} isAdmin={isAdmin} onChanged={() => void refreshAll()} onError={onError} onInfo={onInfo} />
+                <MessageCard key={`${m.id}-${m.updated_at}`} m={m} settings={s} counts={counts[t.agent]} isAdmin={isAdmin} userId={userId} onChanged={() => void refreshAll()} onError={onError} onInfo={onInfo} />
               ))}
             </div>
             {s && replyKind && (reply ? (

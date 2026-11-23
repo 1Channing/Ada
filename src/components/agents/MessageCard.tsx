@@ -13,9 +13,9 @@
  * l'agente en a appris.
  */
 import { useState } from 'react';
-import { Paperclip, Pencil, Send, XCircle, Undo2, Trash2, ChevronDown, ExternalLink, Search, Linkedin, CheckCircle2, Compass, UserCheck, Users } from 'lucide-react';
+import { Paperclip, Pencil, Send, XCircle, Undo2, Trash2, ChevronDown, ExternalLink, Search, Linkedin, CheckCircle2, Compass, UserCheck, Users, Sparkles, Loader2 } from 'lucide-react';
 import {
-  attachmentUrl, editDraft, setMessageStatus, deleteDraft, sendFromAgent, markSentByHand, gmailComposeUrl,
+  attachmentUrl, editDraft, setMessageStatus, deleteDraft, sendFromAgent, markSentByHand, gmailComposeUrl, queueRewrite, getMessage,
   type AgentMessage, type AgentSettings, type AgentCounts, type Draft,
 } from '../../services/agents';
 import { StatusChip, ClassificationChip, DraftEditor, CopyButton } from './shared';
@@ -42,10 +42,31 @@ interface Props {
   onError: (msg: string) => void;
   /** Ce qui vient de se passer, en clair (« il part de dana@… dès que… »). */
   onInfo?: (msg: string) => void;
+  /** 23/11 : qui demande une modification à l'agente (la tâche est à son nom). */
+  userId?: string | null;
 }
 
-export function MessageCard({ m, settings, counts, isAdmin, context, flat, onChanged, onError, onInfo }: Props) {
+export function MessageCard({ m, settings, counts, isAdmin, context, flat, onChanged, onError, onInfo, userId = null }: Props) {
   const [editing, setEditing] = useState<Draft | null>(null);
+  // 23/11 (Channing : « mets aussi le bouton dans la Messagerie ») : demander une modification à l'agente, avec une
+  // note ; la carte se recharge dès que le mail est corrigé (relu toutes les 6 s, 3 min au plus).
+  const [asking, setAsking] = useState<{ note: string; waiting: boolean } | null>(null);
+  const askRewrite = async () => {
+    if (!asking?.note.trim()) return;
+    setBusy(true);
+    const e = await queueRewrite(m.agent, m.id, asking.note, userId);
+    setBusy(false);
+    if (e) { onError(e); return; }
+    const before = m.updated_at;
+    setAsking({ note: asking.note, waiting: true });
+    for (let k = 0; k < 30; k++) {
+      await new Promise((r) => setTimeout(r, 6000));
+      const fresh = await getMessage(m.id);
+      if (fresh && fresh.updated_at !== before) { setAsking(null); onInfo?.(`${settings?.display_name ?? 'L\'agente'} a corrigé le mail : relisez-le.`); onChanged(); return; }
+    }
+    setAsking(null);
+    onError('Pas de correction reçue en 3 minutes : regardez l\'onglet Live.');
+  };
   const [refusing, setRefusing] = useState<string | null>(null);
   const [full, setFull] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -192,7 +213,17 @@ export function MessageCard({ m, settings, counts, isAdmin, context, flat, onCha
       )}
       {m.status === 'envoye_main' && <p className="text-[11px] text-emerald-800">{linkedin ? 'Envoyée par vous sur LinkedIn' : 'Envoyé par vous, de votre boîte'}{m.sent_at ? ` le ${fmtDateTime(m.sent_at)}` : ''}.</p>}
 
-      {out && (
+      {asking && (
+        <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-2.5 space-y-1.5">
+          <p className="text-[11px] text-slate-600">Ce qu'il faut changer, dans vos mots : {name} corrige le mail dans sa langue, la traduction suit, et il revient ici à relire.</p>
+          <textarea disabled={asking.waiting} autoFocus rows={2} className="w-full rounded-lg border border-slate-300 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-ocean/40" placeholder="ex. : plus court ; ne pas citer ses modèles ; demander aussi s'il a des utilitaires" value={asking.note} onChange={(e) => setAsking({ ...asking, note: e.target.value })} />
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button disabled={busy || asking.waiting || !asking.note.trim()} onClick={() => void askRewrite()} className={`${btn} border-violet-600 bg-violet-600 text-white hover:bg-violet-700`}>{asking.waiting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />} {asking.waiting ? `${name} corrige…` : 'Corriger'}</button>
+            {!asking.waiting && <button onClick={() => setAsking(null)} className={`${btn} border-transparent text-slate-500`}>Annuler</button>}
+          </div>
+        </div>
+      )}
+      {out && !asking && (
         <div className="flex items-center gap-1.5 flex-wrap pt-1">
           {editing ? (
             <>
@@ -216,6 +247,9 @@ export function MessageCard({ m, settings, counts, isAdmin, context, flat, onCha
               )}
               {(sendable || (linkedin && prepared)) && (
                 <button disabled={busy} onClick={() => setEditing({ to: m.to_emails, cc: m.cc_emails, subject: m.subject, body: m.body_text })} className={`${btn} border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}><Pencil className="w-3 h-3" /> Modifier</button>
+              )}
+              {!linkedin && (m.status === 'brouillon' || m.status === 'a_valider' || prepared || m.status === 'refuse') && (
+                <button disabled={busy} onClick={() => setAsking({ note: '', waiting: false })} className={`${btn} border-violet-300 bg-violet-50 text-violet-900 hover:bg-violet-100`} title={`${name} corrige ce mail selon votre note`}><Sparkles className="w-3 h-3" /> Demander une modification à {name}</button>
               )}
               {m.status === 'brouillon' && !linkedin && (
                 <button disabled={busy} onClick={() => void run(() => setMessageStatus(m.id, 'a_valider'))} className={`${btn} border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100`}><Send className="w-3 h-3" /> Soumettre à validation</button>
