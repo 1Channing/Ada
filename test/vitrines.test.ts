@@ -39,12 +39,13 @@ const fetched: string[] = [];
 const statuses: Record<string, number> = {}; // code HTTP d'une page simulée, quand ce n'est pas 200
 const flaky: Record<string, number> = {};    // nombre de réponses 502 avant la bonne (erreur de passerelle passagère)
 const cut: Record<string, number> = {};      // nombre de connexions coupées (« fetch failed ») avant la bonne
-globalThis.fetch = (async (input: string | URL | Request) => {
+globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
   const u = String(input instanceof Request ? input.url : input);
   fetched.push(u);
   if ((cut[u] ?? 0) > 0) { cut[u]--; throw new TypeError('fetch failed'); }
   if ((flaky[u] ?? 0) > 0) { flaky[u]--; return new Response('Bad Gateway', { status: 502 }); }
-  const body = pages[u];
+  // Une API en POST (23/11, bourse BMW d'Autriche) : la réponse dépend du corps — clé « <adresse> <corps> ».
+  const body = (typeof init?.body === 'string' ? pages[`${u} ${init.body}`] : undefined) ?? pages[u];
   return new Response(body ?? 'introuvable', { status: body ? statuses[u] ?? 200 : 404 });
 }) as typeof fetch;
 
@@ -725,6 +726,33 @@ console.log('\n=== ITALIE (23/11) : DI.BA. (youcan), AUTOINGROS (ibilista), INTE
   ok(dsj.websparkDeclared('<span class="stock-listing__results-counter" x-ref="resultsFoundText">\n        <strong>174</strong> risultati trovati\n    </span>') === 174
     && dsj.websparkDeclared('<span class="stock-listing__results-counter" x-ref="resultsFoundText"><strong>3 193</strong> résultats trouvés</span>') === 3193,
     'MotorK : total du compteur lu en italien comme en français');
+}
+
+console.log('\n=== BOURSE BMW D\'AUTRICHE (bmw-boerse.at, API v2, 23/11) : ÉNERGIE ET BOÎTE PAR LES FILTRES DU SITE ===\n');
+{
+  const dsa2 = await import('../worker/dealerStock');
+  // Page réelle de la bourse (perm_dealer_id=133, 23/11), réduite à ses marques ; voitures réelles de la réponse de l'API.
+  pages['https://bb.test/suche/?perm_dealer_id=133'] = '<div id="tx_ems_vehiclesearch" data-endpoint="/api/v2/" data-match="{&quot;dealer&quot;: 133}"><input name="model[$or]" type="checkbox"></div>';
+  const api = 'https://bb.test/api/v2/ems/search';
+  const q = (match: Record<string, unknown>) => `${api} ${JSON.stringify({ $match: match, $skip: 0, $limit: 100 })}`;
+  const car = (id: number, title: string, extra: Record<string, unknown> = {}) => ({ id, title, newVehicle: false, power: 190, registration: '2023-09-26T00:00:00', mileage: 14500, price: 39900, warranty: 24, dealer: { id: 133, name: 'BMW Wien', city: 'Wien' }, ...extra });
+  const cars = [car(1, 'BMW 320d Touring'), car(2, 'BMW X5 xDrive50e'), car(3, 'BMW i4 M50 xDrive', { power: 544 }), car(4, 'MINI Cooper 5-Türer', { newVehicle: true, registration: null, mileage: 10 })];
+  const list = (ids: number[]) => JSON.stringify({ $count: { $total: ids.length }, $list: cars.filter((c) => ids.includes(c.id)) });
+  pages[q({ dealer: 133 })] = list([1, 2, 3, 4]);
+  pages[q({ dealer: 133, engine: 'D' })] = list([1]);
+  pages[q({ dealer: 133, engine: 'B' })] = list([4]);
+  pages[q({ dealer: 133, engine: 'E' })] = list([3]);
+  pages[q({ dealer: 133, engine: 'H' })] = list([2]);
+  pages[q({ dealer: 133, transmission: 'A' })] = list([1, 2, 3]);
+  pages[q({ dealer: 133, transmission: 'S' })] = list([4]);
+  ok(dsa2.detectDealerProvider(pages['https://bb.test/suche/?perm_dealer_id=133']) === 'bmwused', 'bourse BMW d\'Autriche (« data-endpoint="/api/v2/" ») reconnue comme les sites hongrois et slovaques');
+  const bb = await dsa2.fetchDealerStock('https://bb.test/suche/?perm_dealer_id=133');
+  const by = (id: string) => bb.vehicles.find((v) => v.external_id === id);
+  ok(bb.vehicles.length === 4 && bb.declared === 4 && !bb.warnings.length, 'bourse BMW : 4 voitures sur 4, toutes classées', [bb.vehicles.length, bb.warnings]);
+  ok(by('1')?.fuel === 'Diesel' && by('1')?.gearbox === 'Automatique' && by('1')?.model === 'Série 3' && by('1')?.price === 39900 && by('1')?.year === 2023 && by('1')?.km === 14500 && by('1')?.url === 'https://bb.test/suche/details/1'
+    && by('2')?.fuel === 'Plug-in Hybrid' && by('3')?.fuel === 'Elektro' && by('3')?.power_ch === 544 && by('4')?.gearbox === 'Manuelle' && by('4')?.year === null && /neuve/.test(by('4')?.body ?? ''),
+    'bourse BMW : énergie et boîte prises dans les filtres « engine » / « transmission », « 320d » = Série 3, « xDrive50e » = hybride rechargeable, neuve sans immatriculation',
+    bb.vehicles.map((v) => [v.external_id, v.fuel, v.gearbox, v.model, v.year]));
 }
 
 console.log('\n=== POLITESSE : PAS PLUS D\'UNE REQUÊTE TOUTES LES 350 MS PAR SITE ===\n');

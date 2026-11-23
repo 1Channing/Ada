@@ -398,6 +398,8 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   // bmwused (occasions BMW / MINI Hongrie, 19/11) : application « használtautó-kereső » (mcon-group) — formulaire Vue
   // « dealer[$or] » / « series[$or] » (la page d'accueil ne contient pas l'adresse de l'API).
   if (/name="dealer\[\$or\]"/.test(html) && /name="series\[\$or\]"/.test(html)) return 'bmwused';
+  // Bourse BMW / MINI d'Autriche (23/11, bmw-boerse.at) : même application, version 2 (« data-endpoint="/api/v2/" »).
+  if (/data-endpoint="\/api\/v2\/"/.test(html) && /tx_ems_vehiclesearch/.test(html)) return 'bmwused';
   // kiaosp (neuves Kia Hongrie, 19/11) : liste « piacter » de kia.com (fragment « aggregationlist.allOffersResults »).
   if (/aggregationlist\.allOffersResults/.test(html) && /buy-my-kia\/piacter/.test(html)) return 'kiaosp';
   // pappas (Pappas Auto Hongrie, 19/11) : cartes « vehicle-teaser » + total « N jármű » (Pimcore).
@@ -5408,10 +5410,81 @@ export function bmwUsedToVehicle(it: BmwUsedItem, origin: string, loc: BmwUsedLo
     power_ch: num(it.powerHP), location: [it.dealer?.name, it.dealer?.city].filter(Boolean).join(', ') || null,
   };
 }
+// ── Autriche (23/11, bmw-boerse.at / mini-boerse.at, « BMW Premium Selection Börse », 3 824 occasions) : même famille
+//    d'application, version 2 — route « /api/v2/ems/search » à la racine (pas d'index « bmw-used-… » : /api/v1/… répond
+//    404), page reconnue à « data-endpoint="/api/v2/" ». La liste n'a NI énergie NI boîte NI VIN NI date de mise en
+//    ligne : énergie et boîte sont lues par les filtres du site (« engine » B / D / E / H, « transmission » A / S —
+//    chaque voiture dans une seule classe : chez BMW Wien, centre VO, 101 + 62 + 19 + 18 = 200 et A = 200, S = 0, vérifié
+//    le 23/11 ; une valeur inconnue rend 0, pas tout). Prix TTC en euros, puissance en ch, 1re immatriculation.
+type BmwBoerseItem = {
+  id?: number | string; title?: string | null; newVehicle?: boolean | null; power?: number | null; registration?: string | null;
+  mileage?: number | null; price?: number | null; warranty?: number | null; campaignText?: string | null; dealer?: { id?: number; name?: string; city?: string } | null;
+};
+export function bmwBoerseToVehicle(it: BmwBoerseItem, origin: string, fuel: string | null, gearbox: string | null): DealerVehicle | null {
+  if (it.id == null) return null;
+  const price = priceOrNull(it.price);
+  const title = (it.title ?? '').trim();
+  const { brand, model: m } = splitTitle(title);
+  // « BMW 320d Touring », « BMW M340i » = Série 3, comme les sites hongrois et slovaques (« 3 », « BMW radu 3 »).
+  const serie = /^bmw$/i.test(brand ?? '') ? (m ?? '').match(/^M?(\d)\d{2}[a-z]{0,2}$/i)?.[1] : undefined;
+  return {
+    external_id: String(it.id), url: `${origin}/suche/details/${it.id}`, title, brand, model: serie ? `Série ${serie}` : m,
+    price, currency: 'EUR', km: num(it.mileage), year: num(String(it.registration ?? '').slice(0, 4)),
+    // Classe « Hybrid » sur une « 330e », « xDrive50e » = hybride rechargeable (BMW n'a pas d'hybride simple), comme en Hongrie.
+    fuel: fuel === 'Hybrid' && /\b\d{2,3}e\b|xdrive\d{2}e\b/i.test(title) ? 'Plug-in Hybrid' : fuel,
+    gearbox, plate: null, vin: null,
+    body: [it.newVehicle ? 'neuve / démonstration' : null, it.warranty ? `garantie ${it.warranty} mois` : null, (it.campaignText ?? '').trim().slice(0, 120) || null].filter(Boolean).join(' · ') || null,
+    image: null, listed_at: null, status: price == null ? 'price_on_request' : null,
+    power_ch: num(it.power), location: [it.dealer?.name, it.dealer?.city].filter(Boolean).join(', ') || null,
+  };
+}
+async function scrapeBmwBoerse(u: URL, dealer: number): Promise<DealerStockResult> {
+  const api = `${u.origin}/api/v2/ems/search`;
+  const warnings: string[] = [];
+  let pages = 0;
+  // Toutes les voitures d'un filtre (pages de 100) ; null si l'API refuse.
+  const all = async (match: Record<string, unknown>): Promise<{ list: BmwBoerseItem[]; total: number | null } | null> => {
+    const list: BmwBoerseItem[] = [];
+    let total: number | null = null;
+    for (let skip = 0; skip < 5000; skip += 100) {
+      await sleep(SITE_DELAY_MS);
+      const r = await getTextPatient(api, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ $match: match, $skip: skip, $limit: 100 }) });
+      if (r.status !== 200) { warnings.push(`API BMW (${JSON.stringify(match)}, décalage ${skip}) : HTTP ${r.status}`); return null; }
+      let d: { $list?: BmwBoerseItem[]; $count?: { $total?: number } };
+      try { d = JSON.parse(r.text); } catch { warnings.push(`API BMW (${JSON.stringify(match)}) : réponse illisible`); return null; }
+      pages++;
+      total = total ?? num(d.$count?.$total);
+      const got = d.$list ?? [];
+      list.push(...got.filter((it) => it.dealer?.id == null || it.dealer.id === dealer));
+      if (got.length < 100 || (total != null && list.length >= total)) break;
+    }
+    return { list, total };
+  };
+  const main = await all({ dealer });
+  if (!main) throw new Error('bourse BMW : liste de la concession illisible');
+  const fuelOf = new Map<string, string>(), gearOf = new Map<string, string>();
+  for (const [code, label] of [['D', 'Diesel'], ['B', 'Benzin'], ['E', 'Elektro'], ['H', 'Hybrid']]) {
+    const r = await all({ dealer, engine: code });
+    for (const it of r?.list ?? []) fuelOf.set(String(it.id), label);
+  }
+  for (const [code, label] of [['A', 'Automatique'], ['S', 'Manuelle']]) {
+    const r = await all({ dealer, transmission: code });
+    for (const it of r?.list ?? []) gearOf.set(String(it.id), label);
+  }
+  const byId = new Map<string, DealerVehicle>();
+  for (const it of main.list) { const v = bmwBoerseToVehicle(it, u.origin, fuelOf.get(String(it.id)) ?? null, gearOf.get(String(it.id)) ?? null); if (v && !byId.has(v.external_id)) byId.set(v.external_id, v); }
+  const vehicles = [...byId.values()];
+  const declared = main.total;
+  const noFuel = vehicles.filter((v) => !v.fuel).length, noGear = vehicles.filter((v) => !v.gearbox).length;
+  if (noFuel || noGear) warnings.push(`classes du site : ${noFuel} voiture(s) sans énergie, ${noGear} sans boîte`);
+  if (declared != null && vehicles.length < declared) warnings.push(`${vehicles.length} voiture(s) lue(s) pour ${declared} annoncée(s)`);
+  return { provider: 'bmwused', total: declared ?? vehicles.length, declared, vehicles, pages, warnings };
+}
 async function scrapeBmwUsed(url: string, firstHtml: string): Promise<DealerStockResult> {
   const u = new URL(url);
   const dealer = num(u.searchParams.get('perm_dealer_id') ?? u.searchParams.get('dealer'));
-  if (dealer == null) throw new Error('adresse des occasions BMW sans concession (attendu : …/hasznalt/?perm_dealer_id=<n°> ou …/jazdene/?perm_dealer_id=<n°>) : tout le pays n\'est pas la vitrine d\'une concession');
+  if (dealer == null) throw new Error('adresse des occasions BMW sans concession (attendu : …/hasznalt/?perm_dealer_id=<n°>, …/jazdene/?perm_dealer_id=<n°> ou …/suche/?perm_dealer_id=<n°>) : tout le pays n\'est pas la vitrine d\'une concession');
+  if (/data-endpoint="\/api\/v2\/"/.test(firstHtml)) return scrapeBmwBoerse(u, dealer);
   const tld = u.hostname.split('.').pop() ?? 'hu';
   const country = BMW_USED_LOCALE[tld] ?? BMW_USED_LOCALE.hu;
   const loc: BmwUsedLocale = { root: u.pathname.match(/^\/[^/]+/)?.[0] ?? '/hasznalt', detail: country.detail, currency: country.currency };
