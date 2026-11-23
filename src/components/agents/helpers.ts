@@ -3,7 +3,7 @@
  * laquelle un message validé attend encore, contrôle d'un brouillon.
  */
 import type { AgentMessage, AgentSettings, AgentCounts, Draft, ProspectStage } from '../../services/agents';
-import { inSendWindow, nextWindowStart, countsAgainstCap } from '../../lib/agents/sendPolicy';
+import { inSendWindow, nextWindowStart, countsAgainstCap, waitsForWindow } from '../../lib/agents/sendPolicy';
 import { parseAddressList } from '../../lib/agents/mail';
 
 /** Date et heure de Paris (les horaires d'envoi sont réglés à l'heure de Paris). */
@@ -30,7 +30,7 @@ export function pendingReason(m: AgentMessage, s: AgentSettings | undefined, c: 
   if (!s) return 'En file.';
   if (!s.gmail_connected_email) return `En attente : la boîte ${s.mailbox} n'est pas encore connectée (Réglages).`;
   const now = new Date();
-  if (!inSendWindow(now, s)) {
+  if (waitsForWindow(m.kind) && !inSendWindow(now, s)) {
     const next = nextWindowStart(now, s);
     return next ? `Hors horaires d'envoi : part ${fmtDateTime(next.toISOString())}.` : 'Aucun jour d\'envoi coché (Réglages).';
   }

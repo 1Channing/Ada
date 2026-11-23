@@ -127,3 +127,9 @@ export function suppressionMatch(recipients: string[], suppressed: Iterable<stri
 
 /** Les premiers contacts et relances comptent dans le plafond ; une réponse, non. */
 export const countsAgainstCap = (kind: string): boolean => kind === 'premier_contact' || kind === 'relance';
+/**
+ * 23/11 (Channing : « il faut que Dana envoie le mail sans attendre 24 h ») : les jours et heures d'envoi protègent la
+ * boîte pour les mails à froid (premiers contacts, relances). Une réponse à quelqu'un qui nous a écrit part dès sa
+ * validation, quel que soit le jour ou l'heure — on répond à une conversation, on ne prospecte pas.
+ */
+export const waitsForWindow = (kind: string): boolean => countsAgainstCap(kind);

@@ -15,7 +15,7 @@
  * Un envoi coupé par un redémarrage n'est JAMAIS rejoué d'office (doublon).
  */
 import { buildMime, headersOf, replyReferences } from '../../src/lib/agents/mail';
-import { inSendWindow, parisDayStart, randomGapMs, suppressionMatch, countsAgainstCap } from '../../src/lib/agents/sendPolicy';
+import { inSendWindow, parisDayStart, randomGapMs, suppressionMatch, countsAgainstCap, waitsForWindow } from '../../src/lib/agents/sendPolicy';
 import { gmail, NotConnected } from './google';
 import { signatureImage } from './signature';
 import { recordLearningCase } from '../learningBox';
@@ -54,7 +54,7 @@ export async function sendDue(agents: AgentRow[]): Promise<void> {
     if (!a || !a.gmail_connected_email || a.mailbox !== m.mailbox) continue; // attend la connexion de la boîte
     const now = new Date();
     if (m.scheduled_after && Date.parse(m.scheduled_after) > now.getTime()) continue;
-    if (!inSendWindow(now, a)) continue;
+    if (waitsForWindow(m.kind) && !inSendWindow(now, a)) continue; // une réponse part tout de suite (23/11)
     const blocked = suppressionMatch([...m.to_emails, ...m.cc_emails], suppressed);
     if (blocked) { await fail(m, `Destinataire sur la liste « ne plus contacter » (${blocked}) : non envoyé.`); continue; }
     const cold = countsAgainstCap(m.kind);
