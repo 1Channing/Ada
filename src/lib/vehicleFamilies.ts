@@ -34,9 +34,11 @@ export function fuelFamily(text: string | null | undefined): FuelFamily | null {
   if (/hybrid|hybride|hybridi|\bhibrid|\bhibr\b|\bhybr\b|\bibrid|\bhev\b|mhev|e-tech|\bh\b|\d{2,3}h\b/.test(t)
     || /(?:benzin|dizel|diesel|nafta|petrol|essence|gasolio)\w*\s*[\/+]\s*(?:elektr|electr|elettr)|(?:elektr|electr|elettr)\w*\s*[\/+]\s*(?:benzin|dizel|diesel|nafta|petrol|essence|gasolio)/.test(t)) return 'hybrid';
   // 22/11 : noms de gamme électriques sans le mot — Stellantis « e-208 / e-2008 / ë-C4 / e-308 », BMW « i4 / i5 / iX1 / iX3 / eDrive ».
-  if (/electri|elektr|sahko|\bev\b|\bbev\b|\bel\b|elettric|electric|\belectra\b|\b[eë]-(?:208|2008|c[345]|308|3008|rifter|berlingo|partner|expert|jumpy|traveller|spacetourer)\b|\bi[3-7x]\b|\bix[1-3]\b|\bedrive\d{2}\b/.test(t)) return 'electric';
+  // 23/11 (Portugal, Consilcar) : « Elétrico » (orthographe de 1990, sans le c).
+  if (/electri|eletri|elektr|sahko|\bev\b|\bbev\b|\bel\b|elettric|electric|\belectra\b|\b[eë]-(?:208|2008|c[345]|308|3008|rifter|berlingo|partner|expert|jumpy|traveller|spacetourer)\b|\bi[3-7x]\b|\bix[1-3]\b|\bedrive\d{2}\b/.test(t)) return 'electric';
   // 19/11 : « Dízel », « Gázolaj » (HU), « Nafta » (SK).
-  if (/diesel|\bdizel\b|\bgazolaj\b|\bnafta\b|gasolio|\btdi\b|\bhdi\b|\bdci\b|\bcdi\b|\bcrdi\b|\bd4d\b|bluehdi|\bgazole\b/.test(t)) return 'diesel';
+  // 23/11 : « Gasóleo » (PT).
+  if (/diesel|\bdizel\b|\bgazolaj\b|\bnafta\b|gasolio|\bgasoleo\b|\btdi\b|\bhdi\b|\bdci\b|\bcdi\b|\bcrdi\b|\bd4d\b|bluehdi|\bgazole\b/.test(t)) return 'diesel';
   if (/essence|benzin|bensin|bensiini|petrol|gasolin|super ?plus|\be85\b|ethanol|etanol|\btsi\b|\betsi\b|\btfsi\b|\btce\b|puretech|\bvti\b/.test(t)) return 'petrol';
   if (/\bgpl\b|\bglp\b|\blpg\b|\bcng\b|\bgnv\b|metano|erdgas|autogas|kaasu|\bgaz\b|\bgas\b/.test(t)) return 'gas';
   return null;

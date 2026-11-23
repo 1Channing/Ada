@@ -861,5 +861,151 @@ ok(autoMore.every((v) => ds.gearboxOfVersion(v) === 'Automatique') && quietMore.
   'version : « TCT7 », « S tronic », « Geartronic », « BVR6 », « AT8 », « e-DCS6 », « i-MMD », « Hybrid+ », PHEV = automatique ; hybrides légères et dCi sans signal',
   [...autoMore, ...quietMore].map((v) => `${v} → ${ds.gearboxOfVersion(v)}`));
 
+console.log('\n=== CLIENTS (23/11) : DANEMARK (autoit), VAN EKRIS (occasionload), CONSILCAR (easysite) ===\n');
+{
+  const dsk = await import('../worker/dealerStock');
+  const fam = await import('../src/lib/vehicleFamilies');
+  // AutoIT (sej-biler.dk, autohus.dk, 23/11) : cartes réelles allégées ; « antal » porté au total rend tout le stock.
+  const ait = (id: string, h2: string, version: string, km: string, year: string, fuel: string, dl: string, labels = '') => `<div class="card ait-border-radius-md vehicle-card" data-load-swiper>
+    <a href="/brugte-biler/x-${id.toLowerCase()}/${id}/"><div class="card-image"><div class="slider-background"><img loading="lazy" src="https://img.test/${id}.jpg" alt=""></div>
+                <div class="label-container">${labels}
+    </div>
+        </div>
+        <div class="card-content"><h2 class="truncate">${h2}</h2><p class="truncate">${version}</p>
+            <ul class="text-upper strong"><li class="icon icon-mileage" aria-label="Kilometerstand">${km}</li><li class="icon icon-model-year" aria-label="Model&#xE5;r">${year}</li>
+                <li class="icon ${fuel === 'El' ? 'icon-ev' : 'icon-fuel'}" aria-label="Drivmiddel">${fuel}</li></ul></div>
+        <div class="card-footer"><dl class="text-upper">${dl}</dl></div>
+    </a>
+</div>`;
+  const kontant = (p: string, lbl = 'Kontant') => `<dt class="cash">${lbl}</dt><dd class="cash"><strong><span>${p}</span> kr.</strong></dd>`;
+  const aitPage = (n: number, cards: string) => `<form class="pure-form" data-form="ait-search" data-action="/umbraco/api/vehiclesApi/vehicles" method="post"></form>
+    <h2 data-search-header data-search-loading data-results-plural="Resultater">${n} Resultater</h2><div id="search-results" class="ait-grid cards vehicles">${cards}</div>
+    <button class="ait-btn ait-btn-secondary  load-more" data-paging-page-number-alias="side" data-paging-page-size-alias="antal" data-paging-page-number="1" data-paging-page-size="2" data-paging-total-pages="2" data-search-load-more>Hent flere</button>`;
+  const a1 = ait('AD5637705', 'Audi A4', 'Avant 2,0 TFSI  Mild hybrid Sport Prestige Tour S Tronic 190HK Stc 7g Aut.', '126.000 km', '2019', 'Benzin', kontant('189.900') + '<dt class="financing">Finansiering</dt><dd class="financing"><strong><span class="value">3.988</span> kr.</strong></dd>');
+  const a2 = ait('AD5728000', 'Cupra Born', 'EL Pasi&#xF3;n 231HK 5d Aut.', '41.000 km', '2022', 'El', kontant('189.900'), '<p class="label label-sold text-upper">Solgt</p>');
+  const a3 = ait('AD5595566', 'Mazda CX-30', '2,0 e-Skyactiv-G Exclusive-Line 150HK 5d 6g', '0 km', '-', 'Benzin', '<dt class="cash"><strong>Ring for pris</strong></dt><dd></dd>', '<p class="label text-upper">Demo</p>');
+  const a4 = ait('AD5700001', 'Ford Transit Custom', '2,0 EcoBlue Trend 136HK Van 6g', '12.000 km', '2024', 'Diesel', kontant('209.900', 'Kontant (ekskl. moms)') + '<dt class="leasing">Leasing (ekskl. moms)</dt><dd class="leasing"><strong><span class="value">2.399</span> kr.</strong></dd>');
+  const a5 = ait('AD5700002', 'Kia EV9', 'EL GT-Line 385HK 5d Aut.', '9.000 km', '2024', 'El', kontant('4.680') + '<dt class="leasing">Leasing</dt><dd class="leasing"><strong><span class="value">2.395</span> kr.</strong></dd>', '<p class="label text-upper">Engros</p>');
+  pages['https://ait.test.dk/brugte-biler/'] = aitPage(5, a1 + a2);
+  pages['https://ait.test.dk/brugte-biler/?antal=29'] = aitPage(5, a1 + a2 + a3 + a4 + a5);
+  ok(dsk.detectDealerProvider(pages['https://ait.test.dk/brugte-biler/']) === 'autoit', 'Danemark : formulaire « ait-search » et cartes « vehicle-card » reconnus (autoit)');
+  const aits = await dsk.fetchDealerStock('https://ait.test.dk/brugte-biler/');
+  const audi = aits.vehicles.find((v) => v.external_id === 'AD5637705');
+  ok(aits.vehicles.length === 5 && aits.declared === 5 && aits.pages === 2, 'Danemark : « 5 Resultater », tout le stock en une requête (« antal » = total + 24)', [aits.vehicles.length, aits.declared, aits.pages, aits.warnings]);
+  ok(audi?.brand === 'Audi' && audi?.model === 'A4' && audi?.price === 189900 && audi?.currency === 'DKK' && audi?.km === 126000 && audi?.year === 2019 && audi?.fuel === 'Benzin' && audi?.gearbox === 'Automatique' && audi?.power_ch === 190,
+    'Danemark : « Kontant 189.900 kr. » gardé en couronnes, « 7g Aut. » = automatique, « 190HK »', audi);
+  const born = aits.vehicles.find((v) => v.external_id === 'AD5728000'), cx30 = aits.vehicles.find((v) => v.external_id === 'AD5595566');
+  const van = aits.vehicles.find((v) => v.external_id === 'AD5700001'), ev9 = aits.vehicles.find((v) => v.external_id === 'AD5700002');
+  ok(born?.status === 'sold' && /Pasión/.test(born?.title ?? '') && cx30?.status === 'price_on_request' && cx30?.price === null && cx30?.year === null && cx30?.gearbox === 'Manuelle'
+    && /neuve en stock/.test(cx30?.body ?? '') && /démonstration/.test(cx30?.body ?? ''),
+    'Danemark : « Solgt » = vendue, « Ring for pris » = prix sur demande, « 0 km » sans année = neuve, « 6g » = manuelle, entités décodées', [born, cx30]);
+  ok(van?.price === 209900 && ev9?.price === null && ev9?.status === 'price_on_request' && /engros/.test(ev9?.body ?? ''),
+    'Danemark : prix utilitaire hors TVA gardé ; « Kontant 4.680 » d\'une voiture en leasing n\'est pas un prix ; « Engros » noté', [van?.price, ev9]);
+
+  // Van Ekris (vanekris.nl, 23/11) : cartes réelles allégées ; énergie par les passes du filtre « brandstof ».
+  const vek = (id: string, h2: string, version: string, year: string, km: string, gear: string, site: string, plate: string, price: string) => `<a id="occasion-${id}" href="https://vek.test/toyota-occasions/${id}"
+class="card bg-base-100 shadow hover:shadow-lg transition-shadow duration-300 overflow-hidden group">
+    <figure class="relative overflow-hidden bg-base-200"><img src="https://media.test/${id}-1.jpg" alt="${h2}" class="w-full h-auto"></figure>
+    <div class="card-body p-4">
+        <h2 class="card-title text-base text-xl font-bold leading-tight">
+            ${h2}
+        </h2>
+        <p class="text-sm text-base-content/60">${version}</p>
+        <div class="flex flex-wrap gap-4 mt-2 text-sm text-base-content/70">
+                            <span class="flex items-center gap-1"><svg class="w-3 h-3"><path d="M6.75 3v2.25"/></svg>                    ${year}
+                </span>
+                                        <span class="flex items-center gap-1"><svg class="w-3 h-3"><path d="M15 10.5a3"/></svg>                    ${km}
+                </span>
+                                        <span class="flex items-center gap-1"><svg class="w-3 h-3"><path d="M9.594 3.94"/></svg>                    ${gear}
+                </span>
+                                        <span class="flex items-center gap-1">                    Marge
+                </span>
+                    </div>
+        <div class="flex items-center justify-between mt-3">
+            <span class="flex items-center gap-1 text-sm font-bold text-base-content/60 toyota-bold"><svg class="w-4 h-4"><path d="M1 1"/></svg>
+                                ${site}
+            </span>
+                            <span class="flex flex-row h-7.5 place-items-center bg-base-200"><span class="px-0.5 py-1.5 rounded-l-sm bg-blue-500 text-white no-underline"></span><span class="px-2 py-1.25 text-xs font-bold rounded-r-sm bg-yellow-400 no-underline ">${plate}</span></span>
+                                                <span class="toyota-bold text-primary">${price}</span>
+                                    </div>
+    </div>
+</a>`;
+  const vekPage = (n: number, last: number, cards: string) => `<select name="brandstof" class="select"><option value="">(geen voorkeur)</option><option value="B">Benzine</option><option value="H">
+                                        Hybride
+                                    </option></select><p class="text-base-content/60 text-sm">
+                ${n} occasions gevonden
+            </p><div x-data="loadMore()" x-init="init()"><div id="occasion-results" class="grid">${cards}</div></div>
+            <script>
+                function loadMore() {
+                    return { nextPage: 2, lastPage: ${last}, hasMore: true, loading: false, total: ${n}, loaded: 2 }
+                }
+            </script>`;
+  const v1 = vek('58165042', 'Toyota RAV4', '2.0 VVTi X-Style 2WD', '2013', '64.178 km', 'Handgeschakeld', 'Mijdrecht', '7KKD90', '€ 15.950');
+  const v2 = vek('57515826', 'Toyota Auris', '1.8 Hybrid Dynamic', '2016', '113.592 km', 'Automaat', 'Leiderdorp', 'KD846K', '€ 15.999');
+  const v3 = vek('50988567', 'Lexus NX', '300h Business Line', '2019', '88.000 km', 'Automaat', 'Woerden', 'XY123Z', '<span class="line-through">€ 31.950</span> € 29.950');
+  pages['https://vek.test/toyota-occasions'] = vekPage(3, 2, v1 + v2);
+  pages['https://vek.test/toyota-occasions?page=2'] = vekPage(3, 2, v3);
+  pages['https://vek.test/toyota-occasions?brandstof=B&page=1'] = vekPage(1, 1, v1);
+  pages['https://vek.test/toyota-occasions?brandstof=H&page=1'] = vekPage(2, 1, v2 + v3);
+  ok(dsk.detectDealerProvider(pages['https://vek.test/toyota-occasions']) === 'occasionload', 'Van Ekris : cartes « occasion-<n°> » et bouton Alpine.js « loadMore() » reconnus (occasionload)');
+  const veks = await dsk.fetchDealerStock('https://vek.test/toyota-occasions');
+  const rav4 = veks.vehicles.find((v) => v.external_id === '58165042'), nx = veks.vehicles.find((v) => v.external_id === '50988567');
+  ok(veks.vehicles.length === 3 && veks.declared === 3 && !veks.warnings.some((w) => /sans énergie/.test(w)), 'Van Ekris : « 3 occasions gevonden », « ?page=N » jusqu\'à « lastPage », énergie de chaque voiture', [veks.vehicles.length, veks.warnings]);
+  ok(rav4?.brand === 'Toyota' && rav4?.model === 'RAV4' && rav4?.year === 2013 && rav4?.km === 64178 && rav4?.gearbox === 'Manuelle' && rav4?.location === 'Mijdrecht' && rav4?.plate === '7KKD90' && rav4?.price === 15950 && rav4?.fuel === 'Benzine'
+    && nx?.price === 29950 && nx?.gearbox === 'Automatique' && nx?.fuel === 'Hybride' && nx?.location === 'Woerden',
+    'Van Ekris : année, km, « Handgeschakeld » / « Automaat », site, plaque, prix (l\'ancien prix barré écarté), énergie du filtre (libellé du site)', [rav4, nx]);
+
+  // Consilcar (consilcar.pt, 23/11) : cartes réelles allégées ; la suite par « indexload.asp », rang de la suivante.
+  const es = (id: string, path: string, name: string, version: string, date: string, km: string, price: string) => `<div class="artigo"><script>$(document).ready(function(){ $('.fadein72').hide(); });</script>
+	<div class="col-xs-12 col-sm-12 col-md-12 item_listagem" itemscope itemtype ="https://schema.org/Car">
+		<a href="/carros/${path}/${id}" style="text-decoration:none;"><div class="thumbnail-zoom fadein72"><div id="1" class="lazy72" style="border:0px;background-image: url(https://cdn.easysite.pt/crm_test/${id}/a-6.jpg);"></div></div>
+			<div style="display:none" itemprop="offers" itemscope itemtype="http://schema.org/Offer"><div style="display:none" itemprop="priceCurrency">EUR</div><div style="display:none" itemprop="price">${price}</div></div>
+			<div style="display:none" itemprop="sku">${id}</div>
+			<div class="col-xs-12" itemprop="name"><div class="col-xs-12 texto-novidades" itemprop="brand">
+							${name}
+						</div><div class="col-xs-12 nopadding texto-novidades2  " >
+							${version}
+						</div></div>
+			<div class="novidades-mais-info-listagem nopadding">Registo <br><span itemprop="productionDate">
+							${date}
+							</span></div><div class="novidades-mais-info-listagem">Quilómetros <br><span itemprop="mileageFromOdometer"> ${km} </span></div>
+			<div class="preco-novidades"><div class="preco-novidades-inner">${price}</div></div></a></div></div>`;
+  const esNext = `<script>$("#load-more-btn").click(function () { var offset = $('#posts .artigo').length+1; $.ajax({
+				url: '/web1/zp/tpl1/id1/viaturas/automoveis/indexload.asp?a=0'+'&P_ord_campo=7&P_cod_anunciante=84&P_destino=index.asp'+'&P_num_pagina='+offset, dataType: 'html' }); });</script>`;
+  const esForm = `<form id="pesquisaFormListagem" method="post"><select class="chosen-select" name="TextBox" multiple><option value="1:Audi">Audi</option></select>
+    <input type="checkbox" name="P_cod_marca" value="12"><select name="P_ano_inicial"><option value="">Ano</option><option value="2020">2020</option></select>
+    <input type="hidden" name="P_ord_campo" value="7"></form>`;
+  const esCars = [es('1703900', 'Peugeot/Expert', 'Peugeot Expert', '1.5 BlueHDi M6 Confort 6Lug.', 'Novembro 2020', '214.079 Km', '17 890 €'), es('1752650', 'Peugeot/2008', 'Peugeot 2008', '1.2 Hybrid e-DCS6 Style Connect Navi', 'Março 2025', '19.189 Km', '20 980 €'),
+    es('1784650', 'Citro%C3%ABn/e-C3', 'Citroën e-C3', 'Max 113cv', 'Janeiro 2025', '7.936 Km', '19 990 €')];
+  pages['https://es.test/carros/usados/'] = `${esForm}<div id="posts">${esCars[0]}${esCars[1]}</div>${esNext}`;
+  pages['https://es.test/web1/zp/tpl1/id1/viaturas/automoveis/load_numero_resultados.asp?P_ano_inicial=&P_ord_campo=7'] = '3';
+  pages['https://es.test/carros/usados/?P_ord_campo=7&P_cod_anunciante=84&P_destino=index.asp&P_num_pagina=2'] = `${esForm}<div id="posts">${esCars.join('')}</div>${esNext}`;
+  ok(dsk.detectDealerProvider(pages['https://es.test/carros/usados/']) === 'easysite', 'Consilcar : cartes « item_listagem » (microdonnées Car) et suite « indexload.asp » reconnues (easysite)');
+  ok(dsk.formDefaults(pages['https://es.test/carros/usados/'], 'pesquisaFormListagem') === 'P_ano_inicial=&P_ord_campo=7', 'formulaire « .serialize() » par défaut : liste multiple et case non cochée omises');
+  const ess = await dsk.fetchDealerStock('https://es.test/carros/usados/');
+  const exp = ess.vehicles.find((v) => v.external_id === '1703900'), c3 = ess.vehicles.find((v) => v.external_id === '1784650');
+  ok(ess.vehicles.length === 3 && ess.declared === 3, 'Consilcar : total du compteur du site (3), tout le stock en une page (« P_num_pagina » = pages de 10)', [ess.vehicles.length, ess.declared, ess.warnings]);
+  ok(exp?.brand === 'Peugeot' && exp?.model === 'Expert' && exp?.price === 17890 && exp?.km === 214079 && exp?.year === 2020 && exp?.gearbox === null
+    && ess.vehicles.find((v) => v.external_id === '1752650')?.gearbox === 'Automatique' && c3?.brand === 'Citroën' && c3?.model === 'e-C3',
+    'Consilcar : « 17 890 € », « 214.079 Km », « Novembro 2020 », marque et modèle de l\'adresse (« Citro%C3%ABn »), boîte de la version (e-DCS6)', [exp, c3]);
+  const fiche = dsk.readEasysiteDetail(`<div class="col-xs-12 valorCaracteristica nopadding" itemprop="fuelType">
+							Gasóleo
+						</div><div class=" col-xs-12 caractistica_nome nopadding" >
+												Transmissão
+											</div>
+											<div class=" col-xs-12 caractistica_conteudo nopadding" >
+										Manual
+											</div>`);
+  ok(fiche.fuel === 'Gasóleo' && fiche.gearbox === 'Manuelle' && dsk.DETAIL_READERS.easysite?.fields.includes('fuel') === true,
+    'Consilcar : la fiche rend l\'énergie (« Combustível ») et la boîte (« Transmissão »)', fiche);
+  ok(fam.fuelFamily('Gasóleo') === 'diesel' && fam.fuelFamily('Elétrico') === 'electric' && fam.fuelFamily('Gasolina') === 'petrol',
+    'énergies portugaises : « Gasóleo » = diesel, « Elétrico » = électrique, « Gasolina » = essence');
+  // Compteur illisible : sans total, pas de relevé plutôt que de fausses disparitions.
+  pages['https://es2.test/carros/usados/'] = pages['https://es.test/carros/usados/'];
+  let stopped = false;
+  try { await dsk.fetchDealerStock('https://es2.test/carros/usados/'); } catch (e) { stopped = /total du site illisible/.test(String(e)); }
+  ok(stopped, 'Consilcar : sans total lisible, pas de relevé (aucune voiture marquée disparue à tort)');
+}
+
 console.log(`\n${fails === 0 ? 'Tout est bon.' : `${fails} échec(s).`}`);
 if (fails) process.exit(1);
