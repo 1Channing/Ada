@@ -39,7 +39,7 @@ import { FILE_CURRENCIES, type FileCurrency } from '../lib/offers/parseSupplierF
 import { colorLabel } from '../lib/offers/colorTranslate';
 import { currentFx } from '../services/fxRates';
 import { listOffers, saveOffer, deleteOffer, applyPriceRule, priceWithMargin, OFFER_COUNTRIES, type SupplierOffer, type PriceRule } from '../services/offers';
-import {
+import { lotEntry,
   lotsOf, lotTargets, startLotJob, awaitLotJob, mergeCountry, verdictOf, applyLotCriteria, COUNTRY_CAVEAT,
   type OfferMarket, type OfferLot, type LotTarget, type SiteResult, type LotCriteria,
 } from '../lib/offers/marketCheck';
@@ -688,7 +688,7 @@ export function Offres() {
   // Lots = véhicules RETENUS regroupés (marque, modèle, année, énergie, boîte).
   // Les relevés se lancent PAYS PAR PAYS (11/10) : bouton par colonne pays,
   // bouton par case vide, ou par lot. Chaque relevé passe par la file du worker.
-  const lots = useMemo(() => (draft ? lotsOf(draft.vehicles).map((l) => applyLotCriteria(l, draft.lot_criteria?.[l.key])) : []), [draft]);
+  const lots = useMemo(() => (draft ? lotsOf(draft.vehicles).map((l) => applyLotCriteria(l, lotEntry(draft.lot_criteria, l.key))) : []), [draft]);
 
   // ── INTRA : publier dans la vitrine de l'Accueil ────────────────────────────
   const publishedHere = useMemo(() => new Map(showcase.filter((i) => draft?.id && i.offer_id === draft.id).map((i) => [i.vehicle_id, i])), [showcase, draft?.id]);
@@ -701,7 +701,7 @@ export function Offres() {
       // 21/11 (Channing : « j'ai mis la single unit en TVA sur marge, mais elle s'affiche toujours en prix HT ») : le
       // régime de la marge, qu'il vienne des Paramètres de l'offre ou du véhicule, voyage avec la bonne affaire.
       vehicle: snapshotVehicle({ ...v, damages: dmgEur(v), vat_recoverable: isMarginScheme(v, S) ? false : v.vat_recoverable }), price_ht: draft.price_rule.mode === 'none' ? null : v.sale_price ?? null,
-      market: lot ? draft.market?.[lot.key] ?? null : null, note: publishedHere.get(v.id)?.note ?? '',
+      market: lot ? lotEntry(draft.market, lot.key) ?? null : null, note: publishedHere.get(v.id)?.note ?? '',
     };
   };
   const publishVehicles = async (list: OfferVehicle[]) => {
@@ -843,7 +843,7 @@ export function Offres() {
     const dates = Object.values(draft?.market ?? {}).flatMap((byCountry) => Object.values(byCountry).map((c) => c.at)).sort();
     return dates.length ? new Date(dates[dates.length - 1]) : null;
   }, [draft]);
-  const surveyedIn = (c: string) => lots.filter((l) => draft?.market?.[l.key]?.[c]).length;
+  const surveyedIn = (c: string) => lots.filter((l) => lotEntry(draft?.market, l.key)?.[c]).length;
   /** Critères de recherche d'un modèle, en puces lisibles (année, énergie, boîte, finition, puissance, km). */
   const lotChips = (l: OfferLot): string[] => [
     l.yearFrom != null && l.yearTo != null && l.yearFrom !== l.yearTo ? `${l.yearFrom}–${l.yearTo}` : String(l.yearFrom ?? l.yearTo ?? ''),
@@ -1512,7 +1512,7 @@ export function Offres() {
                               </td>
                               <td className="py-3 pr-3 text-right tabular-nums text-slate-700 whitespace-nowrap align-top">{lot.ourPriceMin != null && lot.ourPriceMax != null && lot.ourPriceMin !== lot.ourPriceMax ? `${fmtEur(toShown(lot.ourPriceMin, S))} – ${fmtEur(toShown(lot.ourPriceMax, S))}` : fmtEur(toShown(lot.ourPriceAvg, S))}</td>
                               {draft.countries.map((c) => {
-                                const res = draft.market?.[lot.key]?.[c];
+                                const res = lotEntry(draft.market, lot.key)?.[c];
                                 const state = cellState[cellKey(lot, c)];
                                 const v = res ? verdictOf(lot.ourPriceAvg, res, c, S.supplierBasis === 'margin') : null;
                                 const siteError = res && res.medianTtc == null && !v?.empty ? Object.values(res.sites).find((x) => x.error) : undefined;
@@ -1600,7 +1600,7 @@ export function Offres() {
                                   {!ts ? <span className="text-slate-400 flex items-center gap-1.5"><Loader2 className="w-3 h-3 animate-spin" /> génération des URLs…</span> : ts.length === 0 ? <span className="text-slate-400">Aucun site pour les pays de l'analyse.</span> : (
                                     <div className="grid md:grid-cols-2 gap-x-6 gap-y-1">
                                       {ts.map((t) => {
-                                        const sr = draft.market?.[lot.key]?.[t.country]?.sites[t.site];
+                                        const sr = lotEntry(draft.market, lot.key)?.[t.country]?.sites[t.site];
                                         return (
                                           <div key={`${t.country}-${t.site}`} className="flex items-start gap-2 min-w-0">
                                             <span className="w-24 shrink-0 text-slate-500">{t.country} · {SITE_LABEL(t.site)}</span>
@@ -1805,7 +1805,7 @@ export function Offres() {
                           {selected.map((v, i) => {
                             const it = publishedHere.get(v.id);
                             const lot = lots.find((l) => l.vehicleIds.includes(v.id));
-                            const countries = lot ? Object.keys(draft.market?.[lot.key] ?? {}) : [];
+                            const countries = lot ? Object.keys(lotEntry(draft.market, lot.key) ?? {}) : [];
                             return (
                               <Fragment key={v.id}>
                               <tr className={i % 2 ? 'bg-slate-50' : ''}>
@@ -1818,7 +1818,7 @@ export function Offres() {
                                 {previewColumns.map((c) => <td key={c.id} className={`px-2 py-1 border-b border-slate-100 max-w-[220px] truncate ${c.builtin === 'price' ? 'font-semibold text-brand-encre' : 'text-slate-700'}`}>{previewCell(c, v)}{c.builtin === 'price' && v.margin != null && draft.price_rule.mode === 'margin' && <span className="ml-1 text-[10px] font-normal text-amber-700" title="Marge propre à ce véhicule">marge {v.margin} €</span>}</td>)}
                                 <td className="px-2 py-1 border-b border-slate-100 whitespace-nowrap">
                                   {countries.length === 0 ? <span className="text-slate-400">aucun relevé</span> : countries.map((c) => {
-                                    const vd = verdictOf(draft.price_rule.mode === 'none' ? null : v.sale_price, draft.market?.[lot!.key]?.[c], c, S.supplierBasis === 'margin');
+                                    const vd = verdictOf(draft.price_rule.mode === 'none' ? null : v.sale_price, lotEntry(draft.market, lot!.key)?.[c], c, S.supplierBasis === 'margin');
                                     return <span key={c} className={`inline-block mr-1 text-[10px] px-1.5 py-0.5 rounded-full border ${VERDICT_CLASS[vd.tone]}`} title={vd.text}>{c} {vd.marginPct != null ? `${vd.marginPct >= 0 ? '+' : ''}${vd.marginPct} %` : vd.text}</span>;
                                   })}
                                   {lot && (

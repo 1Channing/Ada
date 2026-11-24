@@ -89,10 +89,26 @@ const FUEL_CRITERIA: Record<string, string> = {
   ESSENCE: 'ESSENCE', DIESEL: 'DIESEL', HYBRIDE: 'HYBRIDE', 'HYBRIDE RECHARGEABLE': 'PLUG_IN_HYBRID', ELECTRIQUE: 'ELECTRIQUE', GPL: 'GPL',
 };
 
+/**
+ * DES LOTS PLUS PROCHES (24/11, Channing : « on compare potentiellement des véhicules qui n'ont rien à voir avec
+ * l'étude : 130 000 km max alors qu'on a aussi des véhicules à 40 000 km ; il y en a qui ont 326 ch également »).
+ * Un lot = marque + modèle + année + énergie + boîte + PUISSANCE (245 ch et 326 ch ne se comparent pas) + TRANCHE DE
+ * KILOMÉTRAGE (30 000 km : une X1 de 13 000 km ne se compare pas à une de 116 000). La clé garde l'ancienne forme en
+ * tête : les relevés et critères enregistrés sous l'ancienne clé restent lisibles (legacyLotKey / lotEntry).
+ */
+export const KM_BAND = 30_000;
+export const kmBandOf = (km: number | null | undefined): string => (km == null ? '?' : String(Math.floor(Math.max(0, km - 1) / KM_BAND)));
+/** La clé telle qu'elle était avant le 24/11 (sans puissance ni tranche de km). */
+export const legacyLotKey = (key: string): string => key.replace(/\|p[^|]*\|k[^|]*$/, '');
+/** Ce qui est enregistré pour un lot : sous sa clé, sinon sous son ancienne clé (relevés faits avant le 24/11). */
+export function lotEntry<T>(map: Record<string, T> | null | undefined, key: string): T | undefined {
+  return map?.[key] ?? map?.[legacyLotKey(key)];
+}
+
 export function lotsOf(vehicles: OfferVehicle[]): OfferLot[] {
   const map = new Map<string, OfferVehicle[]>();
   for (const v of vehicles.filter((x) => x.selected)) {
-    const key = [v.brand, v.model, v.year ?? '?', v.fuel ?? '?', v.gearbox ?? '?'].join('|');
+    const key = [v.brand, v.model, v.year ?? '?', v.fuel ?? '?', v.gearbox ?? '?', `p${v.power_ch && v.power_ch > 0 ? v.power_ch : '?'}`, `k${kmBandOf(v.km)}`].join('|');
     map.set(key, [...(map.get(key) ?? []), v]);
   }
   return [...map.entries()].map(([key, list]) => {
@@ -111,7 +127,7 @@ export function lotsOf(vehicles: OfferVehicle[]): OfferLot[] {
       ourPriceMin: prices.length ? Math.min(...prices) : null, ourPriceMax: prices.length ? Math.max(...prices) : null,
       ourPriceAvg: prices.length ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length) : null,
     };
-  }).sort((a, b) => b.count - a.count);
+  }).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'fr'));
 }
 
 function criteriaOf(lot: OfferLot) {
