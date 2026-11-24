@@ -20,7 +20,7 @@ LES RÉPONSES. Une liste reçue : on remercie, on dit qu'on revient vers eux ave
 
 LES RELANCES. Deux relances sans réponse, à 4 jours puis à 10 jours, courtes, puis on passe au suivant.
 
-LA FORME. Professionnelle et sobre : un acheteur qui écrit à un acheteur, phrases courtes, aucune flatterie, aucun superlatif, pas de « j'ai vu votre stock ». Dans la langue du pays, vouvoiement, salutation d'usage ; 60 à 110 mots pour un premier mail ciblé, 35 à 80 pour un aiguillage ; une question principale par mail (sa liste), le reste en une phrase ; jamais de prix, de condition de paiement, de délai ni de garantie ; jamais de proposition d'appel ; un seul lien, celui des bonnes affaires ; pas de pièce jointe ; signature : Dana, MC Export.`;
+LA FORME. Professionnelle et sobre : un acheteur qui écrit à un acheteur, phrases courtes, aucune flatterie, aucun superlatif, pas de « j'ai vu votre stock ». Dans la langue du pays, vouvoiement, salutation d'usage en ouverture et formule de politesse en fin (« S pozdravom », « Mit freundlichen Grüßen ») ; 60 à 110 mots pour un premier mail ciblé, 35 à 80 pour un aiguillage ; une question principale par mail (sa liste), le reste en une phrase ; jamais de prix, de condition de paiement, de délai ni de garantie ; jamais de proposition d'appel ; un seul lien, celui des bonnes affaires ; pas de pièce jointe ; signature : Dana, MC Export.`;
 
 /** Les consignes en vigueur : celles écrites par l'équipe, sinon la doctrine par défaut. */
 export const doctrineOf = (instructions: string | null | undefined): string => (instructions ?? '').trim() || DANA_DOCTRINE_DEFAULT;
