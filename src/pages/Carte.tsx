@@ -19,6 +19,8 @@ import {
   ZoomIn, ZoomOut, Maximize2, Move, Loader2, Check, Car, ListChecks,
 } from 'lucide-react';
 import { useAuth } from '../services/auth';
+import { nameBrands } from '../lib/agents/campaignContacts';
+import { CAR_BRANDS } from '../lib/agents/brands';
 import { canSeeTab } from '../lib/appTabs';
 import { ShowcaseModal } from '../components/ShowcaseModal';
 import { GroupMailModal } from '../components/GroupMailModal';
@@ -329,15 +331,31 @@ export function Carte() {
   };
 
   // ── Filtres ──
+  /**
+   * LES MARQUES D'UN CONTACT (24/11, Channing : « quand je clique BMW ça m'enlève les concessions BMW »). Avant, le filtre
+   * ne lisait que les lignes « modèles suivis » saisies à la main (18 contacts sur 427) : les neuf BMW d'Autriche, sans
+   * ligne, disparaissaient. Désormais : les marques écrites dans le nom de la fiche (« BMW / MINI (Denzel) »), plus
+   * celles des lignes modèles. Comptes sous le filtre pays courant, liste alphabétique.
+   */
+  const brandsOfContact = useCallback((c: NetworkContact): string[] => {
+    const out = new Set<string>();
+    for (const b of nameBrands(c.name, CAR_BRANDS)) out.add(b.toUpperCase());
+    for (const b of c.models.map((x) => x.brand.trim().toUpperCase()).filter(Boolean)) out.add(b);
+    return [...out];
+  }, []);
   const filtered = useMemo(() => contacts.filter((c) =>
     (!countryFilter || c.country === countryFilter)
     && (!kindFilter || c.kind === kindFilter)
-    && (!brandFilter || c.models.some((m) => m.brand.trim().toUpperCase() === brandFilter))
+    && (!brandFilter || brandsOfContact(c).includes(brandFilter))
     && (!relationFilter || levelOf(c) === relationFilter)
     && (!aiOnly || isAiContact(c))
-    && contactMatchesQuery(c, query)), [contacts, countryFilter, kindFilter, brandFilter, relationFilter, aiOnly, query]);
+    && contactMatchesQuery(c, query)), [contacts, countryFilter, kindFilter, brandFilter, relationFilter, aiOnly, query, brandsOfContact]);
   const kinds = useMemo(() => (Object.keys(KIND_LABEL) as ContactKind[]).filter((k) => contacts.some((c) => c.kind === k)), [contacts]);
-  const brands = useMemo(() => { const m = new Map<string, number>(); for (const c of contacts) for (const b of new Set(c.models.map((x) => x.brand.trim().toUpperCase()).filter(Boolean))) m.set(b, (m.get(b) ?? 0) + 1); return [...m.entries()].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])); }, [contacts]);
+  const brands = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of contacts) { if (countryFilter && c.country !== countryFilter) continue; for (const b of brandsOfContact(c)) m.set(b, (m.get(b) ?? 0) + 1); }
+    return [...m.entries()].sort((x, y) => x[0].localeCompare(y[0], 'fr'));
+  }, [contacts, countryFilter, brandsOfContact]);
   const scopeLabel = [kindFilter && KIND_LABEL[kindFilter], countryFilter && (COUNTRY_NAMES[countryFilter] ?? countryFilter), brandFilter, relationFilter && RELATION_LABEL[relationFilter], query && `« ${query} »`].filter(Boolean).join(' · ') || 'tous les contacts';
   const aiCount = useMemo(() => contacts.filter(isAiContact).length, [contacts]);
   const selected = contacts.find((c) => c.id === selectedId) ?? null;

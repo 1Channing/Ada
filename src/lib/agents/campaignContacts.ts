@@ -55,15 +55,20 @@ export const isIndependent = (c: Pick<CampaignContactLike, 'name' | 'kind'>): bo
 const nameTokens = (name: string) => name.split('(')[0].normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
 /** Marques d'une concession : celles de son nom avant la parenthèse (le groupe entre parenthèses n'est pas une marque),
  *  plus celles qui pèsent au moins un quart de son stock (5 voitures ou plus). Un indépendant n'en a pas. */
-export function dealerBrands(c: Pick<CampaignContactLike, 'name' | 'kind'>, stock: Array<{ brand: string; n: number }>, known: string[]): string[] {
-  if (isIndependent(c)) return [];
-  const tokens = new Set(nameTokens(c.name));
+/** Les marques écrites dans le nom (avant la parenthèse), parmi les marques connues : « BMW Denzel Langenrohr · BMW / MINI (Denzel) » → BMW, Mini. */
+export function nameBrands(name: string, known: string[]): string[] {
+  const tokens = new Set(nameTokens(name));
   const out = new Map<string, string>();
   for (const b of known) {
     const first = brandKey(b.split(/[\s/-]+/)[0]);
     if (first.length >= 3 && tokens.has(first)) out.set(brandKey(b), b);
-    else if (first.length < 3 && c.name.split('(')[0].split(/[^A-Za-z0-9]+/).some((t) => t.toUpperCase() === b.toUpperCase())) out.set(brandKey(b), b);
+    else if (first.length < 3 && name.split('(')[0].split(/[^A-Za-z0-9]+/).some((t) => t.toUpperCase() === b.toUpperCase())) out.set(brandKey(b), b);
   }
+  return [...out.values()];
+}
+export function dealerBrands(c: Pick<CampaignContactLike, 'name' | 'kind'>, stock: Array<{ brand: string; n: number }>, known: string[]): string[] {
+  if (isIndependent(c)) return [];
+  const out = new Map<string, string>(nameBrands(c.name, known).map((b) => [brandKey(b), b]));
   const total = stock.reduce((a, b) => a + b.n, 0);
   for (const b of stock) if (b.n >= 5 && b.n / Math.max(1, total) >= 0.25) out.set(brandKey(b.brand), out.get(brandKey(b.brand)) ?? b.brand);
   return [...out.values()];
