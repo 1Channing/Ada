@@ -11,7 +11,7 @@
  * Vérifié sur le Land Rover Discovery Sport SALCA2BT5PH328757 (5 dommages, 4 pneus, 21 photos de dommages) et le
  * Ford Kuga WF0FXXWPMHPJ74563 (17 photos générales).
  */
-import type { FycReportFields, FycDamage } from './fycReport';
+import type { FycReportFields, FycDamage, FycLine } from './fycReport';
 import type { DekraPhoto } from './dekraReport';
 
 export const isMacadamReport = (html: string): boolean => /macadam\.eu/i.test(html) && /dynamicLabel/.test(html) && /assessmentFileId|vehicleTitle/i.test(html);
@@ -123,4 +123,114 @@ export function macadamGeneralPhotos(html: string): string[] {
   for (const m of html.matchAll(/title='General Picture - \d+'[^>]*onclick='[^']*ShowPicture\("([^"]+)"/g)) if (!out.includes(m[1])) out.push(m[1]);
   if (!out.length) for (const m of html.matchAll(/ShowPicture\("([^"]+)"/g)) if (!out.includes(m[1])) out.push(m[1]);
   return out;
+}
+
+// --- Le « Rapport de Remarketing de MACADAM » (PDF du portail, 24/11) -------------------------------------------------
+
+/**
+ * LE PDF DU PORTAIL MACADAM (24/11, Channing : « apprends cette inspection dans le FYC », BMW X1 WBA21EF0205X87351).
+ * portal.macadam.eu/reports/remarketingV1 imprimé en PDF : « Information véhicule » sur deux colonnes (Marque,
+ * Modèle, Version, Kilométrage, Type de carburant… ; Plaque, NIV, Première immatriculation…), « Résumé des dommages »,
+ * « Photos commerciales », « Options selon l'inspecteur », « Dommages » (quatre lignes par dommage : pièce, nature,
+ * action, zone), « Pneus » (six lignes par roue), « Contrôles » (deux colonnes libellé / valeur). Sans prix
+ * (withPrices=False). Lu sur les lignes pdf.js (mêmes lignes dans le navigateur et le worker).
+ */
+
+type L = { text: string; frags: Array<{ x: number; s: string }> };
+const asLines = (input: FycLine[]): L[] => input.map((l) => (typeof l === 'string' ? { text: l.trim(), frags: [] } : { text: l.text.trim(), frags: (l.frags ?? []).map((f) => ({ x: f.x, s: f.s.trim() })).filter((f) => f.s) })).filter((l) => l.text);
+const NOISE = /Rapport de Remarketing de MACADAM|portal\.macadam\.eu/i;
+
+export const isMacadamRemarketing = (input: FycLine[]): boolean => asLines(input).slice(0, 6).some((l) => /Rapport de Remarketing de MACADAM/i.test(l.text));
+
+export function parseMacadamRemarketing(input: FycLine[]): FycReportFields {
+  const lines = asLines(input).filter((l) => !NOISE.test(l.text) || /^\d{2}\/\d{2}\/\d{4}/.test(l.text));
+  const raw: Record<string, string> = {};
+  const section = (name: RegExp, until: RegExp): L[] => {
+    const i = lines.findIndex((l) => name.test(l.text));
+    if (i < 0) return [];
+    const out: L[] = [];
+    for (const l of lines.slice(i + 1)) { if (until.test(l.text)) break; if (!NOISE.test(l.text)) out.push(l); }
+    return out;
+  };
+  // Date du rapport : l'en-tête « 24/11/2026 16:34 ».
+  const head = lines.find((l) => /^\d{2}\/\d{2}\/\d{4}/.test(l.text));
+  const reportDate = isoDate(head?.text ?? null);
+  // Information véhicule : deux colonnes, séparées par l'abscisse du premier libellé de droite (« Plaque », « NIV »…).
+  const info = section(/^Information véhicule$/i, /^Résumé des dommages$|^Photos commerciales$/i);
+  const rightX = Math.min(...info.flatMap((l) => l.frags.filter((f) => /^(Plaque|Couleur|NIV|Puissance|Première immatriculation|Nombre de portes)/i.test(f.s)).map((f) => f.x)), Infinity);
+  const pair = (frags: Array<{ x: number; s: string }>) => {
+    const f = frags.filter((x) => x.s !== ':');
+    if (!f.length) return null;
+    return { label: f[0].s.replace(/\s*:$/, ''), value: dash(f.slice(1).map((x) => x.s).join(' ')) };
+  };
+  for (const l of info) {
+    for (const side of [l.frags.filter((f) => f.x < rightX), l.frags.filter((f) => f.x >= rightX)]) {
+      const p = pair(side);
+      if (p?.value) raw[p.label] = p.value;
+    }
+  }
+  const get = (re: RegExp) => Object.entries(raw).find(([k]) => re.test(k))?.[1] ?? null;
+  const brand = get(/^Marque$/i);
+  const version = get(/^Version$/i);
+  let model = get(/^Modèle$/i);
+  // « Modèle : X », « Version : BMW X1 » : la version est plus précise que le modèle tronqué.
+  if (version) {
+    const v = brand && version.toUpperCase().startsWith(brand.toUpperCase()) ? version.slice(brand.length).trim() : version;
+    if (v && (!model || v.toUpperCase().startsWith(model.toUpperCase()))) model = v;
+  }
+  const firstReg = isoDate(get(/^Première immatriculation$/i));
+  // Dommages : pièce, nature, action, zone — « Acceptable » = trace d'usage, le reste dévalue.
+  const dmg = section(/^Dommages$/i, /^Pneus$|^Contrôles$/i).map((l) => l.text);
+  const devaluation: FycDamage[] = [];
+  const usage: FycDamage[] = [];
+  const ZONES = /^(Arrière|Avant|Droite|Gauche|Roues|Toit & autres|Intérieur|Mécanique)$/i;
+  for (let i = 0; i + 3 < dmg.length + 1; ) {
+    const zi = dmg.slice(i + 1, i + 5).findIndex((t) => ZONES.test(t));
+    if (zi < 0) break;
+    const g = dmg.slice(i, i + 2 + zi);
+    const [part, kind, ...rest] = g;
+    const zone = rest.pop() ?? '';
+    const action = rest.join(' ');
+    const d: FycDamage = { zone: part, kind: kind ?? '', action, raw: `${part} — ${kind ?? ''}${action ? ` — ${action}` : ''} (${zone})` };
+    (/^Acceptable$/i.test(action) ? usage : devaluation).push(d);
+    i += g.length;
+  }
+  // Pneus : position, saison, jante, dimension, marque, gomme.
+  const ty = section(/^Pneus$/i, /^Contrôles$|^Informations sur le contenu/i).map((l) => l.text);
+  const tyres: string[] = [];
+  for (let i = 0; i < ty.length; i++) {
+    if (!/^(Avant|Arrière)\s+(Gauche|Droite?)$/i.test(ty[i])) continue;
+    const g = ty.slice(i + 1, i + 6);
+    const size = g.find((t) => /^\d{3}\/\d{2}\/\d{2}/.test(t)) ?? '';
+    const depth = g.find((t) => /^\d+([.,]\d)?\s*mm$/i.test(t)) ?? '';
+    const brandT = g.find((t) => t !== size && t !== depth && !/^(4 Saisons|Été|Hiver|Aluminium|Acier|Tôle)$/i.test(t)) ?? '';
+    const season = g.find((t) => /^(4 Saisons|Été|Hiver)$/i.test(t)) ?? '';
+    tyres.push([ty[i], brandT, season, size.replace(/^(\d{3})\/(\d{2})\/(\d{2})\/?(\d+)?\/?([A-Z])?$/, (_m, w, h, r, li, sp) => `${w}/${h} R ${r}${li ? ` ${li}` : ''}${sp ? ` ${sp}` : ''}`), depth].filter(Boolean).join(' '));
+  }
+  // Contrôles : libellé / valeur, deux colonnes ; la ligne qui suit sans libellé prolonge la valeur de gauche.
+  const ctrl = section(/^Contrôles$/i, /^Informations sur le contenu/i);
+  const cx = Math.min(...ctrl.flatMap((l) => l.frags.length >= 3 ? [l.frags[Math.floor(l.frags.length / 2)].x] : []), Infinity);
+  let lastLeft: string | null = null;
+  for (const l of ctrl) {
+    if (l.frags.length <= 1) { if (lastLeft && /^(Oui|Non)/i.test(l.text)) raw[lastLeft] = l.text; continue; }
+    const left = l.frags.filter((f) => f.x < cx), right = l.frags.filter((f) => f.x >= cx);
+    for (const side of [left, right]) {
+      if (!side.length) continue;
+      const label = side[0].s, value = side.slice(1).map((f) => f.s).join(' ');
+      if (value) raw[label] = value; else if (side === left) lastLeft = label;
+    }
+  }
+  const options = section(/^Options selon l'inspecteur$/i, /^Dommages$/i).map((l) => l.text).filter((t) => !/^Aucune Information/i.test(t));
+  const keys = num(get(/^Nbre clés total$/i));
+  if (keys != null) raw['Clés'] = String(keys);
+  if (reportDate) raw['Date du rapport'] = reportDate;
+  return {
+    report_number: null, report_date: reportDate, vin: dash(get(/^NIV$/i))?.toUpperCase() ?? null,
+    brand: brand ? (BRAND_FIX[brand.toUpperCase()] ?? brand) : null, model, version, body: null,
+    first_registration: firstReg, year: firstReg ? Number(firstReg.slice(0, 4)) : null,
+    km: num(get(/^Kilométrage$/i)), asking_price: null, repair_cost: null,
+    fuel: get(/^Type de carburant$/i), gearbox: get(/^Boîte de vitesses$/i), power_ch: num(get(/^Puissance$/i)),
+    color: get(/^Couleur de la carrosserie$/i), doors: num(get(/^Nombre de portes$/i)), seats: null, repainted: null,
+    damages: { devaluation, usage }, equipment: options, tyres, raw_fields: raw,
+  };
 }

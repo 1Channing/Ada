@@ -16,7 +16,7 @@ import { extractPdfPhotos } from '../lib/pdfImages';
 import type { FycTranslation } from '../lib/fycTranslation';
 import { isDekraReport, parseDekraReport, type FycDefectPhoto } from '../lib/dekraReport';
 import { isFleetboxReport, parseFleetboxReport } from '../lib/fleetboxReport';
-import { isMacadamReport, parseMacadamReport } from '../lib/macadamReport';
+import { isMacadamReport, parseMacadamReport, isMacadamRemarketing, parseMacadamRemarketing } from '../lib/macadamReport';
 import { htmlToLines } from '../lib/docxText';
 import { ADMIN_BUCKET } from './storageAccess';
 import { parseFycReport, type FycReportFields } from '../lib/fycReport';
@@ -208,7 +208,8 @@ export async function readInspection(row: FycInspection): Promise<string | null>
     const fields = html != null
       ? (isDekraReport(html) ? parseDekraReport(html).fields : isMacadamReport(html) ? parseMacadamReport(html).fields : parseFycReport(htmlToLines(html)))
       : docx ? parseFycReport(docx.lines)
-        : isFleetboxReport(pdfLines!) ? parseFleetboxReport(pdfLines!).fields : parseFycReport(pdfLines!);
+        : isMacadamRemarketing(pdfLines!) ? parseMacadamRemarketing(pdfLines!) // PDF du portail Macadam (24/11)
+          : isFleetboxReport(pdfLines!) ? parseFleetboxReport(pdfLines!).fields : parseFycReport(pdfLines!);
     Object.assign(fields, applyVinModel(fields)); // le VIN l'emporte sur l'étiquette du rapport (Tesla, 12/11)
     if (!fields.brand && !fields.vin) throw new Error('rapport lu mais sans marque ni VIN : format inconnu');
     // Prix demandé par la plateforme (VWFS) : proposé comme prix d'achat tant qu'aucun n'est saisi.

@@ -25,7 +25,7 @@ import { translationSource, translationSystem, translationFits, FYC_TRANSLATION_
 import { isDekraReport, parseDekraReport, dekraLanguageUrls, dekraTranslationFrom, type DekraPhoto, type FycDefectPhoto } from '../src/lib/dekraReport';
 import { isFleetboxReport, parseFleetboxReport, fleetboxTranslationFrom } from '../src/lib/fleetboxReport';
 import { parseFycReport } from '../src/lib/fycReport';
-import { isMacadamReport, parseMacadamReport, macadamGeneralPhotos, macadamAssessmentId, macadamUrls } from '../src/lib/macadamReport';
+import { isMacadamReport, parseMacadamReport, macadamGeneralPhotos, macadamAssessmentId, macadamUrls, isMacadamRemarketing, parseMacadamRemarketing } from '../src/lib/macadamReport';
 import { groupLines } from '../src/lib/pdfLines';
 import { applyVinModel } from '../src/lib/vinModel';
 import { isOwnFiche, OWN_FICHE_ERROR } from '../src/lib/fycLinks';
@@ -237,7 +237,7 @@ async function tick(): Promise<void> {
             if (parsed.fields.brand || parsed.fields.vin) { Object.assign(extra, parsed.fields); status = 'read'; }
           } else {
             const lines = await pdfLinesOf(buf);
-            const fields = isFleetboxReport(lines) ? parseFleetboxReport(lines).fields : parseFycReport(lines);
+            const fields = isMacadamRemarketing(lines) ? parseMacadamRemarketing(lines) : isFleetboxReport(lines) ? parseFleetboxReport(lines).fields : parseFycReport(lines);
             if (fields.brand || fields.vin) {
               Object.assign(extra, fields); status = 'read';
               if (row.purchase_price == null && fields.asking_price != null) extra.purchase_price = fields.asking_price;
