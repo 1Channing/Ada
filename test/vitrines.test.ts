@@ -780,10 +780,12 @@ const fuels: Array<[string, string | null]> = [
   ['Dízel', 'diesel'], ['Gázolaj', 'diesel'], ['Benzin(mild) Hybrid', 'hybrid'], ['Nafta', 'diesel'], ['Hibr.B/E külső töltő', 'phev'], ['Benzin/elektromos', 'hybrid'], ['Hibrid', 'hybrid'], ['Elektromos', 'electric'], ['Benzín', 'petrol'], ['Elektrický', 'electric'],
   ['Hybr.B/E ext.nab.', 'phev'], ['Hybr.D/E ext.nab.', 'phev'], ['Hybr.B/E', 'hybrid'],
   ['Diesel/Elettrica', 'hybrid'], ['Benzina/Elettrica', 'hybrid'], ['Elettrica/Benzina', 'hybrid'], ['elettrico', 'electric'], ['ibrido', 'hybrid'],
+  // 25/11 (Danemark, Sand-Jensen) : « el » = électrique ; « Benzin / El » est un hybride, « El » seul reste électrique.
+  ['Benzin / El', 'hybrid'], ['Diesel / El', 'hybrid'], ['Benzin/El', 'hybrid'], ['El / Benzin', 'hybrid'], ['El', 'electric'], ['Plug-in hybrid (Benzin / El)', 'phev'],
   ['Waterstof', null], ['autre', null],
 ];
 const fuelBad = fuels.filter(([v, want]) => fuelFamily(v) !== want);
-ok(fuelBad.length === 0, `énergie : ${fuels.length} mots de sites (es, it, de, nl, fr) classés`, fuelBad.map(([v]) => `${v} → ${fuelFamily(v)}`));
+ok(fuelBad.length === 0, `énergie : ${fuels.length} mots de sites (es, it, de, nl, fr, hu, cs, da) classés`, fuelBad.map(([v]) => `${v} → ${fuelFamily(v)}`));
 const gears: Array<[string, string]> = [['Autom. 7-Gang', 'auto'], ['A Var Continu', 'auto'], ['Rob Double Embray', 'auto'], ['Rob Simple Embray', 'auto'],
   ['Automaat', 'auto'], ['Handgeschakeld', 'manual'], ['Manuelle', 'manual'], ['Schaltgetriebe', 'manual']];
 const gearBad = gears.filter(([v, want]) => gearboxFamily(v) !== want);

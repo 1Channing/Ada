@@ -31,8 +31,9 @@ export function fuelFamily(text: string | null | undefined): FuelFamily | null {
   // Renault « E-Tech » : électrique quand suivi de EV / 120 / 150 / 170 / 220 (Mégane, Scénic, 5, Twingo) ; hybride sinon (145 / 200).
   if (/e-tech\s?(?:ev\s?\d{2}|ev\b|120\b|150\b|170\b|220\b)/.test(t)) return 'electric';
   // 22/11 (Italie, Spazio Group) : « Diesel/Elettrica », « Benzina/Elettrica » (italien « elettr- », double t).
+  // 25/11 (Danemark, Sand-Jensen) : « Benzin / El », « Diesel / El » (« el » = électrique en danois, suédois, norvégien).
   if (/hybrid|hybride|hybridi|\bhibrid|\bhibr\b|\bhybr\b|\bibrid|\bhev\b|mhev|e-tech|\bh\b|\d{2,3}h\b/.test(t)
-    || /(?:benzin|dizel|diesel|nafta|petrol|essence|gasolio)\w*\s*[\/+]\s*(?:elektr|electr|elettr)|(?:elektr|electr|elettr)\w*\s*[\/+]\s*(?:benzin|dizel|diesel|nafta|petrol|essence|gasolio)/.test(t)) return 'hybrid';
+    || /(?:benzin|dizel|diesel|nafta|petrol|essence|gasolio)\w*\s*[\/+]\s*(?:elektr|electr|elettr|el\b)|(?:elektr|electr|elettr|\bel\b)\w*\s*[\/+]\s*(?:benzin|dizel|diesel|nafta|petrol|essence|gasolio)/.test(t)) return 'hybrid';
   // 22/11 : noms de gamme électriques sans le mot — Stellantis « e-208 / e-2008 / ë-C4 / e-308 », BMW « i4 / i5 / iX1 / iX3 / eDrive ».
   // 23/11 (Portugal, Consilcar) : « Elétrico » (orthographe de 1990, sans le c).
   if (/electri|eletri|elektr|sahko|\bev\b|\bbev\b|\bel\b|elettric|electric|\belectra\b|\b[eë]-(?:208|2008|c[345]|308|3008|rifter|berlingo|partner|expert|jumpy|traveller|spacetourer)\b|\bi[3-7x]\b|\bix[1-3]\b|\bedrive\d{2}\b/.test(t)) return 'electric';
