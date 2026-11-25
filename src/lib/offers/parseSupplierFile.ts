@@ -254,20 +254,44 @@ export function readSupplierGrid(buf: ArrayBuffer): { sheet: string; grid: unkno
   // LA BONNE FEUILLE (offre Vito Mixto 03/11 : la première feuille « Overview » est un récapitulatif, les
   // voitures sont sur la deuxième) : celle dont une ligne d'en-têtes reconnaît le plus de colonnes VÉHICULE
   // (VIN, km, date, prix, modèle…) avec des lignes dessous ; à égalité la première.
-  let best = { sheet: wb.SheetNames[0], grid: toGrid(wb.SheetNames[0]), score: -1 };
-  for (const name of wb.SheetNames) {
-    const grid = name === best.sheet && best.score === -1 ? best.grid : toGrid(name);
-    let score = 0;
+  // TOUTES LES FEUILLES DE VÉHICULES (25/11, Channing : liste marchand BMW « elle ne m'affiche aucun véhicule
+  // électrique alors qu'on voit clairement qu'ils en ont en stock » — les 21 électriques étaient sur la deuxième
+  // feuille « Liste véhicules avec FRE », seule la première était lue). Chaque feuille qui porte des véhicules est
+  // lue ; elles sont fusionnées par le NOM de leurs colonnes (une colonne propre à une feuille, « Total FRE estimé »,
+  // reste vide pour les autres), et une colonne « Feuille » garde l'onglet d'origine de chaque ligne.
+  type Sheet = { name: string; grid: unknown[][]; score: number; headerRow: number };
+  const sheets: Sheet[] = wb.SheetNames.map((name) => {
+    const grid = toGrid(name);
+    let score = 0, headerRow = 0;
     for (let i = 0; i < Math.min(grid.length, 40); i++) {
       const row = grid[i] ?? [];
       const fields = row.map((c) => (typeof c === 'string' && c.trim() ? guessField(c) : 'ignore'));
       const strong = fields.filter((f) => ['vin', 'km', 'reg_date', 'price_ht', 'price_ttc', 'model', 'version', 'brand', 'plate', 'year'].includes(f)).length;
       const dataRows = grid.slice(i + 1).filter((r) => (r ?? []).filter((c) => c != null && c !== '').length >= 2).length;
-      if (strong >= 2 && dataRows >= 1) score = Math.max(score, strong * 100 + Math.min(dataRows, 99));
+      const sc = strong >= 2 && dataRows >= 1 ? strong * 100 + Math.min(dataRows, 99) : 0;
+      if (sc > score) { score = sc; headerRow = i; }
     }
-    if (score > best.score) best = { sheet: name, grid, score };
+    return { name, grid, score, headerRow };
+  });
+  const withCars = sheets.filter((x) => x.score > 0).sort((a, b) => b.score - a.score);
+  if (withCars.length === 0) return { sheet: wb.SheetNames[0], grid: sheets[0]?.grid ?? [] };
+  if (withCars.length === 1) return { sheet: withCars[0].name, grid: withCars[0].grid };
+  // Fusion par en-têtes, dans l'ordre des onglets du classeur.
+  const ordered = withCars.sort((a, b) => wb.SheetNames.indexOf(a.name) - wb.SheetNames.indexOf(b.name));
+  const headerText = (c: unknown) => cell(c);
+  const headers: string[] = [];
+  for (const sh of ordered) for (const h of (sh.grid[sh.headerRow] ?? []).map(headerText)) if (h && !headers.includes(h)) headers.push(h);
+  const SHEET_COL = 'Feuille';
+  const out: unknown[][] = [[...headers, SHEET_COL]];
+  for (const sh of ordered) {
+    const hs = (sh.grid[sh.headerRow] ?? []).map(headerText);
+    for (const row of sh.grid.slice(sh.headerRow + 1)) {
+      if ((row ?? []).filter((c) => c != null && c !== '').length < 2) continue;
+      const line: unknown[] = headers.map((h) => { const i = hs.indexOf(h); return i >= 0 ? row[i] ?? null : null; });
+      out.push([...line, sh.name]);
+    }
   }
-  return { sheet: best.sheet, grid: best.grid };
+  return { sheet: ordered.map((x) => x.name).join(' + '), grid: out };
 }
 
 const cell = (v: unknown): string => (v == null ? '' : v instanceof Date ? v.toISOString().slice(0, 10) : String(v).trim());
