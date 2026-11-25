@@ -283,12 +283,25 @@ export function readSupplierGrid(buf: ArrayBuffer): { sheet: string; grid: unkno
   for (const sh of ordered) for (const h of (sh.grid[sh.headerRow] ?? []).map(headerText)) if (h && !headers.includes(h)) headers.push(h);
   const SHEET_COL = 'Feuille';
   const out: unknown[][] = [[...headers, SHEET_COL]];
+  // Une même voiture sur deux feuilles (5 VIN sur les deux onglets de la liste marchand) : une seule ligne, celle de
+  // la première feuille, complétée par ce que la seconde ajoute (frais de remise en état, rapport) ; l'onglet garde les deux noms.
+  const vinCol = headers.findIndex((h) => guessField(h) === 'vin');
+  const byVin = new Map<string, unknown[]>();
   for (const sh of ordered) {
     const hs = (sh.grid[sh.headerRow] ?? []).map(headerText);
     for (const row of sh.grid.slice(sh.headerRow + 1)) {
       if ((row ?? []).filter((c) => c != null && c !== '').length < 2) continue;
       const line: unknown[] = headers.map((h) => { const i = hs.indexOf(h); return i >= 0 ? row[i] ?? null : null; });
-      out.push([...line, sh.name]);
+      const vin = vinCol >= 0 ? cell(line[vinCol]).toUpperCase().replace(/\s/g, '') : '';
+      const seen = vin.length >= 11 ? byVin.get(vin) : undefined;
+      if (seen) {
+        for (let i = 0; i < headers.length; i++) if ((seen[i] == null || seen[i] === '') && line[i] != null && line[i] !== '') seen[i] = line[i];
+        seen[headers.length] = `${cell(seen[headers.length])} + ${sh.name}`;
+        continue;
+      }
+      const full = [...line, sh.name];
+      if (vin.length >= 11) byVin.set(vin, full);
+      out.push(full);
     }
   }
   return { sheet: ordered.map((x) => x.name).join(' + '), grid: out };
