@@ -1072,5 +1072,53 @@ console.log('\n=== BMW DANEMARK (25/11) : BAYERN AUTOGROUP (productfilter), CARI
     'Sand-Jensen : « 1.849.900 kr. », microdonnées km / année / énergie, « aut. » et « PDK » = automatique, « Solgt » = vendue, page 2 par le lien du site (filtre gardé)', [sjs.pages, m5, p911, i4s, sjs.warnings]);
 }
 
+console.log('\n=== BMW PAYS-BAS (25/11) : FILTRE DE LIEU DES VITRINES dvapi (PALA, HEDIN), KALLENHARD (sucars) ===\n');
+{
+  const dsn = await import('../worker/dealerStock');
+  // Pala Group : la page d'un site filtre dans le navigateur (« locatie[0]=Uden&sources[0]=occasions ») ; l'API doit les recevoir.
+  const dvPage = (host: string, list: number) => `<div class="vehicle-overview" data-update-url="/voorraad-api/vehiclelist/${list}/vehicles.json?limit=21&amp;sort=created_at_desc"></div>`;
+  const dvApi = (host: string, list: number, params: Array<[string, string]>) => {
+    const u = new URL(`https://${host}/voorraad-api/vehiclelist/${list}/vehicles.json?limit=21&sort=created_at_desc`);
+    u.searchParams.set('limit', '100');
+    for (const [k, v] of params) u.searchParams.append(k, v);
+    return u;
+  };
+  const dvItem = (id: string, model: string, price: number) => ({ id, brand: 'BMW', model, type: 'xDrive30e M Sport', price, url: `/aanbod/${id}`,
+    attributes: { voertuignr: { value: id }, tellerstand: { value: 18000 }, bouwjaar: { value: 2024 }, brandstof: { value: 'Hybride' }, transmissie: { value: 'Automaat' } } });
+  pages['https://pala.test/aanbod?locatie%5B0%5D=Uden&sources%5B0%5D=occasions'] = dvPage('pala.test', 2);
+  const uden = dvApi('pala.test', 2, [['locatie[0]', 'Uden'], ['sources[0]', 'occasions']]);
+  uden.searchParams.set('page', '1'); uden.searchParams.set('sort', 'created_at_asc');
+  pages[uden.toString()] = JSON.stringify({ count: 1, pages: { total: 1 }, items: [dvItem('U93', 'X3', 52950)] });
+  // Sans le filtre, l'API rendrait tout le groupe (2 200 voitures le 25/11) : ici cette adresse-là ne répond pas.
+  ok(dsn.detectDealerProvider(pages['https://pala.test/aanbod?locatie%5B0%5D=Uden&sources%5B0%5D=occasions']) === 'dvapi', 'Pala Group : page « aanbod » à data-update-url reconnue (dvapi)');
+  const pala = await dsn.fetchDealerStock('https://pala.test/aanbod?locatie%5B0%5D=Uden&sources%5B0%5D=occasions');
+  ok(pala.vehicles.length === 1 && pala.vehicles[0].external_id === 'U93' && pala.vehicles[0].km === 18000 && pala.declared === 1,
+    'Pala Group : « locatie[0] » et « sources[0] » de la page passés à l\'API — le site seul, pas tout le groupe', [pala.vehicles.length, pala.warnings]);
+  // De Waal (déjà relevée) : « bouwjaar » et « sort » ne sont pas des filtres de lieu — l'appel à l'API ne change pas.
+  pages['https://dewaal.test/voorraad?bouwjaar=2017%3B2028&sort=price_asc&page=1'] = dvPage('dewaal.test', 7);
+  const dw = dvApi('dewaal.test', 7, []); dw.searchParams.set('page', '1'); dw.searchParams.set('sort', 'price_asc');
+  pages[dw.toString()] = JSON.stringify({ count: 1, pages: { total: 1 }, items: [dvItem('D1', 'X1', 29950)] });
+  const dwr = await dsn.fetchDealerStock('https://dewaal.test/voorraad?bouwjaar=2017%3B2028&sort=price_asc&page=1');
+  ok(dwr.vehicles.length === 1 && !fetched.some((u) => u.startsWith('https://dewaal.test/voorraad-api/') && /bouwjaar|locatie|plaats|sources/.test(u)),
+    'De Waal : sans filtre de lieu dans l\'adresse, l\'appel à l\'API est celui d\'avant (rien de recopié)', fetched.filter((u) => u.includes('dewaal.test')));
+
+  // Kallenhard : fichier JSON public « app-vehicles-nl.json » (data-json-url), prix affiché + prix export, BTW / marge.
+  pages['https://kh.test/voorraad/'] = '<div id="vehicle-compare-bar" data-json-url="/app/uploads/app-vehicles-nl.json?v=1795602005" data-compare-url="https://kh.test/vergelijk-modellen/"></div>';
+  const kh = (slug: string, title: string, desc: string, o: Record<string, unknown>, f: Record<string, unknown>) => ({ slug, title, link: `https://kh.test/voorraad/${slug}/`, published_at: 1795604990,
+    short_description: desc, image: { '768px': `https://kh.test/app/uploads/su-cars/${slug}.jpg` }, fuel: 'Hybride', transmission: 'Automaat', price: 52875, price_export: 41500, ...o,
+    filters: { brand: 'bmw', model: 'x3', year: 2023, vat: 'b', mileage: 86954, status: ['nieuw-binnen'], ...f } });
+  pages['https://kh.test/app/uploads/app-vehicles-nl.json?v=1795602005'] = JSON.stringify({ items: [
+    kh('bmw-x3-58352001', 'BMW X3', 'xDrive30e M-Sport - Pano - M-Zetels - 2023 - 86.954 km - Hybride Automaat', {}, {}),
+    kh('bmw-1-serie-58351090', 'BMW 1-serie', '118i M-Sport - Pano - 2021 - 152.430 km - Benzine Handgeschakeld', { fuel: 'Benzine', transmission: 'Handgeschakeld', price: 18875, price_export: 18875 }, { model: '1-serie', year: 2021, vat: 'm', mileage: 152430, status: ['verkocht'] }),
+  ], filters: [{ type: 'taxonomy_filter_widget', settings: { slug: 'brand' }, terms: [{ slug: 'bmw', name: 'BMW' }] }, { type: 'taxonomy_filter_widget', settings: { slug: 'model' }, terms: [{ slug: 'x3', name: 'X3' }, { slug: '1-serie', name: '1 Serie' }] }] });
+  ok(dsn.detectDealerProvider(pages['https://kh.test/voorraad/']) === 'sucars', 'Kallenhard : fichier « app-vehicles-nl.json » annoncé par data-json-url reconnu (sucars)');
+  const khs = await dsn.fetchDealerStock('https://kh.test/voorraad/');
+  const x3 = khs.vehicles.find((v) => v.external_id === '58352001'), b1 = khs.vehicles.find((v) => v.external_id === '58351090');
+  ok(khs.vehicles.length === 2 && khs.declared === 2 && x3?.price === 52875 && x3?.km === 86954 && x3?.year === 2023 && x3?.fuel === 'Hybride' && x3?.gearbox === 'Automatique'
+    && x3?.brand === 'BMW' && x3?.model === 'X3' && x3?.title === 'BMW X3 xDrive30e M-Sport · TVA récupérable · prix export 41 500 €' && x3?.listed_at === '2026-11-25T11:09:50.000Z'
+    && b1?.gearbox === 'Manuelle' && b1?.status === 'sold' && b1?.title === 'BMW 1-serie 118i M-Sport' && b1?.model === '1 Serie',
+    'Kallenhard : prix affiché gardé, prix export et TVA récupérable (« BTW ») dans le titre, marge sans mention, « verkocht » = vendue, date de mise en ligne', [x3, b1]);
+}
+
 console.log(`\n${fails === 0 ? 'Tout est bon.' : `${fails} échec(s).`}`);
 if (fails) process.exit(1);

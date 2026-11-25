@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'estorik' | 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused' | 'kiaosp' | 'pappas' | 'jpauto' | 'fwcars' | 'mbmauto' | 'dunaauto' | 'schiller' | 'petranyi' | 'leierauto' | 'skodastock' | 'kiaihned' | 'autobazareu' | 'hedin' | 'kiaused' | 'todosjazdene' | 'cardveicolo' | 'youcan' | 'ibilista' | 'nuxtvehicles' | 'autoit' | 'occasionload' | 'easysite' | 'productfilter' | 'carsgrid' | 'nextcars' | 'carclicked';
-const PROVIDERS_KNOWN: DealerProvider[] = ['estorik', 'dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused', 'kiaosp', 'pappas', 'jpauto', 'fwcars', 'mbmauto', 'dunaauto', 'schiller', 'petranyi', 'leierauto', 'skodastock', 'kiaihned', 'autobazareu', 'hedin', 'kiaused', 'todosjazdene', 'cardveicolo', 'youcan', 'ibilista', 'nuxtvehicles', 'autoit', 'occasionload', 'easysite', 'productfilter', 'carsgrid', 'nextcars', 'carclicked'];
+export type DealerProvider = 'estorik' | 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused' | 'kiaosp' | 'pappas' | 'jpauto' | 'fwcars' | 'mbmauto' | 'dunaauto' | 'schiller' | 'petranyi' | 'leierauto' | 'skodastock' | 'kiaihned' | 'autobazareu' | 'hedin' | 'kiaused' | 'todosjazdene' | 'cardveicolo' | 'youcan' | 'ibilista' | 'nuxtvehicles' | 'autoit' | 'occasionload' | 'easysite' | 'productfilter' | 'carsgrid' | 'nextcars' | 'carclicked' | 'sucars';
+const PROVIDERS_KNOWN: DealerProvider[] = ['estorik', 'dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused', 'kiaosp', 'pappas', 'jpauto', 'fwcars', 'mbmauto', 'dunaauto', 'schiller', 'petranyi', 'leierauto', 'skodastock', 'kiaihned', 'autobazareu', 'hedin', 'kiaused', 'todosjazdene', 'cardveicolo', 'youcan', 'ibilista', 'nuxtvehicles', 'autoit', 'occasionload', 'easysite', 'productfilter', 'carsgrid', 'nextcars', 'carclicked', 'sucars'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -371,6 +371,8 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/class="[^"]*\bcars-grid--used\b/.test(html) && /class="[^"]*\bcar car--used card\b/.test(html)) return 'carsgrid';
   // carclicked (Sand-Jensen, DK, 25/11) : cartes « carClicked » à microdonnées (modelDate, mileageFromOdometer, fuelType).
   if (/<a data-event="carClicked"/.test(html) && /itemprop="mileageFromOdometer"/.test(html)) return 'carclicked';
+  // sucars (Kallenhard, NL, 25/11) : WordPress « su-cars », tout le stock dans un fichier JSON public (data-json-url).
+  if (/data-json-url="[^"]*\/app-vehicles-[a-z]{2}\.json/.test(html)) return 'sucars';
   // nextcars (Jan Nygaard, DK, 25/11) : Next.js à composants serveur, stock dans les props de « UsedCarOverview » (« cars »).
   if (/self\.__next_f\.push/.test(html) && /UsedCarOverview/.test(html) && /\\"CashPrice\\":/.test(html)) return 'nextcars';
   // eveho (VPN Autos, 05/11) : Nuxt rendu serveur, cartes « component-single-vehicle » (marque/modèle, version, prix,
@@ -522,6 +524,14 @@ async function scrapeDvApi(url: string, firstHtml: string): Promise<DealerStockR
   if (!raw) return { provider: 'dvapi', total: null, vehicles: [], pages: 0, warnings: ['data-update-url introuvable'] };
   const api = new URL(raw.replace(/&amp;/g, '&'), origin);
   api.searchParams.set('limit', '100');
+  // FILTRES DE LIEU DE LA PAGE (25/11, BMW Pays-Bas) : la vitrine d'un site d'un groupe filtre dans le navigateur —
+  // « locatie[0]=Uden&sources[0]=occasions » (Pala Group), « plaats[0]=Breda » (Hedin) — et l'API les applique quand on
+  // les lui passe. Sans eux, tout le stock du groupe était lu (2 200 voitures au lieu de 93 pour NobraCars Uden). Seuls
+  // ces trois filtres sont recopiés : les vitrines déjà lues par ce lecteur (Hedin, Wensink, De Waal) n'en portent
+  // aucun, leur lecture ne change pas.
+  const pageFilters = [...new URL(url).searchParams].filter(([k]) => /^(?:locatie|plaats|sources)\[\d*\]$/.test(k));
+  for (const [k] of pageFilters) api.searchParams.delete(k);
+  for (const [k, v] of pageFilters) api.searchParams.append(k, v);
   // ORDRE STABLE (De Waal Autogroep 26/10, 1 547 annoncés) : sans tri, l'API sert ses pages dans un ordre
   // qui peut bouger entre deux appels — une voiture glisse d'une page à l'autre et manque au relevé.
   // Le tri de la page vitrine (?sort=price_asc) est repris ; sinon « created_at_asc » (le plus stable,
@@ -4018,6 +4028,55 @@ async function scrapeCarsGrid(url: string, firstHtml: string): Promise<DealerSto
   const seen = new Set<string>();
   const vehicles = parseCarsGrid(firstHtml, origin).filter((v) => (seen.has(v.external_id) ? false : (seen.add(v.external_id), true)));
   return { provider: 'carsgrid', total: vehicles.length, declared: null, vehicles, pages: 1, warnings: vehicles.length ? [] : ['aucune carte « car--used » sur la page'] };
+}
+// ── sucars (Kallenhard, Gorinchem, BMW / MINI, Pays-Bas, 25/11) : WordPress, extension « su-cars » — la page « /voorraad/ »
+//    charge un fichier public « /app/uploads/app-vehicles-nl.json?v=<n> » (adresse dans data-json-url) : « items » = tout le
+//    stock. Chaque voiture : title (« BMW X3 »), short_description (« xDrive30e M-Sport - Pano - … - 2023 - 86.954 km -
+//    Hybride Automaat »), fuel, transmission, price (prix affiché, BPM et TVA comprises), price_export (prix à l'export),
+//    filters { brand, model (slugs, noms dans les filtres du fichier), year, mileage, vat « b » = BTW / « m » = marge,
+//    status « verkocht » = vendue }, published_at (secondes). Le prix gardé est le prix affiché, comme pour les autres
+//    vitrines néerlandaises ; le prix export et la TVA récupérable sont écrits dans le titre.
+export function suCarsVehicles(data: unknown, origin: string): DealerVehicle[] {
+  const d = (data ?? {}) as { items?: Array<Record<string, any>>; filters?: Array<Record<string, any>> }; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const names = (slug: string) => new Map<string, string>((d.filters ?? []).filter((w) => w?.settings?.slug === slug).flatMap((w) => (Array.isArray(w.terms) ? w.terms : []))
+    .filter((t: { slug?: unknown; name?: unknown }) => typeof t?.slug === 'string' && typeof t?.name === 'string').map((t: { slug: string; name: string }) => [t.slug, t.name] as [string, string]));
+  const brands = names('brand'), models = names('model');
+  const eur = (n: number) => `${Math.round(n).toLocaleString('fr-FR').replace(/\s/g, ' ')} €`;
+  const out: DealerVehicle[] = [];
+  for (const it of d.items ?? []) {
+    const f = (it.filters ?? {}) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const slug = String(it.slug ?? '');
+    const id = slug.match(/(\d+)\/?$/)?.[1] ?? slug;
+    if (!id) continue;
+    const version = String(it.short_description ?? '').split(' - ')[0].trim();
+    const base = [String(it.title ?? '').trim(), version].filter(Boolean).join(' ');
+    const exportPrice = priceOrNull(it.price_export);
+    const price = priceOrNull(it.price);
+    const status = Array.isArray(f.status) ? (f.status as unknown[]).map(String) : [];
+    const brand = brands.get(String(f.brand ?? '')) ?? splitTitle(base).brand;
+    out.push({
+      external_id: id, url: typeof it.link === 'string' ? it.link : `${origin}/voorraad/${slug}/`,
+      title: `${base}${f.vat === 'b' ? ' · TVA récupérable' : ''}${exportPrice != null && exportPrice !== price ? ` · prix export ${eur(exportPrice)}` : ''}`,
+      brand, model: models.get(String(f.model ?? '')) ?? splitTitle(base).model, price, currency: 'EUR',
+      km: num(f.mileage), year: num(f.year), fuel: typeof it.fuel === 'string' && it.fuel ? it.fuel : null, gearbox: gearboxOf(typeof it.transmission === 'string' ? it.transmission : null),
+      plate: null, vin: null, body: null, image: (it.image && typeof it.image['768px'] === 'string' ? it.image['768px'] : null),
+      listed_at: num(it.published_at) ? new Date(num(it.published_at)! * 1000).toISOString() : null,
+      status: status.includes('verkocht') ? 'sold' : price == null ? 'price_on_request' : null, power_ch: powerFromText(version),
+    });
+  }
+  return out;
+}
+async function scrapeSuCars(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const json = firstHtml.match(/data-json-url="([^"]*\/app-vehicles-[a-z]{2}\.json[^"]*)"/)?.[1];
+  if (!json) return { provider: 'sucars', total: null, declared: null, vehicles: [], pages: 0, warnings: ['data-json-url introuvable'] };
+  const r = await getTextPatient(new URL(json.replace(/&amp;/g, '&'), origin).toString(), { headers: { accept: 'application/json', referer: url } });
+  if (r.status !== 200) return { provider: 'sucars', total: null, declared: null, vehicles: [], pages: 1, warnings: [`fichier du stock : HTTP ${r.status}`] };
+  let data: unknown;
+  try { data = JSON.parse(r.text); } catch { return { provider: 'sucars', total: null, declared: null, vehicles: [], pages: 1, warnings: ['fichier du stock illisible'] }; }
+  const seen = new Set<string>();
+  const vehicles = suCarsVehicles(data, origin).filter((v) => (seen.has(v.external_id) ? false : (seen.add(v.external_id), true)));
+  return { provider: 'sucars', total: vehicles.length, declared: vehicles.length, vehicles, pages: 1, warnings: vehicles.length ? [] : ['fichier du stock vide'] };
 }
 // ── carclicked (Sand-Jensen Automobiler, Silkeborg, Danemark, 25/11 : partenaire BMW) : page « /bilsoegning/ » (ASP.NET,
 //    Alpine) — 48 cartes par page « <a data-event="carClicked" data-url="<slug>-<id>" href="/bilsoegning/<slug>-<id>"> » :
@@ -7827,6 +7886,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'productfilter') return scrapeProductFilter(url, first.text);
   if (provider === 'carsgrid') return scrapeCarsGrid(url, first.text);
   if (provider === 'carclicked') return scrapeCarClicked(url, first.text);
+  if (provider === 'sucars') return scrapeSuCars(url, first.text);
   if (provider === 'nextcars') return scrapeNextCars(url, first.text);
   if (provider === 'eveho') return scrapeEveho(url, first.text);
   if (provider === 'autopalace') return scrapeAutopalace(url, first.text);
