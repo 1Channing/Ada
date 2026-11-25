@@ -1009,7 +1009,7 @@ class="card bg-base-100 shadow hover:shadow-lg transition-shadow duration-300 ov
   ok(stopped, 'Consilcar : sans total lisible, pas de relevé (aucune voiture marquée disparue à tort)');
 }
 
-console.log('\n=== BMW DANEMARK (25/11) : BAYERN AUTOGROUP (productfilter), CARIPO (carsgrid), JAN NYGAARD (nextcars), SAND-JENSEN (carclicked) ===\n');
+console.log('\n=== BMW DANEMARK (25/11) : BAYERN AUTOGROUP (productfilter), CARIPO (carsgrid), JAN NYGAARD (nextcars), SAND-JENSEN (carclicked), MEINICHE ET PROCAR (bilinfo) ===\n');
 {
   const dsb = await import('../worker/dealerStock');
   // Bayern AutoGroup (bag.dk) : page rendue avec ses facettes ; voitures par la route JSON « /api/product/filter ».
@@ -1070,6 +1070,29 @@ console.log('\n=== BMW DANEMARK (25/11) : BAYERN AUTOGROUP (productfilter), CARI
     && m5?.gearbox === 'Automatique' && p911?.gearbox === 'Automatique' && p911?.title === 'Porsche 911 Carrera 4S 3,0 Coupé PDK' && i4s?.status === 'sold' && i4s?.price === null
     && m5?.image === 'https://img.test/bmw-m5-touring-xdrive-aut-dma60oooi59.jpeg?class=S1600X1600&width=768',
     'Sand-Jensen : « 1.849.900 kr. », microdonnées km / année / énergie, « aut. » et « PDK » = automatique, « Solgt » = vendue, page 2 par le lien du site (filtre gardé)', [sjs.pages, m5, p911, i4s, sjs.warnings]);
+
+  // Bilinfo (Meiniche par le module « Brugtbilsmodulet », Procar par « vehiclesArr » dans la page) : même format.
+  const bi = (id: string, o: Record<string, unknown>) => ({ Id: id, Make: 'BMW', Model: 'i4', Variant: 'eDrive35 M-Sport', Price: '329900', CashPrice: '329900', PriceType: 'RetailPrice', Mileage: '25000', Year: '2024',
+    Propellant: 'El', SecondaryPropellant: null, GearType: 'A', Effect: '286', Type: 'Personvogn', Vin: null, Pictures: [`https://img.test/${id}.jpg`], CreatedDate: '24-09-2026 11:51:40', VehicleSourceId: `src-${id}`, SoldAge: null, DeletedDate: null, ...o });
+  pages['https://www.bbm.test.dk/meiniche-a-s/'] = '<div><script id="usedcarsmodule" src="//www.bbm.test.dk/bbm/537e1f7d-cc9f-48e2-8b20-94d7a73fe7c7.js"></script></div>';
+  pages['https://www.bbm.test.dk/bbm/bbm.app.js?guid=537e1f7d-cc9f-48e2-8b20-94d7a73fe7c7'] = `app.controller("x", function ($scope) {\n  $scope.data = null;\n  $scope.initialize = async function () {\n    $scope.data = ${JSON.stringify({ ApiVersion: '3', Vehicles: [bi('377670560', { Make: 'Kia', Model: 'Stonic', Variant: 'T-GDi Prestige DCT', Propellant: 'Benzin', Price: '199900', Effect: '100' }), bi('1843649265', { GearType: 'M', Propellant: 'Benzin', SecondaryPropellant: 'El', Model: '330e' })] })};\n  };\n});`;
+  ok(dsb.detectDealerProvider(pages['https://www.bbm.test.dk/meiniche-a-s/']) === 'bilinfo', 'Meiniche : module « usedcarsmodule » de Brugtbilsmodulet reconnu (bilinfo)');
+  const mei = await dsb.fetchDealerStock('https://www.bbm.test.dk/meiniche-a-s/');
+  const kia = mei.vehicles.find((v) => v.external_id === '377670560'), phev = mei.vehicles.find((v) => v.external_id === '1843649265');
+  ok(mei.vehicles.length === 2 && kia?.price === 199900 && kia?.currency === 'DKK' && kia?.km === 25000 && kia?.year === 2024 && kia?.gearbox === 'Automatique' && kia?.power_ch === 100
+    && kia?.listed_at === '2026-09-24T11:51:00' && kia?.url === 'https://www.bbm.test.dk/meiniche-a-s/#377670560' && phev?.fuel === 'Benzin / El' && phev?.gearbox === 'Manuelle',
+    'Meiniche : stock lu dans « $scope.data » du module (prix en couronnes, km, année, « A » / « M », ch, date) ; énergie double « Benzin / El »', [kia, phev]);
+  pages['https://pc.test.dk/biler-til-salg/'] = `<a href="https://pc.test.dk/bil-detaljer?id=src-303856412">Se bilen</a><script>var vehiclesArr=[];var base_url='https://pc.test.dk';if(20)\nvehiclesArr=${JSON.stringify([
+    bi('303856412', { Model: 'i4', Variant: 'M60 xDrive', Price: '569900' }),
+    bi('218232938', { Model: 'M240i', Variant: 'Cabriolet xDrive aut.', Price: '2260', PriceType: 'Leasing', VehicleSourceId: 'src-m240' }),
+    bi('1286366219', { Model: 'M240i', Variant: 'Cabriolet xDrive aut.', Price: '229900', PriceType: 'RetailPriceWithoutTax', VehicleSourceId: 'src-m240' }),
+    bi('45264850', { Model: 'X1', Price: '', CashPrice: null, PriceType: 'Leasing', VehicleSourceId: 'src-x1' })])};</script>`;
+  ok(dsb.detectDealerProvider(pages['https://pc.test.dk/biler-til-salg/']) === 'bilinfo', 'Procar : « vehiclesArr » Bilinfo dans la page reconnu (bilinfo)');
+  const pc = await dsb.fetchDealerStock('https://pc.test.dk/biler-til-salg/');
+  const m240 = pc.vehicles.find((v) => v.model === 'M240i'), x1 = pc.vehicles.find((v) => v.external_id === '45264850');
+  ok(pc.vehicles.length === 3 && pc.declared === 3 && m240?.external_id === '1286366219' && m240?.price === 229900 && /prix hors TVA/.test(m240?.title ?? '')
+    && m240?.url === 'https://pc.test.dk/bil-detaljer?id=src-m240' && x1?.price === null && x1?.status === 'price_on_request' && pc.warnings.some((w) => /en double/.test(w)),
+    'Procar : une voiture en deux annonces (leasing + vente hors TVA) comptée une fois, sous celle qui a un prix ; leasing seul = sans prix de vente ; lien « bil-detaljer »', [pc.vehicles, pc.warnings]);
 }
 
 console.log('\n=== BMW PAYS-BAS (25/11) : FILTRE DE LIEU DES VITRINES dvapi (PALA, HEDIN), KALLENHARD (sucars) ===\n');
