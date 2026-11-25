@@ -1009,5 +1009,68 @@ class="card bg-base-100 shadow hover:shadow-lg transition-shadow duration-300 ov
   ok(stopped, 'Consilcar : sans total lisible, pas de relevé (aucune voiture marquée disparue à tort)');
 }
 
+console.log('\n=== BMW DANEMARK (25/11) : BAYERN AUTOGROUP (productfilter), CARIPO (carsgrid), JAN NYGAARD (nextcars), SAND-JENSEN (carclicked) ===\n');
+{
+  const dsb = await import('../worker/dealerStock');
+  // Bayern AutoGroup (bag.dk) : page rendue avec ses facettes ; voitures par la route JSON « /api/product/filter ».
+  pages['https://bag.test.dk/brugte-biler?dealername.keyword=Bayern%20AutoGroup%20Aarhus%20A%2FS'] = `<html lang="da"><script>{"facets":{"propellant.keyword":[{"key":"El","count":3}],"dealername.keyword":[{"key":"Bayern AutoGroup Aarhus A\\u002FS","count":3,"selected":true}]},"total":3,"hits":[]}</script> 324.900 kr.</html>`;
+  const hit = (id: string, o: Record<string, unknown>) => ({ id, title: 'BMW iX2', make: 'BMW', model: 'iX2', variant: 'eDrive20 M-Sport Pro', year: 2025, mileage: '22.000 km', priceType: 'RetailPrice', gearType: 'Automatisk', productUrl: `/bmw-ix2-${id}`, vehicletype: 'PV', isDemo: false, vatType: 'WithVat', propellant: 'El', dealerName: 'Bayern AutoGroup Aarhus A/S', pictures: [`https://img.test/${id}.jpg`], cashPrice: '379.900 kr.', ...o });
+  pages['https://bag.test.dk/api/product/filter?dealername.keyword=Bayern+AutoGroup+Aarhus+A%2FS&from=0&take=100&culture=da-DK&productType=Cars'] = JSON.stringify({ total: 3, hits: [
+    hit('748584159', {}), hit('1518322967', { title: 'BMW i7', model: 'i7', variant: 'eDrive50 M-Sport', priceType: 'Leasing', cashPrice: undefined, leasingPrice: '12.000 kr.' }),
+    hit('1880737347', { title: 'BMW 320d', model: '3-Serie', variant: '2,0 Touring aut.', propellant: 'Diesel', gearType: 'Manuel', isDemo: true, vatType: 'WithoutVat', mileage: '9.000 km', cashPrice: '214.900 kr.' })] });
+  ok(dsb.detectDealerProvider(pages['https://bag.test.dk/brugte-biler?dealername.keyword=Bayern%20AutoGroup%20Aarhus%20A%2FS']) === 'productfilter', 'Bayern AutoGroup : facettes « dealername.keyword » / « propellant.keyword » reconnues (productfilter)');
+  const bag = await dsb.fetchDealerStock('https://bag.test.dk/brugte-biler?dealername.keyword=Bayern%20AutoGroup%20Aarhus%20A%2FS');
+  const ix2 = bag.vehicles.find((v) => v.external_id === '748584159'), i7 = bag.vehicles.find((v) => v.external_id === '1518322967'), d320 = bag.vehicles.find((v) => v.external_id === '1880737347');
+  ok(bag.vehicles.length === 3 && bag.declared === 3 && ix2?.price === 379900 && ix2?.currency === 'DKK' && ix2?.km === 22000 && ix2?.year === 2025 && ix2?.fuel === 'El' && ix2?.gearbox === 'Automatique'
+    && ix2?.url === 'https://bag.test.dk/bmw-ix2-748584159',
+    'Bayern AutoGroup : route filtrée sur la concession de la vitrine, « 379.900 kr. » en couronnes, « 22.000 km », « Automatisk »', [bag.declared, ix2, bag.warnings]);
+  ok(i7?.price === null && i7?.status === 'price_on_request' && d320?.gearbox === 'Manuelle' && /démonstration/.test(d320?.body ?? '') && bag.warnings.some((w) => /hors TVA/.test(w)),
+    'Bayern AutoGroup : une voiture en leasing n\'a pas de prix de vente ; « Manuel », démonstration, prix hors TVA signalé', [i7, d320]);
+
+  // Caripo (caripo-biler.dk) : cartes « car car--used card », km et année sur la fiche.
+  const cg = (id: string, title: string, price: string) => `<div class="item filter-BMW"><a href="/c/brugte-biler/x-${id}" class="blue car car--used card"><div class="image"><img src="https://img.test/${id}.jpg" alt=""></div>
+    <div class="content"><span class="tag tag--news">Nyhed</span><div class="content__text"><h3>
+										${title}
+									</h3><div class="price">kr. ${price}</div></div></div><div class="red read-more">Se mere</div></a></div>`;
+  pages['https://cg.test.dk/p/brugte-biler'] = `<div class="cars-grid cars-grid--used grid">${cg('5738689', 'BMW i4 eDrive40 Gran Coupé EL M-Sport 340HK 5d Aut.', '439.900')}${cg('5727339', 'BMW 118i 1,5 M-Sport 136HK 5d 6g', '199.900')}</div>`;
+  ok(dsb.detectDealerProvider(pages['https://cg.test.dk/p/brugte-biler']) === 'carsgrid', 'Caripo : cartes « car--used » dans « cars-grid--used » reconnues (carsgrid)');
+  const cgs = await dsb.fetchDealerStock('https://cg.test.dk/p/brugte-biler');
+  const i4 = cgs.vehicles.find((v) => v.external_id === '5738689'), b118 = cgs.vehicles.find((v) => v.external_id === '5727339');
+  ok(cgs.vehicles.length === 2 && i4?.price === 439900 && i4?.currency === 'DKK' && i4?.fuel === 'El' && i4?.gearbox === 'Automatique' && i4?.power_ch === 340 && b118?.gearbox === 'Manuelle' && b118?.fuel === null,
+    'Caripo : « kr. 439.900 », « EL » et « Aut. » du titre, « 6g » = manuelle ; l\'énergie absente du titre attend la fiche', [i4, b118]);
+  const facts = dsb.readUsedCarFactsDetail('<div class="used-car-facts__item"><div class="used-car-facts__caption">Modelår</div> 2025</div><div class="used-car-facts__item"><div class="used-car-facts__caption">Kilometer</div> 26.000</div><div class="used-car-facts__item"><div class="used-car-facts__caption">Brændstof</div> Benzin</div>');
+  ok(facts.km === 26000 && facts.year === 2025 && facts.fuel === 'Benzin' && dsb.DETAIL_READERS.carsgrid?.fields.includes('km') === true, 'Caripo : la fiche rend km, année et énergie (« used-car-facts »)', facts);
+
+  // Jan Nygaard (jan-nygaard.dk) : Next.js à composants serveur, « UsedCarOverview » → « cars ».
+  const car = (id: string, title: string, sub: string, loc: string, cash: string, km: string, year: string) => ({ card: { badge: 'Premium Selection', href: `/brugte-biler/x-${id}`, id, images: [`https://img.test/${id}.jpg`], location: { href: '/locations/x', name: loc }, price: `${cash} kr.`, priceSubline: '$undefined', subtitle: sub, title }, CashPrice: cash.replace(/\./g, ''), CreatedDate: '06-10-2026 10:59:17', make: 'BMW', Mileage: km, modelSeries: '3-Serie', powertrain: 'Benzin-hybrid', Year: year });
+  const rsc = `2e:I[24200,["$4"],"UsedCarOverview"]\n24:["$","$L2e",null,${JSON.stringify({ cars: [car('725991055', 'BMW 330e Touring M-Sport aut.', 'Plug-in hybrid · 2022 · 75.000 km.', 'Birkerød', '309.000', '75000', '2022'), car('920013733', 'BMW i7 eDrive50 M-Sport', 'El · 2025 · 39.000 km.', 'København', '795.000', '39000', '2025')] })}]`;
+  pages['https://jn.test.dk/brugte-biler'] = `<html><body><p>2 biler fundet</p><script>self.__next_f.push([1,${JSON.stringify(rsc)}])</script></body></html>`;
+  ok(dsb.detectDealerProvider(pages['https://jn.test.dk/brugte-biler']) === 'nextcars', 'Jan Nygaard : composant « UsedCarOverview » de la charge Next.js reconnu (nextcars)');
+  const jns = await dsb.fetchDealerStock('https://jn.test.dk/brugte-biler');
+  const e330 = jns.vehicles.find((v) => v.external_id === '725991055'), i7b = jns.vehicles.find((v) => v.external_id === '920013733');
+  ok(jns.vehicles.length === 2 && jns.declared === 2 && e330?.price === 309000 && e330?.km === 75000 && e330?.year === 2022 && e330?.fuel === 'Plug-in hybrid' && e330?.gearbox === 'Automatique'
+    && e330?.location === 'Birkerød' && e330?.listed_at === '2026-10-06T10:59:00' && i7b?.location === 'København' && i7b?.currency === 'DKK',
+    'Jan Nygaard : prix, km, année, énergie du sous-titre, site de chaque voiture, date de mise en ligne — lu sans rien exécuter', [e330, i7b]);
+
+  // Sand-Jensen (sandjensen.dk) : 48 cartes « carClicked » par page, microdonnées ; les liens de page portent le filtre.
+  const sj = (slug: string, brand: string, h3: string, price: string, year: string, km: string, fuel: string, tag = '') => `<a data-event="carClicked" data-category="navigation" data-label="carClicked" data-url="${slug}"
+    class="" href="/bilsoegning/${slug}"><article class="relative"><div class="absolute flex"><div class="pr-3"><p>${tag}</p></div></div><div class="relative"><swiper-container class="carTileSwiper"><swiper-slide><picture>
+    <img loading="lazy" class="object-cover" src="https://img.test/${slug}.jpeg?class=S1600X1600&amp;width=768" alt="" /></picture></swiper-slide></swiper-container></div>
+    <div class="flex"><div class="leading-none pb-3"><p class="tagline">${brand}</p><h3 class="text-xl"><b>${h3.split(' ').slice(0, 2).join(' ')}</b> ${h3.split(' ').slice(2).join(' ')}</h3></div>
+    <div class="display-x-small font-semibold mb-0 leading-none ">\n ${price}\n </div><div class="text-sm"><div class="font-semibold">12.792 kr.</div><small class="opacity-60">Leasing fra</small></div>
+    <p itemprop="modelDate">${year}</p><p itemprop="mileageFromOdometer" itemscope itemtype="https://schema.org/QuantitativeValue"><span itemprop="value">${km}</span> <small>Km.</small></p><p itemprop="fuelType">${fuel}</p></div></article></a>`;
+  const sjNav = (p: number) => `<p>Viser 1–2 af 3 biler</p><a href="/bilsoegning/?tx=Varebil&#x2B;inkl.&#x2B;moms%2cVan&amp;pageSize=48&amp;page=${p}" aria-label="Gå til side ${p}">${p}</a>`;
+  pages['https://sj.test.dk/bilsoegning/'] = sjNav(2) + sj('bmw-m5-touring-xdrive-aut-dma60oooi59', 'BMW', 'BMW M5 4,4 Touring xDrive aut.', '1.849.900 kr.', '2025', '32000', 'Benzin / El', 'Nypris -23%')
+    + sj('porsche-911-carrera-4s-coupe-pdk-mdvczpcfzsz', 'Porsche', 'Porsche 911 Carrera 4S 3,0 Coup&#xE9; PDK', '1.299.900 kr.', '2021', '41000', 'Benzin');
+  pages['https://sj.test.dk/bilsoegning/?tx=Varebil+inkl.+moms%2cVan&pageSize=48&page=2'] = sjNav(1) + sj('bmw-i4-edrive35-m-sport-ra7mgbqnaio', 'BMW', 'BMW i4 eDrive35 M-Sport', '', '2023', '61000', 'El', 'Solgt');
+  ok(dsb.detectDealerProvider(pages['https://sj.test.dk/bilsoegning/']) === 'carclicked', 'Sand-Jensen : cartes « carClicked » à microdonnées reconnues (carclicked)');
+  const sjs = await dsb.fetchDealerStock('https://sj.test.dk/bilsoegning/');
+  const m5 = sjs.vehicles.find((v) => v.external_id === 'dma60oooi59'), p911 = sjs.vehicles.find((v) => v.external_id === 'mdvczpcfzsz'), i4s = sjs.vehicles.find((v) => v.external_id === 'ra7mgbqnaio');
+  ok(sjs.vehicles.length === 3 && sjs.declared === 3 && sjs.pages === 2 && m5?.price === 1849900 && m5?.currency === 'DKK' && m5?.km === 32000 && m5?.year === 2025 && m5?.fuel === 'Benzin / El'
+    && m5?.gearbox === 'Automatique' && p911?.gearbox === 'Automatique' && p911?.title === 'Porsche 911 Carrera 4S 3,0 Coupé PDK' && i4s?.status === 'sold' && i4s?.price === null
+    && m5?.image === 'https://img.test/bmw-m5-touring-xdrive-aut-dma60oooi59.jpeg?class=S1600X1600&width=768',
+    'Sand-Jensen : « 1.849.900 kr. », microdonnées km / année / énergie, « aut. » et « PDK » = automatique, « Solgt » = vendue, page 2 par le lien du site (filtre gardé)', [sjs.pages, m5, p911, i4s, sjs.warnings]);
+}
+
 console.log(`\n${fails === 0 ? 'Tout est bon.' : `${fails} échec(s).`}`);
 if (fails) process.exit(1);

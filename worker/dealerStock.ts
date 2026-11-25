@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'estorik' | 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused' | 'kiaosp' | 'pappas' | 'jpauto' | 'fwcars' | 'mbmauto' | 'dunaauto' | 'schiller' | 'petranyi' | 'leierauto' | 'skodastock' | 'kiaihned' | 'autobazareu' | 'hedin' | 'kiaused' | 'todosjazdene' | 'cardveicolo' | 'youcan' | 'ibilista' | 'nuxtvehicles' | 'autoit' | 'occasionload' | 'easysite';
-const PROVIDERS_KNOWN: DealerProvider[] = ['estorik', 'dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused', 'kiaosp', 'pappas', 'jpauto', 'fwcars', 'mbmauto', 'dunaauto', 'schiller', 'petranyi', 'leierauto', 'skodastock', 'kiaihned', 'autobazareu', 'hedin', 'kiaused', 'todosjazdene', 'cardveicolo', 'youcan', 'ibilista', 'nuxtvehicles', 'autoit', 'occasionload', 'easysite'];
+export type DealerProvider = 'estorik' | 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused' | 'kiaosp' | 'pappas' | 'jpauto' | 'fwcars' | 'mbmauto' | 'dunaauto' | 'schiller' | 'petranyi' | 'leierauto' | 'skodastock' | 'kiaihned' | 'autobazareu' | 'hedin' | 'kiaused' | 'todosjazdene' | 'cardveicolo' | 'youcan' | 'ibilista' | 'nuxtvehicles' | 'autoit' | 'occasionload' | 'easysite' | 'productfilter' | 'carsgrid' | 'nextcars' | 'carclicked';
+const PROVIDERS_KNOWN: DealerProvider[] = ['estorik', 'dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused', 'kiaosp', 'pappas', 'jpauto', 'fwcars', 'mbmauto', 'dunaauto', 'schiller', 'petranyi', 'leierauto', 'skodastock', 'kiaihned', 'autobazareu', 'hedin', 'kiaused', 'todosjazdene', 'cardveicolo', 'youcan', 'ibilista', 'nuxtvehicles', 'autoit', 'occasionload', 'easysite', 'productfilter', 'carsgrid', 'nextcars', 'carclicked'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -364,6 +364,15 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   // easysite (Consilcar, PT, 23/11) : éditeur EasySite (« cdn.easysite.pt/crm_… »), cartes « item_listagem » en
   // microdonnées schema.org Car, suite par « indexload.asp ».
   if (/class="[^"]*\bitem_listagem\b[^"]*"\s+itemscope/.test(html) && /indexload\.asp/.test(html)) return 'easysite';
+  // productfilter (Bayern AutoGroup, DK, 25/11) : page rendue avec l'état de sa recherche — facettes « dealername.keyword »
+  // et « propellant.keyword » —, voitures par la route « /api/product/filter ».
+  if (/"dealername\.keyword":\[\{"key":/.test(html) && /"propellant\.keyword":\[/.test(html)) return 'productfilter';
+  // carsgrid (Caripo Biler, DK, 25/11) : tout le stock sur une page, cartes « car car--used card » dans « cars-grid--used ».
+  if (/class="[^"]*\bcars-grid--used\b/.test(html) && /class="[^"]*\bcar car--used card\b/.test(html)) return 'carsgrid';
+  // carclicked (Sand-Jensen, DK, 25/11) : cartes « carClicked » à microdonnées (modelDate, mileageFromOdometer, fuelType).
+  if (/<a data-event="carClicked"/.test(html) && /itemprop="mileageFromOdometer"/.test(html)) return 'carclicked';
+  // nextcars (Jan Nygaard, DK, 25/11) : Next.js à composants serveur, stock dans les props de « UsedCarOverview » (« cars »).
+  if (/self\.__next_f\.push/.test(html) && /UsedCarOverview/.test(html) && /\\"CashPrice\\":/.test(html)) return 'nextcars';
   // eveho (VPN Autos, 05/11) : Nuxt rendu serveur, cartes « component-single-vehicle » (marque/modèle, version, prix,
   // « filedKmYear » km et année, « otherFields » énergie et boîte, lieu), 23 par page « ?page=N », « N résultats ».
   if (/class="component-single-vehicle"/.test(html) && /filedKmYear/.test(html)) return 'eveho';
@@ -3857,6 +3866,211 @@ async function scrapeEasysite(url: string, firstHtml: string): Promise<DealerSto
   const warnings: string[] = [];
   if (out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
   return { provider: 'easysite', total: declared, declared, vehicles: out, pages: 2, warnings };
+}
+
+// ── productfilter (Bayern AutoGroup, Danemark, 25/11 : bag.dk, groupe Nic. Christiansen — BMW / MINI, avec Terminalen et
+//    PreLovedCars) : la page « /brugte-biler » est rendue avec l'état de sa recherche (facettes « dealername.keyword »,
+//    « propellant.keyword »…, « hits » vide) ; les voitures viennent de la route JSON publique que la page appelle :
+//    « /api/product/filter?from=0&take=…&culture=da-DK&productType=Cars&dealername.keyword=<concession> » — id, make, model,
+//    variant, year, « 22.000 km », propellant, gearType, « cashPrice » « 324.900 kr. » (couronnes) ou « leasingPrice »
+//    (mensualité d'une voiture en leasing : pas un prix de vente), vatType (utilitaires hors TVA), isDemo, productUrl,
+//    photos Bilinfo. La vitrine d'une fiche est la page filtrée sur SA concession (« ?dealername.keyword=… ») : sans
+//    filtre, c'est tout le groupe (682 voitures le 25/11).
+export function productFilterVehicle(h: Record<string, unknown>, origin: string, currency: string): DealerVehicle {
+  const str = (v: unknown) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : v == null ? '' : String(v));
+  const cash = priceOrNull(str(h.cashPrice).replace(/\D/g, ''));
+  const brand = str(h.make) || null, model = str(h.model) || null, variant = str(h.variant);
+  const pics = Array.isArray(h.pictures) ? (h.pictures as unknown[]) : [];
+  return {
+    external_id: str(h.id), url: str(h.productUrl) ? new URL(str(h.productUrl), origin).toString() : null,
+    title: [str(h.title) || [brand, model].filter(Boolean).join(' '), variant].filter(Boolean).join(' '), brand, model,
+    price: cash, currency, km: kmOf(str(h.mileage)), year: num(h.year), fuel: str(h.propellant) || null,
+    gearbox: gearboxOf(str(h.gearType) || null), // « Automatisk » / « Manuel »
+    plate: null, vin: null,
+    body: [h.isDemo === true ? 'démonstration' : '', str(h.vehicletype) === 'CV' ? 'utilitaire' : ''].filter(Boolean).join(' · ') || null,
+    image: typeof pics[0] === 'string' ? (pics[0] as string) : null, listed_at: null,
+    status: cash == null ? 'price_on_request' : null, power_ch: powerFromText(variant),
+  };
+}
+async function scrapeProductFilter(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  const lang = firstHtml.match(/<html[^>]*\blang="([a-z]{2})(?:-[A-Za-z]{2})?"/)?.[1] ?? 'da';
+  const culture = `${lang}-${({ da: 'DK', sv: 'SE', nb: 'NO', no: 'NO', fi: 'FI', de: 'DE', nl: 'NL' } as Record<string, string>)[lang] ?? lang.toUpperCase()}`;
+  const currency = /kr\./.test(firstHtml) || u.hostname.endsWith('.dk') ? (u.hostname.endsWith('.se') ? 'SEK' : u.hostname.endsWith('.no') ? 'NOK' : 'DKK') : currencyOfSite(url, firstHtml);
+  const take = 100;
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const warnings: string[] = [];
+  let declared: number | null = null;
+  let pages = 1;
+  let noVat = 0, leasing = 0;
+  for (let from = 0; from < 20_000; from += take) {
+    const api = new URL('/api/product/filter', u.origin);
+    for (const [k, v] of u.searchParams) if (!/^(from|take)$/i.test(k)) api.searchParams.append(k, v);
+    api.searchParams.set('from', String(from)); api.searchParams.set('take', String(take));
+    if (!api.searchParams.has('culture')) api.searchParams.set('culture', culture);
+    if (!api.searchParams.has('productType')) api.searchParams.set('productType', 'Cars');
+    await sleep(SITE_DELAY_MS);
+    const r = await getTextPatient(api.toString(), { headers: { Accept: 'application/json' } });
+    pages++;
+    if (r.status !== 200) throw new Error(`route des voitures (${api.pathname}) : HTTP ${r.status}`);
+    let d: { total?: number; hits?: Array<Record<string, unknown>> };
+    try { d = JSON.parse(r.text); } catch { throw new Error('route des voitures : réponse non JSON'); }
+    if (declared == null) declared = typeof d.total === 'number' ? d.total : null;
+    const hits = Array.isArray(d.hits) ? d.hits : [];
+    for (const h of hits) {
+      const v = productFilterVehicle(h, u.origin, currency);
+      if (!v.external_id || seen.has(v.external_id)) continue;
+      seen.add(v.external_id); out.push(v);
+      if (h.vatType === 'WithoutVat') noVat++;
+      if (h.priceType === 'Leasing') leasing++;
+    }
+    if (hits.length < take || (declared != null && out.length >= declared)) break;
+  }
+  if (noVat) warnings.push(`${noVat} véhicule(s) à prix hors TVA (utilitaires surtout)`);
+  if (leasing) warnings.push(`${leasing} voiture(s) proposée(s) en leasing seulement : pas de prix de vente`);
+  if (!u.searchParams.toString()) warnings.push('vitrine sans filtre de concession : tout le groupe est lu');
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  return { provider: 'productfilter', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
+}
+
+// ── carsgrid (Caripo Biler, Horsens, Danemark, 25/11 : partenaire BMW) : tout le stock sur une page « /p/brugte-biler »,
+//    cartes « <a href="/c/brugte-biler/<titre>-<n°>" class="… car car--used card"> » : titre à la danoise (« BMW i4
+//    eDrive40 Gran Coupé EL M-Sport 340HK 5d Aut. »), prix « kr. 439.900 » (couronnes). Ni km ni année sur la carte : la
+//    fiche (« used-car-facts » : Modelår, Kilometer, Brændstof) les rend (DETAIL_READERS). Énergie et boîte lues d'abord
+//    dans le titre (« EL », « Plugin-hybrid » ; « Aut. » = automatique, « 6g » sans « Aut. » = manuelle).
+export function parseCarsGrid(html: string, origin: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  for (const m of html.matchAll(/<a href="([^"]+)" class="[^"]*\bcar car--used card\b[^"]*">([\s\S]*?)<\/a>/g)) {
+    const href = m[1], part = m[2];
+    const id = href.match(/-(\d{4,})\/?$/)?.[1];
+    if (!id) continue;
+    const title = htmlText(part.match(/<h3>([\s\S]*?)<\/h3>/)?.[1] ?? '');
+    const price = priceOrNull((part.match(/class="price">\s*kr\.?\s*([\d.]+)/i)?.[1] ?? '').replace(/\./g, ''));
+    const { brand, model } = splitTitle(title);
+    const tags = htmlText([...part.matchAll(/<span class="tag[^"]*">([^<]*)<\/span>/g)].map((t) => t[1]).join(' '));
+    out.push({
+      external_id: id, url: new URL(href, origin).toString(), title, brand, model, price, currency: 'DKK', km: null, year: null,
+      fuel: /\bEL\b/.test(title) ? 'El' : /plug-?in[- ]?hybrid/i.test(title) ? 'Plug-in hybrid' : /\bhybrid\b/i.test(title) ? 'Hybrid' : null, // sinon la fiche
+      gearbox: /\baut\.?(?=\s|$)/i.test(title) ? 'Automatique' : /\b\d{1,2}g\b/i.test(title) ? 'Manuelle' : gearboxOfVersion(title),
+      plate: null, vin: null, body: null, image: part.match(/<img src="([^"]+)"/)?.[1] ?? null, listed_at: null,
+      status: dkStatus(tags) ?? (price == null ? 'price_on_request' : null), power_ch: powerFromText(title),
+    });
+  }
+  return out;
+}
+/** Fiche carsgrid (Caripo) : « used-car-facts » — Modelår, Kilometer, Brændstof (et Gear quand il y est). */
+export function readUsedCarFactsDetail(html: string): DetailFields {
+  const fact = (label: string) => htmlText(html.match(new RegExp(`used-car-facts__caption">\\s*${label}\\s*<\\/div>([^<]*)<`, 'i'))?.[1] ?? '');
+  const km = fact('Kilometer');
+  return {
+    km: /\d/.test(km) ? num(km.replace(/\D/g, '')) : null, year: yearOf(fact('Modelår') || fact('Årgang')),
+    fuel: fact('Brændstof') || null, gearbox: gearboxOf(fact('Gear') || fact('Gearkasse') || null),
+  };
+}
+// ── nextcars (Jan Nygaard AS, BMW / MINI, Danemark, 25/11) : Next.js à composants serveur — le stock est dans la charge
+//    « self.__next_f.push([1, "…"]) » de la page « /brugte-biler », props du composant « UsedCarOverview » : « "cars":[{
+//    "card":{ id, href, title, subtitle "El · 2025 · 39.000 km.", price, location:{ name }, images, badge }, CashPrice,
+//    Mileage, Year, make, modelSeries, powertrain, CreatedDate "06-10-2026 10:59:17" }] » — tout le stock du groupe
+//    (4 sites) en une page, avec le site de chaque voiture et sa date de mise en ligne. Lu sans rien exécuter.
+export function nextCarsList(html: string): Array<Record<string, unknown>> {
+  const txt = [...html.matchAll(/self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)/g)].map((m) => { try { return JSON.parse(`"${m[1]}"`) as string; } catch { return ''; } }).join('');
+  const i = txt.indexOf('"cars":[{"card":');
+  if (i < 0) return [];
+  const start = txt.indexOf('[', i);
+  const end = jsMatch(txt, start);
+  if (end < 0) return [];
+  try { return JSON.parse(txt.slice(start, end + 1)) as Array<Record<string, unknown>>; } catch { return []; }
+}
+export function nextCarVehicle(c: Record<string, unknown>, origin: string, currency: string): DealerVehicle {
+  const card = (c.card ?? {}) as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === 'string' && v !== '$undefined' ? v.replace(/\s+/g, ' ').trim() : '');
+  const title = str(card.title);
+  const { brand: tBrand, model } = splitTitle(title);
+  const sub = str(card.subtitle).split('·').map((x) => x.trim());
+  const price = priceOrNull(str(c.CashPrice)) ?? priceOrNull(str(card.price).replace(/\D/g, ''));
+  const created = str(c.CreatedDate).match(/^(\d{2})-(\d{2})-(\d{4})[ T](\d{2}):(\d{2})/);
+  const loc = (card.location ?? {}) as Record<string, unknown>;
+  const imgs = Array.isArray(card.images) ? (card.images as unknown[]) : [];
+  return {
+    external_id: str(card.id), url: str(card.href) ? new URL(str(card.href), origin).toString() : null, title,
+    brand: str(c.make) || tBrand, model, price, currency, km: num(str(c.Mileage)) ?? kmOf(sub[2]), year: num(str(c.Year)) ?? yearOf(sub[1]),
+    fuel: sub[0] || str(c.powertrain) || null,
+    // « aut. » dans le titre ; une hybride rechargeable (« Plug-in hybrid » du sous-titre) n'existe qu'en automatique.
+    gearbox: /\baut\.?(?=\s|$)/i.test(title) ? 'Automatique' : gearboxOfVersion(`${title} ${sub[0] ?? ''}`),
+    plate: null, vin: null, body: str(card.badge) || null, image: typeof imgs[0] === 'string' ? (imgs[0] as string) : null,
+    listed_at: created ? `${created[3]}-${created[2]}-${created[1]}T${created[4]}:${created[5]}:00` : null,
+    status: price == null ? 'price_on_request' : null, power_ch: powerFromText(title), location: str(loc.name) || null,
+  };
+}
+async function scrapeNextCars(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const u = new URL(url);
+  const currency = u.hostname.endsWith('.dk') ? 'DKK' : currencyOfSite(url, firstHtml);
+  const seen = new Set<string>();
+  const vehicles = nextCarsList(firstHtml).map((c) => nextCarVehicle(c, u.origin, currency)).filter((v) => v.external_id && (seen.has(v.external_id) ? false : (seen.add(v.external_id), true)));
+  const declared = num(htmlText(firstHtml).match(/(\d+)\s*biler fundet/i)?.[1]);
+  const warnings = declared != null && vehicles.length < declared ? [`${vehicles.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`] : [];
+  if (!vehicles.length) warnings.push('liste « cars » du composant « UsedCarOverview » introuvable');
+  return { provider: 'nextcars', total: declared ?? vehicles.length, declared, vehicles, pages: 1, warnings };
+}
+async function scrapeCarsGrid(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const seen = new Set<string>();
+  const vehicles = parseCarsGrid(firstHtml, origin).filter((v) => (seen.has(v.external_id) ? false : (seen.add(v.external_id), true)));
+  return { provider: 'carsgrid', total: vehicles.length, declared: null, vehicles, pages: 1, warnings: vehicles.length ? [] : ['aucune carte « car--used » sur la page'] };
+}
+// ── carclicked (Sand-Jensen Automobiler, Silkeborg, Danemark, 25/11 : partenaire BMW) : page « /bilsoegning/ » (ASP.NET,
+//    Alpine) — 48 cartes par page « <a data-event="carClicked" data-url="<slug>-<id>" href="/bilsoegning/<slug>-<id>"> » :
+//    marque (« tagline »), titre h3 (« BMW M5 4,4 Touring xDrive aut. »), prix « 1.849.900 kr. », et en microdonnées
+//    modelDate (année), mileageFromOdometer (km), fuelType (« El », « Benzin / El »). « Viser 1–48 af 117 biler » = total.
+//    Les liens de page (« Gå til side N ») portent le filtre de la page (sans les utilitaires) : on les suit tels quels.
+const hexDecode = (s: string) => s.replace(/&#x([0-9a-f]+);/gi, (_, h: string) => String.fromCharCode(parseInt(h, 16)));
+export function parseCarClicked(html: string, origin: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  for (const part of html.split(/<a data-event="carClicked"/).slice(1)) {
+    const card = part.split('</article>')[0];
+    const href = card.match(/\shref="([^"]+)"/)?.[1];
+    const slug = card.match(/data-url="([^"]+)"/)?.[1] ?? href?.split('/').filter(Boolean).pop();
+    if (!href || !slug) continue;
+    const title = htmlText(hexDecode(card.match(/<h3[^>]*>([\s\S]*?)<\/h3>/)?.[1] ?? ''));
+    const tagline = htmlText(hexDecode(card.match(/class="tagline">([^<]*)</)?.[1] ?? ''));
+    const { brand, model } = splitTitle(title);
+    const price = priceOrNull((card.match(/display-x-small[^>]*>\s*([\d.]+)\s*kr\./)?.[1] ?? '').replace(/\./g, ''));
+    const tags = htmlText(hexDecode([...card.split(/carTileSwiper/)[0].matchAll(/<p>([^<]*)<\/p>/g)].map((t) => t[1]).join(' ')));
+    out.push({
+      external_id: slug.split('-').pop() || slug, url: new URL(hexDecode(href).replace(/&amp;/g, '&'), origin).toString(), title,
+      brand: tagline || brand, model, price, currency: 'DKK',
+      km: num(card.match(/itemprop="value">\s*(\d+)\s*</)?.[1]), year: yearOf(card.match(/itemprop="modelDate">\s*([^<]*)</)?.[1] ?? ''),
+      fuel: htmlText(hexDecode(card.match(/itemprop="fuelType">([^<]*)</)?.[1] ?? '')) || null,
+      // « aut. », « PDK », « Tiptr. » (Porsche) = automatique ; une électrique l'est aussi (evGearbox à l'enregistrement).
+      gearbox: /\baut\.?(?=\s|$)|\bPDK\b|\btiptr\b/i.test(title) ? 'Automatique' : gearboxOfVersion(title),
+      plate: null, vin: null, body: null, image: unesc(card.match(/<img[^>]*\ssrc="([^"]+)"/)?.[1] ?? '') || null, listed_at: null,
+      status: dkStatus(tags) ?? (price == null ? 'price_on_request' : null), power_ch: powerFromText(title),
+    });
+  }
+  return out;
+}
+async function scrapeCarClicked(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const declared = num(htmlText(firstHtml).match(/Viser\s+\d+\s*[–-]\s*\d+\s+af\s+(\d[\d.]*)\s+biler/i)?.[1]?.replace(/\./g, ''));
+  const links = new Map<number, string>();
+  const parse = (html: string): number => {
+    for (const m of html.matchAll(/href="([^"]*[?&](?:amp;)?page=(\d+)[^"]*)"/g)) {
+      const p = Number(m[2]);
+      if (!links.has(p)) links.set(p, new URL(hexDecode(m[1]).replace(/&amp;/g, '&'), origin).toString());
+    }
+    let added = 0;
+    for (const v of parseCarClicked(html, origin)) if (!seen.has(v.external_id)) { seen.add(v.external_id); out.push(v); added++; }
+    return added;
+  };
+  const cap = declared ? Math.min(MAX_PAGES, Math.ceil(declared / 48) + 1) : MAX_PAGES;
+  const fallback = (p: number) => { const x = new URL(url); x.searchParams.set('pageSize', '48'); x.searchParams.set('page', String(p)); return x.toString(); };
+  const { pages, warnings } = await paginate(firstHtml, parse, (p) => links.get(p) ?? fallback(p), { cap });
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  if (!out.length) warnings.push('aucune carte « carClicked » sur la page');
+  return { provider: 'carclicked', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
 }
 
 // ── eveho (VPN Autos, 05/11) : 1 461 voitures, 23 par page, « ?page=N ».
@@ -7610,6 +7824,10 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'autoit') return scrapeAutoIt(url, first.text);
   if (provider === 'occasionload') return scrapeOccasionLoad(url, first.text);
   if (provider === 'easysite') return scrapeEasysite(url, first.text);
+  if (provider === 'productfilter') return scrapeProductFilter(url, first.text);
+  if (provider === 'carsgrid') return scrapeCarsGrid(url, first.text);
+  if (provider === 'carclicked') return scrapeCarClicked(url, first.text);
+  if (provider === 'nextcars') return scrapeNextCars(url, first.text);
   if (provider === 'eveho') return scrapeEveho(url, first.text);
   if (provider === 'autopalace') return scrapeAutopalace(url, first.text);
   if (provider === 'estorik') return scrapeEstorik(url, first.text);
@@ -7843,6 +8061,8 @@ export const DETAIL_READERS: Partial<Record<DealerProvider, DetailReader>> = {
   leierauto: { fields: ['gearbox'], read: readHgSpecDetail },              // boîte absente de la désignation
   // easysite (Consilcar, 23/11) : énergie et boîte, absentes de la carte (« Combustível », « Transmissão » de la fiche).
   easysite: { fields: ['fuel', 'gearbox'], read: readEasysiteDetail },
+  // carsgrid (Caripo, 25/11) : km, année et énergie, absents de la carte (« used-car-facts » de la fiche).
+  carsgrid: { fields: ['km', 'year', 'fuel'], read: readUsedCarFactsDetail },
 };
 
 /** Relève le stock d'une concession de la carte et le compare au relevé précédent. Avec `prefetched` (vitrine
