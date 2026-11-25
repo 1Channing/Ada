@@ -280,3 +280,23 @@ Hongrie et Slovaquie : aucune concession BMW nouvelle ; 5 fiches slovaques ont r
 | Consilcar | /carros/usados, tout le stock en une page | easysite | 519, dont 150 « Vendido » | prix, km, année 100 % ; énergie 39 % et boîte 67 % le premier soir — fiches détail, 200 par nuit, complet en deux nuits |
 
 Sans vitrine lisible : Wilar (stock réservé aux marchands connectés), NENA et Issoire Parc Auto (stock seulement sur AutoScout24), SaleCar (pas de stock publié), Bellon Motorsport, JM Auto et Val de Loire Lease (pas de site), UAB GBY (transporteur). Détail dans le BACKLOG.
+
+**BMW Danemark et Pays-Bas, le 25/11** (Channing : « on ajoute les vitrines », puis les acheteurs VO certifiés) — premier relevé en production au passage de rattrapage de 13 h 29 UTC : 46 vitrines, aucun échec, 4 311 voitures en stock :
+
+| Fiches | Vitrine | Lecteur | Voitures en stock | Prix · km · année · énergie · boîte |
+|---|---|---|---:|---|
+| Bayern AutoGroup ×6 (DK : Aalborg, Aarhus, Esbjerg, Holstebro, Kolding, Odense) | bag.dk, filtrée par concession | productfilter | 264 (49, 68, 57, 3, 45, 42) | 100 % ; prix 99 % à Aarhus (1 voiture en leasing seulement) |
+| Jan Nygaard Birkerød (DK, tout le groupe, site de chaque voiture) | /brugte-biler | nextcars | 86 | prix 99 %, le reste 100 % |
+| Caripo Biler (DK) | /p/brugte-biler | carsgrid | 44 | 100 % ; boîte 95 % |
+| Sand-Jensen (DK) | /bilsoegning/ | carclicked | 117 | prix 98 % (2 vendues), le reste 100 % |
+| Dusseldorp ×11 (NL) | dusseldorp.nl/voorraad, filtrée par vestiging | dtcvm | 1 209 | 100 % partout |
+| Van Poelgeest ×11 (NL, dont le Premium Selection Center) | van-poelgeest.nl/voorraad, filtrée par vestiging | dtcvm | 1 157 | prix 93 à 100 % (prix sur demande), le reste 100 % |
+| Pala Group ×13 (NL : Story, Oostland, De Maassche, NobraCars, Van Hooff, Van Laarhoven) | « aanbod », filtrée par lieu | dvapi | 1 259 | 100 % partout |
+| Story Next Oss (NL, centre VO de Pala) | /aanbod | datamotive | 96 | 100 % partout |
+| Kallenhard Gorinchem (NL) | fichier JSON public du site | sucars | 79 | 100 % partout ; prix export écrit dans le titre |
+
+Ajoutées ensuite (lecteur bilinfo) : Meiniche (module Brugtbilsmodulet, 14 voitures) et Procar (19 voitures, 20 annonces) — lues en direct à 100 % sur les cinq champs, relevées chaque nuit à partir du déploiement suivant.
+
+Non relevées, par choix : les 11 concessions Ekris et les 7 Hedin, dont les occasions sont déjà dans les vitrines nationales d'Emil Frey Nederland et de Hedin Automotive (les relever compterait deux fois les mêmes voitures ; l'adresse de chaque site est sur sa fiche). Pas de deuxième vitrine « neuves + démos » aux Pays-Bas : les démos y sont aussi dans la liste des occasions (16 sur 73 à NobraCars Uden, 28 sur 73 à Dusseldorp Hoorn), sans VIN pour les reconnaître.
+
+Sans lecteur encore (Danemark, fiche en « off ») : Ejvind Nielsen (la page ne porte que 17 des 65 voitures, le reste vient de la recherche du site), Arne Poulsen (liste construite dans le navigateur), Autoleth (AJAX), Concept Biler (application Vue), Bilhuset Haldrup (variante JetEngine), Jens Winther (1 voiture). Illisibles : Hyrup & Nielsen (certificat TLS invalide), Outzen (site bloquant) — leur stock n'est que sur bilbasen, place de marché non lue. Bilernes Hus : la page couvre toute la chaîne (1 196 voitures). Wenzel (îles Féroé, hors UE) n'a pas de fiche.

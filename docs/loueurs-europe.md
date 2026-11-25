@@ -17,21 +17,27 @@ Contacts : « certifié » = page officielle à jour ou deux sources actuelles c
 | SIXT Deutschland · Sixt Car Sales | Allemagne (groupe) | Sebastian Schmidt, Alexander Platzer, Jörg Heidenreich ; Michael Fromm (groupe) | 24/11 |
 | SIXT Österreich · Sixt Car Sales Wien | Autriche | Stefan Wieland | 24/11 |
 | SIXT Tchéquie · Sixt Autobazar | Tchéquie | Radek Otevřel, Martin Sušír ; achats : Alena Růžičková | 25/11 |
-| Enterprise Deutschland | Allemagne | Hassan Zghaibeh (remarketing, une source de presse, à confirmer) | 25/11 |
+| Enterprise Deutschland | Allemagne | Hassan Zghaibeh (remarketing — certifié à la vérification : AUTOHAUS du 13/11/2026 et une 2ᵉ trace indépendante ; profil LinkedIn introuvable) | 25/11 |
 | Enterprise Suisse · Helvetic Motion | Suisse | Marc Wyssling (directeur de flotte) | 25/11 |
 | Enterprise Portugal · Guerin | Portugal | Nuno Maia (directeur flotte et commercial ; revente Ousados) | 25/11 |
 | Enterprise Croatie · Auto Benussi | Croatie (et Slovénie) | Hrvoje Grancarić (vente des occasions) | 25/11 |
-| Europcar Deutschland | Allemagne | Christopher Alting (directeur flotte : achats et revente) | 25/11 |
+| Europcar Deutschland | Allemagne | Christopher Alting (directeur flotte : achats et revente) ; Bastian Pfaff (achats de flotte, certifié à la vérification) | 25/11 |
 | Europcar France | France | Marc Aubrée (directeur de la flotte) ; revente 2ndMove | 25/11 |
 | OK Mobility | Espagne (groupe) | Olivier Quilichini (remarketing et achats) | 24/11 |
-| Drivalia | Italie (groupe) | Diego Proietti (remarketing) | 24/11 |
-| Arndt Mobility Group | Allemagne | Tom Schultheis (remarketing) | 24/11 |
+| Drivalia | Italie (groupe) | Diego Proietti (remarketing) ; Pasquale Piccolino (achats de flotte du groupe, certifié à la vérification) | 24/11 |
+| Arndt Mobility Group | Allemagne | Tom Schultheis (remarketing) ; Moritz Arndt (gérant, achats) — Armin Dorsemagen parti début octobre 2026, successeur probable Felix Arndt | 24/11 |
 | MILES Mobility | Allemagne | Dag Reckhorn (sortie de flotte) ; Joachim Verheugen (achats) | 24/11 |
 | Kaizen Rent | Pologne | Konrad Pikulski (vente de la flotte) | 25/11 |
 | Ayvens Belgique | Belgique | Koen Mens (remarketing et location) | 25/11 |
 | Rent A Car France (complétée) | France | Benoît Métais (chef des ventes VO) | 24/11 |
+| Enterprise Danemark · Shared Mobility | Danemark (et Suède, Norvège) | Stefan Hafsjold (achats et flotte, « Procurement & Fleet Director », nommé en novembre 2026) | 25/11 |
+| Europcar Nederland (Pon) | Pays-Bas | Johan Madderom (« Fleetmanager ») | 25/11 |
+| Avis Baltes · Ideal Auto (Ideal Baltic) | Estonie, Lettonie, Lituanie | Priit Ärmpalu (vente des occasions, directeur d'Ideal Auto) | 25/11 |
+| Klass Wagen | Roumanie (revente aussi au Portugal, en Autriche et en Allemagne) | Norbert Sabou (dirigeant ; porte la revente en gros, ≈ 2 000 VO par an) | 25/11 |
 
 Complétées sans nouveau contact certifié : Hertz espagne, Record Go Mobility, Avis France, First Location Auto.
+
+**Vérification des contacts « probables » (25/11)** : 50 personnes revues une à une, à la recherche d'une deuxième source indépendante et récente. **8 certifiées** (Stefan Hafsjold, Hassan Zghaibeh, Johan Madderom, Bastian Pfaff, Priit Ärmpalu, Pasquale Piccolino, Moritz Arndt, Norbert Sabou — fiches ajoutées ou complétées ci-dessus), **1 partie** (Armin Dorsemagen, Arndt), **41 toujours probables** : leur seule trace publique est LinkedIn (profil à jour pour la plupart, mais ni presse, ni page d'équipe, ni congrès à leur nom), ce qui ne suffit pas à nos normes. Elles restent dans les tableaux par pays ci-dessous, marquées « probable ».
 
 ## France — 199 loueurs
 
@@ -278,7 +284,7 @@ Complétées sans nouveau contact certifié : Hertz espagne, Record Go Mobility,
 |---|---|---|---|---|---|
 | Hertz (Hertz, Dollar, Thrifty) | Hertz Automobielen Nederland B.V. (KvK 34049337) (filiale) |  | Hoofddorp | Inconnu (aucun canal VO public) | achats : Glenn Jacobs (probable) ; achats : Ronald Arp (probable) |
 | Avis Budget (Spuigroep) (Avis, Budget) | Avis Budget Autoverhuur B.V. (KvK 27161331), groupe Spuigroep (franchisé) |  | Den Haag | Probablement dans le groupe Spuigroep (concessions, leasing Multilease) — non confirmé |  |
-| Europcar (Pon) (Europcar, Keddy by Europcar, ex-Euromobil NL) | Europcar Nederland (Pon Holdings ; fusion Europcar + Euromobil au 01/07/2026) (franchisé) | > 12 000 véhicules, > 40 agences et 150 points de remise, s… | Schiphol / Nijkerk | Non documenté (réseau Pon, hypothèse) |  |
+| Europcar (Pon) (Europcar, Keddy by Europcar, ex-Euromobil NL) | Europcar Nederland (Pon Holdings ; fusion Europcar + Euromobil au 01/07/2026) (franchisé) | > 12 000 véhicules, > 40 agences et 150 points de remise, s… | Schiphol / Nijkerk | Non documenté (réseau Pon, hypothèse) | flotte : Johan Madderom (certifié) |
 | SIXT | Sixt B.V. (filiale) |  | Hoofddorp | Remarketing groupe ; buy-back partiel | remarketing : Michael Fromm (certifié) |
 | Enterprise Mobility (Sharing Matters) (Enterprise Rent-A-Car, National, Alamo) | Sharing Matters B.V. (« Enterprise Rent-A-Car NL »), Harry Banninkstraat 129, 1011 DD Amsterdam (franchisé) | Taille non publiée ; 67 ETP (liza.nl, derniers comptes) / 9… | Amsterdam | Inconnu |  |
 | Drivalia (CA Auto Bank) (Drivalia) | Drivalia Pays-Bas (CA Auto Finance) (filiale) |  |  | Inconnu (surtout leasing) | remarketing : Diego Proietti (certifié) |
@@ -324,13 +330,13 @@ Complétées sans nouveau contact certifié : Hertz espagne, Record Go Mobility,
 |---|---|---|---|---|---|
 | Hertz (Hertz, Dollar, Thrifty) | Hertz Autovermietung GmbH (HRB 52255 AG Frankfurt), Grenzweg 2, Kelsterbach (filiale) |  | Kelsterbach | Oui : vente aux marchands professionnels sur hertzremarketing.de (inscription ; Cloudflare, bloquant) ; Ge-carsales@hertz.com | remarketing : Michael Kobras (probable) ; achats : Anthony Drywa (probable) |
 | Avis Budget Group (Avis, Budget) | Avis Budget Autovermietung GmbH & Co. KG, Oberursel (filiale) |  | Oberursel | Oui : vente aux marchands sur MotorTrade (Arval), inscription requise ; Copart cité en 09/2026 | remarketing : Monika Wüstemann (certifié) |
-| Europcar Mobility Group (Europcar, Keddy by Europcar (vente via courtiers)) | Europcar International S.A.S.U. und Co OHG (Hambourg) (filiale) |  | Hamburg | Oui : la direction Flotte couvre la revente (« Wiederverkauf », offre d'emploi 30/10/2026) ; canaux non publiés | remarketing : Christopher Alting (probable) ; achats : Christopher Alting (certifié) ; achats : Bastian Pfaff (probable) ; achats : Matthias Lander (probable) |
+| Europcar Mobility Group (Europcar, Keddy by Europcar (vente via courtiers)) | Europcar International S.A.S.U. und Co OHG (Hambourg) (filiale) |  | Hamburg | Oui : la direction Flotte couvre la revente (« Wiederverkauf », offre d'emploi 30/10/2026) ; canaux non publiés | remarketing : Christopher Alting (probable) ; achats : Christopher Alting (certifié) ; achats : Bastian Pfaff (certifié) ; achats : Matthias Lander (probable) |
 | Euromobil (Europcar / VW FS) (Euromobil) | Euromobil GmbH (51 % EMG, 49 % EURO-Leasing / VW FS), Sittensen (filiale) |  | Sittensen | Non documenté (gestion VO par EURO-Leasing pour le groupe VW) |  |
 | SIXT (SIXT, Starcar (marque rachetée en 05/2026)) | Sixt GmbH & Co. Autovermietung KG (Pullach) ; Sixt Car Sales GmbH (Garching) (filiale) |  | Pullach | Oui : Sixt Car Sales (particuliers, 307 annonces AutoScout24 au 24/11/2026) + SIXT carhub (marchands, inscription) + buy-back | remarketing : Sebastian Schmidt (certifié) |
-| Enterprise Mobility (Enterprise Rent-A-Car, National, Alamo) | Enterprise Autovermietung Deutschland B.V. & Co. KG (HRA 49141 AG Frankfurt), Mergenthalerallee 42, Eschborn (filiale) | 228 agences, 2 082 salariés au 31/07/2025 ; flotte moyenne … | Eschborn | Oui : « Verkauf von ausgemusterten Fahrzeugen hauptsächlich an Gebrauchtwagenhändler » — 770 M€ de ventes de VO sur l'exercice 2024/25 (65 … | remarketing : Hassan Zghaibeh (probable) |
+| Enterprise Mobility (Enterprise Rent-A-Car, National, Alamo) | Enterprise Autovermietung Deutschland B.V. & Co. KG (HRA 49141 AG Frankfurt), Mergenthalerallee 42, Eschborn (filiale) | 228 agences, 2 082 salariés au 31/07/2025 ; flotte moyenne … | Eschborn | Oui : « Verkauf von ausgemusterten Fahrzeugen hauptsächlich an Gebrauchtwagenhändler » — 770 M€ de ventes de VO sur l'exercice 2024/25 (65 … | remarketing : Hassan Zghaibeh (certifié) |
 | Drivalia (CA Auto Bank) (Drivalia) | CA Auto Bank S.p.A. Niederlassung Deutschland (filiale) |  |  | Inconnu (activité surtout leasing / rent-to-rent) | remarketing : Diego Proietti (certifié) |
 | OK Mobility (OK Mobility, OK Rent a Car) | OK Mobility (groupe espagnol, Palma) (filiale) |  |  | Remarketing groupe (Palma), marketplace B2B | remarketing : Olivier Quilichini (certifié) ; achats : Olivier Quilichini (certifié) |
-| Arndt Mobility Group (Autovermietung Arndt, Frigo-Rent) | Arndt Automobile GmbH (HRB 10134 AG Neuss) (indépendant) | > 8 500 véhicules, > 50 stations (AUTOHAUS 25/02/2026) + st… | Neuss | Oui : revente B2B et B2C par Arndt Automobile (Tom Schultheis) | remarketing : Tom Schultheis (certifié) ; achats : Moritz Arndt (probable) ; achats : Felix Arndt (probable) ; achats : Armin Dorsemagen (probable) |
+| Arndt Mobility Group (Autovermietung Arndt, Frigo-Rent) | Arndt Automobile GmbH (HRB 10134 AG Neuss) (indépendant) | > 8 500 véhicules, > 50 stations (AUTOHAUS 25/02/2026) + st… | Neuss | Oui : revente B2B et B2C par Arndt Automobile (Tom Schultheis) | remarketing : Tom Schultheis (certifié) ; achats : Moritz Arndt (certifié) ; achats : Felix Arndt (probable) ; achats : Armin Dorsemagen (parti début octobre 2026) |
 | MILES Mobility (MILES) | MILES Mobility GmbH (HRB 180737 AG Berlin-Charlottenburg) (indépendant) | ≈ 18 000 véhicules (11/2025) + 2 500 Opel (03/2026) + 500 T… | Berlin | Défleet (« Ausflottung ») sous le Chief Vehicle Officer ; canal non publié | remarketing : Dag Reckhorn (certifié) ; achats : Joachim Verheugen (certifié) |
 | Starcar (Starcar, Europa Service) | Starcar GmbH / Starcar Europa Service Group AG (Hambourg) — liquidée (indépendant) | ≈ 10 000 véhicules écoulés en 01/2026 | Hamburg | Non : liquidation (23/01/2026), marque reprise par Sixt (05/2026) |  |
 | MABI Mobility (Hedin) (MABI) | Mabi Mobility GmbH (groupe Hedin Mobility) (filiale) | Groupe MABI : 10 800 véhicules, 295 stations (rapport Hedin… |  | Non documenté |  |
@@ -405,7 +411,7 @@ Complétées sans nouveau contact certifié : Hertz espagne, Record Go Mobility,
 | Goldcar Italy (Goldcar) | Goldcar Italy S.r.l. (IT03766560167), Corso Italia 35, Bolzano (groupe Europcar) (filiale) | non publiée ; 5 agences (DC) | Bolzano | non documentée |  |
 | Sixt Italia (+ Flizzr) (SIXT, Flizzr) | Sixt rent a car S.r.l., Appiano sulla Strada del Vino (BZ) (filiale) | non publiée ; Sixt 54, Flizzr 42 agences (DC) | Appiano (BZ) | OUI : SIXT carhub (B2B + consignation) déployé en Italie depuis 11/2025 |  |
 | Locauto Group (+ Enterprise, National, Alamo) (Locauto Rent, Locauto Van, Locauto One, Enterprise Rent-A-C…) | LocautoRent S.p.A. (P.IVA 04367650969) — siège Milano (Via Gustavo Fara 39) / Trento ; franchisé Enterprise d… (franchisé (Enterpri…) | non publiée ; plus de 110 agences (communiqué 04/2026) ; DC… | Milano | Aucun canal VO public ; flotte renouvelée presque entièrement tous les 6/8 mois par accords constructeurs (buy-back) |  |
-| Drivalia (CA Auto Bank) (Drivalia, Drivalia Future) | Drivalia S.p.A. (groupe CA Auto Bank), Torino (filiale) | non publiée en Italie ; 126 agences (DC) | Torino | OUI : Drivalia Future (enchères B2B en ligne future.drivalia.com + e-commerce + Future Stores Rome, Turin) | remarketing : Diego Proietti (certifié) ; achats : Pasquale Piccolino (probable) |
+| Drivalia (CA Auto Bank) (Drivalia, Drivalia Future) | Drivalia S.p.A. (groupe CA Auto Bank), Torino (filiale) | non publiée en Italie ; 126 agences (DC) | Torino | OUI : Drivalia Future (enchères B2B en ligne future.drivalia.com + e-commerce + Future Stores Rome, Turin) | remarketing : Diego Proietti (certifié) ; achats : Pasquale Piccolino (certifié) |
 | Sicily by Car (Sicily by Car, SBC auto usate) | Sicily by Car S.p.A. (Euronext Growth Milan : SBC), Carini (PA) ; siège légal Bolzano (indépendant (coté)) | ≈ 15 000 véhicules (communiqué 30/07/2026) ; 60 agences en … | Carini (PA) — agences et cent… | OUI : « usato garantito » dans des centres VO (Bari, Bergame, Bologne, Rome, Naples, Pescara, Pise, Samarate, Vérone…) ; lots / grandes flo… |  |
 | Noleggiare (Noleggiare.it) | Noleggiare S.r.l., Via Evangelista Torricelli 6, Verona (direction et coordination : FTH S.p.A.) (indépendant) | « oltre 13.000 veicoli » (page officielle Business, 2026) ;… | Verona (siège légal Trento) | OUI : « Noleggiare B2B » (véhicules d'occasion pour revendeurs auto et utilitaires) + négoce national et international de stocks constructe… | achats : Davide Ruffoni (probable) |
 | Win Rent | racheté à 100 % par Leasys (groupe FCA) en 10/2018 (Leasys Rent) ; Leasys Rent a été remplacé par Drivalia en… (filiale) | 80 sièges en 2018 |  | voir Drivalia (Drivalia Future) |  |
@@ -1120,7 +1126,7 @@ Complétées sans nouveau contact certifié : Hertz espagne, Record Go Mobility,
 | Avis Budget (Avis, Budget) | Avis Budget Denmark A/S (CVR 19673146) (filiale) | non publiée | Albertslund | non documenté (aucune page VO) |  |
 | Europcar (Europcar, Keddy by Europcar) | Europcar Mobility Group Denmark A/S (CVR 19986292) (filiale) | ≈ 7 000 voitures, utilitaires et minibus (page leasing euro… | Aarhus | oui : enchères BCA (profil LinkedIn du remarketing manager, « afsætning via BCA bilauktion ») |  |
 | SIXT (SIXT, SIXT+ / mini-lease) | SIXT Danmark A/S (propriétaire HiCo ; AL Finans 50 % depuis 2023) (franchisé) | ≈ 190 salariés (sixtplus.dk) | Kastrup | oui jusqu'en 2024 via sixtbilsalg.dk (vente aux particuliers) ; le site redirige aujourd'hui vers sixtplus.dk |  |
-| Enterprise Mobility (Enterprise Rent-A-Car, National, Alamo) | Shared Mobility A/S (CVR 26045215), groupe Semler (Semler Mobility Solutions) (franchisé) | non publiée ; aéroports de Copenhague, Aalborg, Billund, Aa… | Brøndby | non documenté | achats : Stefan Hafsjold (probable) |
+| Enterprise Mobility (Enterprise Rent-A-Car, National, Alamo) | Shared Mobility A/S (CVR 26045215), groupe Semler (Semler Mobility Solutions) (franchisé) | non publiée ; aéroports de Copenhague, Aalborg, Billund, Aa… | Brøndby | non documenté | achats : Stefan Hafsjold (certifié) |
 | Drivalia | Drivalia Danmark (CA Auto Bank) (filiale) | non publiée | n.c. | groupe : Drivalia Future (remarketing centralisé, Turin) | remarketing : Diego Proietti (certifié) |
 | GreenMobility | GreenMobility A/S (indépendant (autopa…) | non publiée | Copenhague | non documenté |  |
 | Dribe | Dribe (groupe Semler, Semler Mobility Solutions) (filiale (abonnement…) | non publiée | Copenhague (à vérifier) | non documenté |  |
@@ -1134,7 +1140,7 @@ Complétées sans nouveau contact certifié : Hertz espagne, Record Go Mobility,
 | Avis Budget (Avis, Budget) | Sweden Rent A Car AB (556102-2822) ; certaines agences tenues par des licenciés (filiale) | non publiée | Solna | non documenté |  |
 | Europcar (Europcar, Keddy by Europcar) | Europeisk Biluthyrning AB (556084-0984), filiale de Volkswagen Group Sverige AB ; agences locales parfois con… (franchisé) | ≈ 6 000 voitures, 170 agences (europcar.se, passe 1) | Södertälje | non documenté (réseau VW Sverige probable) |  |
 | SIXT | Nordic MasterCar AB (556643-5177) (franchisé) | non publiée | Staffanstorp / Malmö | non documenté |  |
-| Enterprise Mobility (Enterprise Rent-A-Car, National, Alamo) | Shared Mobility (groupe Semler) ; entité suédoise non vérifiée ; recherche de sous-franchisés en Suède (2024) (franchisé) | 7 agences en 2024 (Arlanda, Landvetter, Luleå, Mora, Sälen,… | n.c. | non documenté | achats : Stefan Hafsjold (probable) |
+| Enterprise Mobility (Enterprise Rent-A-Car, National, Alamo) | Shared Mobility (groupe Semler) ; entité suédoise non vérifiée ; recherche de sous-franchisés en Suède (2024) (franchisé) | 7 agences en 2024 (Arlanda, Landvetter, Luleå, Mora, Sälen,… | n.c. | non documenté | achats : Stefan Hafsjold (certifié) |
 | MABI (MABI Hyrbilar, MABI Truck Rental, Flexilease) | MABI Sverige AB (556334-4901), Hedin Mobility Group (tête de réseau (sur…) | groupe MABI : 10 800 véhicules, 295 stations (rapport annue… | Stockholm | non documenté (VO du groupe Hedin via Carstore) |  |
 | Drivalia | Drivalia Lease Sverige (CA Auto Bank) (filiale) | objectif ≈ 4 000 véhicules fin 2024 (passe 1) | Malmö | groupe : Drivalia Future | remarketing : Diego Proietti (certifié) |
 | OKQ8 (location) (OKQ8) | OKQ8 Scandinavia (stations-service) – exploitant de la location non identifié (n.c.) | n.c. | n.c. | n.c. |  |
@@ -1151,7 +1157,7 @@ Complétées sans nouveau contact certifié : Hertz espagne, Record Go Mobility,
 | Avis Budget (Avis, Budget) | RAC Norway AS (960605128), holding ABG Scandinavia Holdings AS ; agences de licenciés locaux (filiale) | 161 salariés (registre) | Asker | non documenté |  |
 | Europcar (Europcar, Keddy by Europcar) | Interrent AS (913237935) (filiale) | 10 agences (06/2024), âge moyen 6-10 mois | Gardermoen / Høvik | non documenté |  |
 | SIXT | groupe Autoleie AS (946530859, Kjøita 40, Kristiansand) – 9 sociétés : Autoleie Oslo AS (67 sal.), Autoleie V… (franchisé) | ≈ 345 salariés cumulés (registre) ; 70 agences, tous les gr… | Kristiansand | non documenté |  |
-| Enterprise Mobility (Enterprise Rent-A-Car, National, Alamo) | Shared Mobility NUF (922386579), succursale de Shared Mobility A/S (Semler) ; sous-franchisés locaux non iden… (franchisé) | 23 nouvelles agences depuis 2019 (post LinkedIn) : Gardermo… | Gardermoen | non documenté | achats : Stefan Hafsjold (probable) |
+| Enterprise Mobility (Enterprise Rent-A-Car, National, Alamo) | Shared Mobility NUF (922386579), succursale de Shared Mobility A/S (Semler) ; sous-franchisés locaux non iden… (franchisé) | 23 nouvelles agences depuis 2019 (post LinkedIn) : Gardermo… | Gardermoen | non documenté | achats : Stefan Hafsjold (certifié) |
 | Hyre | Hyre AS (918719601), coentreprise Møller Mobility Group / Hyre Management (indépendant (locati…) | > 3 000 voitures (hyre.no) ; 56 salariés | Oslo | non documenté |  |
 | MABI | MABI Mobility AS (933287246), Hedin Mobility Group (filiale) | 14 stations fin 2025 | Stavanger | non documenté |  |
 | Drivalia | Drivalia Lease Norge AS (967056189) (filiale) | 64 salariés ; objectif 11 000 voitures (2023) | Stabekk | oui : Drivalia Future (groupe) | remarketing : Diego Proietti (certifié) |
@@ -1425,7 +1431,7 @@ Complétées sans nouveau contact certifié : Hertz espagne, Record Go Mobility,
 | Autonom | Autonom Services S.A. (J2006000280271 ; siège str. Fermelor 4, Piatra Neamț ; siège administratif Calea Flore… (indépendant) | 17 628 véhicules fin 2025 (rapport des administrateurs 2025… | Piatra Neamț / București | oui : division Autonom AutoRulate (ventes de VO de la flotte ≈ 207 M RON en 2025, 22 % du chiffre d'affaires), site autonomautorulate.ro (4… |  |
 | Sixt România (Sixt) | New Kopel Romania S.R.L. (« SIXT GROUP ROMANIA »), siège Sixt Roumanie : Calea Bucureștilor 201-203, Otopeni,… (franchisé) |  | Otopeni (București) | oui (information de 2015, à revérifier) : les VO du leasing et de la flotte de location sont vendus par AAA New Kopel (parcs de VO, dont Ot… |  |
 | Europcar România (Europcar, Keddy, Goldcar) | AHL Auto Rent (« EUROPCAR FRANCHISEE IN ROMANIA »), str. Oașului nr. 6, Otopeni, Ilfov — office@europcar.ro (… (franchisé) |  | București | — |  |
-| Klass Wagen | Klass Wagen Group (Timișoara, fondé en 2005 ; CEO Norbert Sabou) — raison sociale non relevée (indépendant) | « plus de 7 000 véhicules » (page officielle « About us ») … | Timișoara | oui : ≈ 2 000 voitures d'occasion vendues par an en gros (wholesale) en Europe (> 35 M€) ; marque Autozentrum (vente B2B et B2C de VO de 1 … | remarketing : Norbert Sabou (probable) |
+| Klass Wagen | Klass Wagen Group (Timișoara, fondé en 2005 ; CEO Norbert Sabou) — raison sociale non relevée (indépendant) | « plus de 7 000 véhicules » (page officielle « About us ») … | Timișoara | oui : ≈ 2 000 voitures d'occasion vendues par an en gros (wholesale) en Europe (> 35 M€) ; marque Autozentrum (vente B2B et B2C de VO de 1 … | remarketing : Norbert Sabou (certifié) |
 | Autorom Rent / OK Mobility România (OK Mobility, Autorom Rent) | Autorom Rent (même numéro que le comptoir OK Mobility à Otopeni : +40 745 165 400) (franchisé OK Mobili…) |  | București | — |  |
 | Free2Move România (Free2Move) | non identifié (marque de Stellantis) (filiale (probable)) |  |  | — |  |
 | Rodna Trans | non identifié (office@rodna-trans.ro) (indépendant) |  | Cluj-Napoca | — |  |
@@ -1463,7 +1469,7 @@ Complétées sans nouveau contact certifié : Hertz espagne, Record Go Mobility,
 
 | Loueur | Exploitant (type) | Flotte | Siège | Revente des voitures | Contacts |
 |---|---|---|---|---|---|
-| Avis Budget (Avis, Budget, Payless) | Ideal OÜ (10325140), groupe Ideal Baltic (famille Isok) (licencié) | groupe Ideal Baltic : 3 000+ véhicules, 100+ salariés ; CA … | Tallinn | oui : Ideal Auto OÜ (vente de VO et atelier du groupe, Peterburi tee 47c) |  |
+| Avis Budget (Avis, Budget, Payless) | Ideal OÜ (10325140), groupe Ideal Baltic (famille Isok) (licencié) | groupe Ideal Baltic : 3 000+ véhicules, 100+ salariés ; CA … | Tallinn | oui : Ideal Auto OÜ (vente de VO et atelier du groupe, Peterburi tee 47c) | remarketing : Priit Ärmpalu (certifié) |
 | Hertz (Hertz, Dollar, Thrifty) | Aktsiaselts APR-Rent (10276625) – « Hertz Autorent » (franchisé) | CA location 2025 : 7,6 M€ ; activités : courte durée, abonn… | Tallinn | non documenté |  |
 | Europcar (Europcar, Keddy by Europcar) | Hansarent OÜ (11695889 ; ex-Mobility Eesti OÜ) (franchisé) | CA location 2025 : 10,0 M€ (CA total 12,7 M€) | Tallinn | non documenté |  |
 | SIXT | OÜ Transporent (11273528), groupe SIA Transporent (Riga) (franchisé (depuis 2…) | CA location 2025 : 3,6 M€ ; groupe > 8 000 véhicules | Tallinn | non documenté |  |
