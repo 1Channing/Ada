@@ -176,7 +176,7 @@ export function parseMacadamRemarketing(input: FycLine[]): FycReportFields {
   // « Modèle : X », « Version : BMW X1 » : la version est plus précise que le modèle tronqué.
   if (version) {
     const v = brand && version.toUpperCase().startsWith(brand.toUpperCase()) ? version.slice(brand.length).trim() : version;
-    if (v && (!model || v.toUpperCase().startsWith(model.toUpperCase()))) model = v;
+    if (v && (!model || model.length <= 2 || v.toUpperCase().startsWith(model.toUpperCase()))) model = v;
   }
   const firstReg = isoDate(get(/^Première immatriculation$/i));
   // Dommages : pièce, nature, action, zone — « Acceptable » = trace d'usage, le reste dévalue.
@@ -233,4 +233,83 @@ export function parseMacadamRemarketing(input: FycLine[]): FycReportFields {
     color: get(/^Couleur de la carrosserie$/i), doors: num(get(/^Nombre de portes$/i)), seats: null, repainted: null,
     damages: { devaluation, usage }, equipment: options, tyres, raw_fields: raw,
   };
+}
+
+// --- La page du portail Macadam (26/11) ---------------------------------------------------------------------------------
+
+/**
+ * LE LIEN DU PORTAIL (26/11, Channing : « apprends cette offre dans le FYC », lien portal.macadam.eu/reports/remarketingV1
+ * d'une liste marchand BMW). La même fiche que le PDF du 24/11, mais en HTML, publique avec sa signature : « Information
+ * véhicule » (label for="Vehicle_…" + strong), « Options selon l'inspecteur », « Dommages » (pièce, nature, action, zone,
+ * puis ses photos), « Pneus » (six cases par roue), « Contrôles », « Photos commerciales » (alt = légende). Les photos
+ * sont sur www4.macadam.eu/picture/<id>.jpg, pleine taille avec ?originalpicture=true.
+ */
+export const isMacadamPortalReport = (html: string): boolean => /Rapport de Remarketing de MACADAM/i.test(html) && /for="Vehicle_VIN"/.test(html);
+
+export function parseMacadamPortalReport(html: string): MacadamParsed {
+  const h = html.replace(/\r/g, '');
+  // Entités numériques du portail (« Arri&#xE8;re », « &#x27; ») : décodées, en plus des entités nommées de decode().
+  const text = (s: string) => decode(s).replace(/&#x([0-9a-f]+);/gi, (_m, x) => String.fromCodePoint(parseInt(x, 16))).replace(/&#(\d+);/g, (_m, d) => String.fromCodePoint(Number(d))).replace(/\s+/g, ' ').trim();
+  const section = (id: string): string => {
+    const m = h.match(new RegExp(`<div id="${id}"[^>]*>([\\s\\S]*?)(?=<div class="container-fluid|</body>)`));
+    return m?.[1] ?? '';
+  };
+  // Information véhicule : <label for="Vehicle_X">…</label>:?<strong class="float-right">valeur</strong>
+  const info: Record<string, string> = {};
+  for (const m of h.matchAll(/<label for="(Vehicle_[A-Za-z]+)">([^<]*)<\/label>:?\s*<strong class="float-right">([^<]*)<\/strong>/g)) {
+    const v = dash(text(m[3]));
+    if (v) info[m[1]] = v;
+  }
+  const raw: Record<string, string> = {};
+  for (const m of h.matchAll(/<label for="Vehicle_[A-Za-z]+">([^<]*)<\/label>:?\s*<strong class="float-right">([^<]*)<\/strong>/g)) { const v = dash(text(m[2])); if (v) raw[text(m[1])] = v; }
+  const brand = info.Vehicle_Make ?? null;
+  const version = info.Vehicle_Version ?? null;
+  let model = info.Vehicle_Model ?? null;
+  if (version) {
+    const v = brand && version.toUpperCase().startsWith(brand.toUpperCase()) ? version.slice(brand.length).trim() : version;
+    // « Modèle : X », « Version : BMW iX3 » : un modèle tronqué (deux lettres ou moins) prend celui de la version.
+    if (v && (!model || model.length <= 2 || v.toUpperCase().startsWith(model.toUpperCase()))) model = v;
+  }
+  const firstReg = isoDate(info.Vehicle_FirstRegistrationDate ?? null);
+  // Options et contrôles : « libellé<span …><strong>valeur</strong></span> ».
+  const pairs = (id: string): Array<[string, string]> => [...section(id).matchAll(/>\s*([^<>]+?)\s*<span class="float-right[^"]*"><strong>([^<]*)<\/strong><\/span>/g)].map((m) => [text(m[1]), text(m[2])] as [string, string]).filter(([k]) => k);
+  const options = pairs('options').filter(([, v]) => !/^non$/i.test(v)).map(([k, v]) => (/^oui$/i.test(v) ? k : `${k} : ${v}`));
+  for (const [k, v] of pairs('checks')) raw[k] = v;
+  // Dommages : chaque bloc = pièce, nature, action, zone ; ses photos suivent (class="picture damage-picture").
+  const devaluation: FycDamage[] = []; const usage: FycDamage[] = [];
+  const photos: DekraPhoto[] = []; const rows: MacadamParsed['rows'] = [];
+  const full = (url: string) => (/www4\.macadam\.eu\/picture\//.test(url) && !url.includes('?') ? `${url}?originalpicture=true` : url);
+  for (const m of section('damages').matchAll(/<strong>([^<]*)<\/strong><br \/>\s*([^<]*)<br \/>\s*([^<]*)<br \/>\s*([^<]*)<br \/>([\s\S]*?)(?=<div class="row keep-together|$)/g)) {
+    const part = text(m[1]), kind = text(m[2]), action = text(m[3]), zone = text(m[4]);
+    const d: FycDamage = { zone: part, kind, action, raw: `${part} — ${kind}${action ? ` — ${action}` : ''} (${zone})` };
+    const list: 'devaluation' | 'usage' = /^Acceptable$/i.test(action) ? 'usage' : 'devaluation';
+    const target = list === 'usage' ? usage : devaluation;
+    target.push(d);
+    const idx = target.length - 1;
+    rows.push({ list, idx });
+    for (const p of m[5].matchAll(/<img class="picture damage-picture" src="([^"]+)"[^>]*alt="([^"]*)"/g)) photos.push({ url: full(p[1]), caption: `${part} — ${kind}`, list, idx });
+  }
+  // Pneus : six cases par roue, la première porte « tire-location ».
+  const cells = [...section('tires').matchAll(/<div class="col-12 col-md-2 col-lg-2 border border-white text-center( tire-location)?">([^<]*)<\/div>/g)].map((m) => ({ loc: !!m[1], v: text(m[2]) }));
+  const tyres: string[] = [];
+  for (let i = 0; i < cells.length; i++) {
+    if (!cells[i].loc) continue;
+    const g = cells.slice(i + 1, i + 6).map((c) => c.v);
+    const [season, rim, size, make, depth] = g;
+    tyres.push([cells[i].v, make, season, (size ?? '').replace(/^(\d{3})\/(\d{2})\/(\d{2})\/?(\d+)?\/?([A-Z])?$/, (_m, w, hh, r, li, sp) => `${w}/${hh} R ${r}${li ? ` ${li}` : ''}${sp ? ` ${sp}` : ''}`), rim, depth].filter(Boolean).join(' '));
+  }
+  // Photos commerciales : alt = légende (« Kilométrage », « Entretien », « Avant gauche »…), avant celles des dommages.
+  const commercial: DekraPhoto[] = [];
+  for (const m of section('commercialPictures').matchAll(/<img class="picture" alt="([^"]*)" src="([^"]+)"/g)) commercial.push({ url: full(m[2]), caption: text(m[1]) || `Photo ${commercial.length + 1}`, list: null, idx: null });
+  const keys = num(raw['Nbre clés total']); if (keys != null) raw['Clés'] = String(keys);
+  const fields: FycReportFields = {
+    report_number: null, report_date: null, vin: info.Vehicle_VIN?.toUpperCase() ?? null,
+    brand: brand ? (BRAND_FIX[brand.toUpperCase()] ?? brand) : null, model, version, body: null,
+    first_registration: firstReg, year: firstReg ? Number(firstReg.slice(0, 4)) : null,
+    km: num(info.Vehicle_Mileage), asking_price: null, repair_cost: null,
+    fuel: info.Vehicle_FuelType ?? null, gearbox: info.Vehicle_Gearbox ?? null, power_ch: num(info.Vehicle_kW),
+    color: info.Vehicle_BodyColor ?? null, doors: num(info.Vehicle_Doors), seats: null, repainted: null,
+    damages: { devaluation, usage }, equipment: options, tyres, raw_fields: raw,
+  };
+  return { fields, photos: [...commercial, ...photos], rows };
 }

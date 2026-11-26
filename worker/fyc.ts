@@ -25,7 +25,7 @@ import { translationSource, translationSystem, translationFits, FYC_TRANSLATION_
 import { isDekraReport, parseDekraReport, dekraLanguageUrls, dekraTranslationFrom, type DekraPhoto, type FycDefectPhoto } from '../src/lib/dekraReport';
 import { isFleetboxReport, parseFleetboxReport, fleetboxTranslationFrom } from '../src/lib/fleetboxReport';
 import { parseFycReport } from '../src/lib/fycReport';
-import { isMacadamReport, parseMacadamReport, macadamGeneralPhotos, macadamAssessmentId, macadamUrls, isMacadamRemarketing, parseMacadamRemarketing } from '../src/lib/macadamReport';
+import { isMacadamReport, parseMacadamReport, macadamGeneralPhotos, macadamAssessmentId, macadamUrls, isMacadamRemarketing, parseMacadamRemarketing, isMacadamPortalReport, parseMacadamPortalReport } from '../src/lib/macadamReport';
 import { groupLines } from '../src/lib/pdfLines';
 import { applyVinModel } from '../src/lib/vinModel';
 import { isOwnFiche, OWN_FICHE_ERROR } from '../src/lib/fycLinks';
@@ -83,7 +83,7 @@ async function fetchReport(sourceUrl: string): Promise<Fetched> {
       const ct = r.headers.get('content-type') ?? '';
       if (/html/i.test(ct) || /^\s*<(!doctype|html)/i.test(buf.subarray(0, 200).toString('utf8'))) {
         const html = buf.toString('utf8');
-        if (isDekraReport(html) || isMacadamReport(html)) return { buf, from: cu, kind: 'html' };
+        if (isDekraReport(html) || isMacadamReport(html) || isMacadamPortalReport(html)) return { buf, from: cu, kind: 'html' };
         errors.push(`${cu.slice(0, 80)} : page HTML sans rapport reconnu (seul DEKRA est lu en HTML ; la visionneuse VTI passe par son API)`);
         continue;
       }
@@ -227,6 +227,13 @@ async function tick(): Promise<void> {
             const got = await downloadPhotos(row.id, [...general.map((url, i) => ({ url, caption: `Photo ${i + 1}`, list: null, idx: null })), ...parsed.photos]);
             extra.photos = got.photos; extra.defect_photos = got.defect_photos;
             console.warn(`[FYC] rapport Macadam : ${got.photos.length} photos, ${got.defect_photos.length} photos de dommages`);
+            if (parsed.fields.brand || parsed.fields.vin) { Object.assign(extra, parsed.fields); status = 'read'; }
+          } else if (kind === 'html' && isMacadamPortalReport(buf.toString('utf8'))) {
+            // Portail Macadam (26/11) : la page remarketingV1 publique — champs, photos commerciales et photos de dommages.
+            const parsed = parseMacadamPortalReport(buf.toString('utf8'));
+            const got = await downloadPhotos(row.id, parsed.photos);
+            extra.photos = got.photos; extra.defect_photos = got.defect_photos;
+            console.warn(`[FYC] rapport Macadam (portail) : ${got.photos.length} photos, ${got.defect_photos.length} photos de dommages`);
             if (parsed.fields.brand || parsed.fields.vin) { Object.assign(extra, parsed.fields); status = 'read'; }
           } else if (kind === 'html') {
             const html = buf.toString('utf8');
