@@ -19,7 +19,7 @@ export type ReplyRole = 'ada' | 'dana';
 
 /** D'où vient chaque fait cité : son mail (le fil), sa fiche, ses lots, MC Export, les consignes de Channing. */
 export const REPLY_FACT_SOURCES = ['fil', 'fiche', 'lot', 'mc_export', 'consignes'] as const;
-export const REPLY_INTENTS = ['interesse', 'question', 'demande_offre', 'demande_appel', 'liste_envoyee', 'pas_interesse', 'autre'] as const;
+export const REPLY_INTENTS = ['interesse', 'question', 'demande_offre', 'demande_appel', 'liste_envoyee', 'pas_interesse', 'relance', 'autre'] as const;
 
 export interface ReplyOutput {
   corps: string;
@@ -36,7 +36,7 @@ export interface ReplyOutput {
 
 export const INTENT_LABEL: Record<typeof REPLY_INTENTS[number], string> = {
   interesse: 'intéressé', question: 'pose une question', demande_offre: 'demande une offre', demande_appel: 'veut un appel',
-  liste_envoyee: 'envoie une liste', pas_interesse: 'pas intéressé', autre: 'autre',
+  liste_envoyee: 'envoie une liste', pas_interesse: 'pas intéressé', relance: 'relance (sans nouvelles)', autre: 'autre',
 };
 
 export function replySystem(role: ReplyRole, name: string): string {
