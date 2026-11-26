@@ -3,7 +3,7 @@ import {
   Upload, FileSpreadsheet, FileText, Trash2, Loader2, ExternalLink, Check, CloudOff, Search, SlidersHorizontal,
   PanelLeftOpen, X, StickyNote, Settings, Pencil, ArrowUp, ArrowDown, Plus, RotateCcw, BarChart3, ListChecks, Columns3, Megaphone, ImagePlus, MoreHorizontal, Car, Archive, ArchiveRestore, Merge,
 } from 'lucide-react';
-import { listShowcase, publishToShowcase, unpublishFromShowcase, reorderShowcase, setShowcaseNote, setShowcaseTitle, setShowcasePrice, setShowcaseVehicle, snapshotVehicle, addShowcasePhotos, removeShowcasePhoto, addManualShowcase, type IntraItem, type IntraDraft } from '../services/intra';
+import { listShowcase, publishToShowcase, unpublishFromShowcase, reorderShowcase, setShowcaseNote, setShowcaseTitle, setShowcasePrice, setShowcaseVehicle, snapshotVehicle, addShowcasePhotos, removeShowcasePhoto, reorderShowcasePhotos, addManualShowcase, type IntraItem, type IntraDraft } from '../services/intra';
 import { useAuth } from '../services/auth';
 import { recordLearningCaseFromApp } from '../services/learningCases';
 import { listRefBrandModels } from '../services/workflow';
@@ -137,6 +137,20 @@ export function Offres() {
   const [showcaseError, setShowcaseError] = useState<string | null>(null);
   /** Bonne affaire dont les photos sont en cours d'envoi (13/10). */
   const [photoBusy, setPhotoBusy] = useState<string | null>(null);
+  // GLISSER-DÉPOSER DES PHOTOS D'UNE BONNE AFFAIRE (26/11, Channing : « changer l'ordre des photos, glisser-déposer ») :
+  // même geste que les photos d'une négociation — la photo prise est insérée à la place de celle sur laquelle on la
+  // lâche, les autres se décalent ; la première devient celle de la carte sur l'Accueil et sur mc-export.com.
+  const [photoDrag, setPhotoDrag] = useState<{ id: string; from: number; over: number | null } | null>(null);
+  const dropPhotoAt = async (it: IntraItem, to: number) => {
+    const d = photoDrag; setPhotoDrag(null);
+    if (!d || d.id !== it.id || d.from === to) return;
+    const next = [...(it.photos ?? [])];
+    const [moved] = next.splice(d.from, 1);
+    next.splice(to, 0, moved);
+    setShowcase((rows) => rows.map((x) => (x.id === it.id ? { ...x, photos: next } : x)));
+    const err = await reorderShowcasePhotos(it, next);
+    if (err) { fail(err); void reloadShowcase(); } else if (to === 0 || d.from === 0) info('Ordre enregistré : la première photo est celle de la carte, sur l\'Accueil et sur mc-export.com.');
+  };
   /** Bonne affaire dépliée dans « Ce que l'Accueil montre » : prix, mot, réglages (13/10, Channing : « cliquer sur une ligne pour modifier »). */
   const [openDeal, setOpenDeal] = useState<string | null>(null);
   /** AJOUT DIRECT d'une bonne affaire, sans liste fournisseur (14/10) : le véhicule saisi dans le crayon habituel. */
@@ -1950,8 +1964,15 @@ export function Offres() {
                           {/* PHOTOS (13/10) : montrées sur l'Accueil d'ADA et sur mc-export.com ; jpeg / png / webp, 8 Mo max. */}
                           <div className="flex items-center gap-1.5 flex-wrap">
                             {(it.photos ?? []).map((url, n) => (
-                              <span key={url} className="relative group">
-                                <img src={url} alt={`${it.vehicle.brand} ${it.vehicle.model} photo ${n + 1}`} className="h-12 w-16 object-cover rounded border border-slate-200" loading="lazy" />
+                              <span key={url} className={`relative group rounded cursor-grab active:cursor-grabbing ${photoDrag?.id === it.id && photoDrag.over === n && photoDrag.from !== n ? 'ring-2 ring-brand-ocean' : ''} ${photoDrag?.id === it.id && photoDrag.from === n ? 'opacity-40' : ''}`}
+                                draggable
+                                title={n === 0 ? 'Photo de la carte (Accueil et site) — glisser pour changer l\'ordre' : 'Glisser pour changer l\'ordre ; la première est celle de la carte'}
+                                onDragStart={(e) => { setPhotoDrag({ id: it.id, from: n, over: null }); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', String(n)); } catch { /* navigateur sans dataTransfer */ } }}
+                                onDragOver={(e) => { if (photoDrag?.id !== it.id) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (photoDrag.over !== n) setPhotoDrag({ ...photoDrag, over: n }); }}
+                                onDragLeave={() => { if (photoDrag?.id === it.id && photoDrag.over === n) setPhotoDrag({ ...photoDrag, over: null }); }}
+                                onDrop={(e) => { e.preventDefault(); e.stopPropagation(); void dropPhotoAt(it, n); }}
+                                onDragEnd={() => setPhotoDrag(null)}>
+                                <img src={url} alt={`${it.vehicle.brand} ${it.vehicle.model} photo ${n + 1}`} className="h-12 w-16 object-cover rounded border border-slate-200 pointer-events-none" loading="lazy" />
                                 <button onClick={async () => { const err = await removeShowcasePhoto(it, url); if (err) fail(err); else void reloadShowcase(); }} className="absolute -top-1.5 -right-1.5 hidden group-hover:flex w-4 h-4 items-center justify-center rounded-full bg-white border border-slate-300 text-slate-500 hover:text-red-600" title="Retirer cette photo" aria-label="Retirer cette photo"><X className="w-2.5 h-2.5" /></button>
                               </span>
                             ))}

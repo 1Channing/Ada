@@ -92,6 +92,14 @@ export async function addShowcasePhotos(item: IntraItem, files: File[]): Promise
   }
   return { photos, error: errors.length ? [...new Set(errors)].join(' · ') : null };
 }
+/** L'ORDRE DES PHOTOS (26/11, Channing : « changer l'ordre des photos, glisser-déposer ») : la première est celle de la carte
+ *  sur l'Accueil et sur mc-export.com. Seul l'ordre change ; les mêmes adresses, rien de supprimé. */
+export async function reorderShowcasePhotos(item: IntraItem, photos: string[]): Promise<string | null> {
+  const before = item.photos ?? [];
+  if (photos.length !== before.length || !photos.every((p) => before.includes(p))) return 'Ordre incohérent : la liste a changé entre-temps, recharge la page.';
+  const { error } = await sb.from('intra_showcase').update({ photos }).eq('id', item.id);
+  return error ? (missing(error.message) ? PHOTOS_SQL_HINT : error.message) : null;
+}
 export async function removeShowcasePhoto(item: IntraItem, url: string): Promise<string | null> {
   const photos = (item.photos ?? []).filter((p) => p !== url);
   const { error } = await sb.from('intra_showcase').update({ photos }).eq('id', item.id);
