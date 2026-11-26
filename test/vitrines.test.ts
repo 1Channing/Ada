@@ -1095,6 +1095,80 @@ console.log('\n=== BMW DANEMARK (25/11) : BAYERN AUTOGROUP (productfilter), CARI
     'Procar : une voiture en deux annonces (leasing + vente hors TVA) comptée une fois, sous celle qui a un prix ; leasing seul = sans prix de vente ; lien « bil-detaljer »', [pc.vehicles, pc.warnings]);
 }
 
+console.log('\n=== BMW DANEMARK, SUITE (26/11) : EJVIND NIELSEN (attityde), ARNE POULSEN (fluidcards), JENS WINTHER (datavehicle), HALDRUP (jetbrugte), CONCEPT BILER (bilinfolist) ===\n');
+{
+  const dsd = await import('../worker/dealerStock');
+  // Ejvind Nielsen : la page n'a que 20 cartes ; le formulaire de recherche de la page poste à « /api/search/cars », qui les rend toutes.
+  const enCard = (slug: string, h3: string, ver: string, year: string, fuel: string, km: string, price: string, tag = '') => `<article class="flex flex-col"><a class="relative z-10 block h-full bg-muted" href="/biler/${slug}">
+    <div class="relative"><div class="absolute top-0 left-0 hidden xl:flex">${tag ? `<span class="px-2.5 py-1 text-xs tracking-widest uppercase bg-primary">${tag}</span>` : ''}</div><img loading="lazy" class="object-cover" src="https://img.test/${slug}.jpeg?class=S1600X1600&amp;width=600" /></div>
+    <div class="p-4"><div class="flex-1 pb-3"><h3 class="text-xl font-normal leading-none">${h3}</h3><span class="text-base leading-none"> ${ver}</span></div>
+    <div class="flex justify-between"><span class="whitespace-nowrap">\n    ${year}\n</span><span class="whitespace-nowrap">\n    ${fuel}\n</span><span class="line-clamp-1">\n    ${km}\n</span></div>
+    <div class="flex flex-col gap-0.5 pt-3"><h5 class="mb-1 text-xl font-medium leading-none">${price} <small class="text-sm"></small></h5></div></div></a></article>`;
+  pages['https://en.test.dk/biler/'] = `<h2>Vi har i øjeblikket <span class="text-primary">3</span> biler på lager</h2><form class="relative" id="searchForm" x-data="search(1066, 'da-DK', initSearch)"><input type="hidden" name="Sort" /></form><div id="search-result">${enCard('bmw-x2-sdrive18d-m-sport-aut-a044d9df5a304843ad0c54993113f9b2', 'BMW X2', '2,0 sDrive18d M-Sport aut.', '2020', 'Diesel', '136.000 km', 'DKK 199.900,-', 'Nyhed')}</div>`;
+  pages['https://en.test.dk/api/search/cars?id=1066&culture=da-DK Search=&Sort=Date'] = enCard('bmw-x2-sdrive18d-m-sport-aut-a044d9df5a304843ad0c54993113f9b2', 'BMW X2', '2,0 sDrive18d M-Sport aut.', '2020', 'Diesel', '136.000 km', 'DKK 199.900,-', 'Nyhed')
+    + enCard('mini-cooper-se-classic-trim-drmmnjspahv', 'MINI Cooper SE', 'Classic Trim', '2024', 'El', '12.000 km', 'DKK 229.900,-')
+    + enCard('bmw-i3-rex-3f3851d6effecbbc212f08df3da85964', 'BMW i3', 'REX', '2014', 'El', '200.000 km', 'Solgt', 'Solgt');
+  ok(dsd.detectDealerProvider(pages['https://en.test.dk/biler/']) === 'attityde', 'Ejvind Nielsen : formulaire « searchForm » de la page reconnu (attityde)');
+  const en = await dsd.fetchDealerStock('https://en.test.dk/biler/');
+  const x2 = en.vehicles.find((v) => v.model === 'X2'), mini = en.vehicles.find((v) => v.external_id === 'drmmnjspahv'), i3 = en.vehicles.find((v) => v.model === 'i3');
+  ok(en.vehicles.length === 3 && en.declared === 3 && x2?.price === 199900 && x2?.currency === 'DKK' && x2?.km === 136000 && x2?.year === 2020 && x2?.fuel === 'Diesel' && x2?.gearbox === 'Automatique'
+    && mini?.title === 'MINI Cooper SE Classic Trim' && i3?.status === 'sold' && i3?.price === null,
+    'Ejvind Nielsen : tout le stock par la recherche du site (pas seulement les 20 de la page), « DKK 199.900,- », « aut. », code court, « Solgt »', [en.vehicles, en.warnings]);
+  ok(dsd.readGeartypeDetail('<div class="text-sm font-headline opacity-70">Geartype</div>\n    <span>Automatgear</span>').gearbox === 'Automatique' && dsd.DETAIL_READERS.attityde?.fields.includes('gearbox') === true,
+    'Ejvind Nielsen : la fiche rend la boîte (« Geartype : Automatgear »)');
+
+  // Arne Poulsen : cartes à cases étiquetées, prix dans le bouton.
+  const apCard = (slug: string, h3: string, ver: string, year: string, km: string, price: string, tag: string) => `<a href="/biler-til-salg/${slug}"\n    class="relative flex flex-col transition rounded-medium bg-card group"><div><div class="flex-1"><h3 class="text-fluid-md mb-0">${h3}</h3>
+    <span class="text-fluid-sm text-primary">${ver}</span></div></div><div class="relative aspect-4/3"><img\n        src="https://img.test/${slug}.jpeg?class=S1600X1600&amp;width=480"\n /><div class="absolute flex"><div class="px-2 py-1 bg-green-400 text-sm">${tag}</div></div></div>
+    <div class="grid"><div class=" py-1 bg-background"><div class="text-fluid-sm opacity-50">Modelår</div>\n                ${year}\n            </div><div class=" py-1"><div class="text-fluid-sm opacity-50">Drivmiddel</div>\n                El\n            </div><div class=" py-1"><div class="text-fluid-sm opacity-50">Km</div>\n                ${km}\n            </div></div>
+    <div class="m-1 flex gap-1"><button type="button" class="button text-fluid-base w-full button--secondary">\n        ${price}\n    </button></div></a>`;
+  pages['https://ap.test.dk/biler-til-salg/'] = apCard('bmw-ix2-xdrive30-m-sport-54617832ce014486b0072117edf47385', 'BMW iX2', 'xDrive30 M-Sport', '2025', '15.000', 'DKK 375.000,-', 'Nyhed')
+    + apCard('bmw-i4-m50-m-sport-xdrive-c7a9d35f1f45469891c27d6e9c174aa6', 'BMW i4', 'M50 M-Sport xDrive', '2023', '41.000', 'Solgt', 'Solgt');
+  ok(dsd.detectDealerProvider(pages['https://ap.test.dk/biler-til-salg/']) === 'fluidcards', 'Arne Poulsen : cartes à cases « Modelår / Drivmiddel / Km » reconnues (fluidcards)');
+  const ap = await dsd.fetchDealerStock('https://ap.test.dk/biler-til-salg/');
+  const ix2 = ap.vehicles.find((v) => v.model === 'iX2'), i4 = ap.vehicles.find((v) => v.model === 'i4');
+  ok(ap.vehicles.length === 2 && ix2?.price === 375000 && ix2?.km === 15000 && ix2?.year === 2025 && ix2?.fuel === 'El' && ix2?.external_id === '54617832ce014486b0072117edf47385'
+    && i4?.status === 'sold' && i4?.price === null, 'Arne Poulsen : « DKK 375.000,- », cases étiquetées, « Solgt » = vendue', ap.vehicles);
+
+  // Jens Winther : valeurs en attributs data-*.
+  pages['https://jw.test.dk/biler/'] = `<a href="https://jw.test.dk/koeretoejer/bmw/ix1-edrive20-el-m-sport-204hk-5d-aut/AD5696250/" class="group flex flex-col"\n    data-vehicle data-make="BMW" data-fuel="El" data-new="0" data-sold="1"\n    data-order="2" data-price="0" data-km="21000" data-year="2025"\n    data-search="bmw ix1">\n    <img src="https://img.test/AD5696250.jpg" alt="" /><h2 class="mt-1 text-lg">iX1 <span class="font-normal text-steel">eDrive20 EL M-Sport 204HK 5d Aut.</span></h2></a>`;
+  ok(dsd.detectDealerProvider(pages['https://jw.test.dk/biler/']) === 'datavehicle', 'Jens Winther : cartes « data-vehicle » reconnues (datavehicle)');
+  const jw = await dsd.fetchDealerStock('https://jw.test.dk/biler/');
+  const ix1 = jw.vehicles[0];
+  ok(jw.vehicles.length === 1 && ix1?.external_id === 'AD5696250' && ix1?.title === 'BMW iX1 eDrive20 EL M-Sport 204HK 5d Aut.' && ix1?.km === 21000 && ix1?.year === 2025 && ix1?.status === 'sold' && ix1?.price === null
+    && ix1?.gearbox === 'Automatique' && ix1?.power_ch === 204, 'Jens Winther : km, année, énergie des attributs, « data-sold » = vendue, « 204HK » et « Aut. » de la version', jw.vehicles);
+
+  // Bilhuset Haldrup : 16 voitures dans la page (JetEngine), la liste complète par l'API REST publique, le reste sur la fiche.
+  const hdItem = (id: string, slug: string, title: string, ver: string, price: string, year: string, fuel: string, km: string, site: string) => `<div class="jet-listing-grid__item jet-listing-dynamic-post-${id}" data-post-id="${id}"  ><a class="elementor-element" href="https://hd.test.dk/brugte-biler/${slug}/"><img src="https://img.test/${slug}.jpg" />
+    <h2 class="elementor-heading-title elementor-size-default">${title}</h2><div class="jet-listing-dynamic-field__content">${ver}</div><h2 class="elementor-heading-title">${price}</h2><h2 class="elementor-heading-title">Inkl. leveringsomkosting</h2>
+    <div class="jet-listing-dynamic-field__content">${year}</div><div class="jet-listing-dynamic-field__content">Personbil</div><div class="jet-listing-dynamic-field__content">${fuel}</div><div class="jet-listing-dynamic-field__content">${km}</div><div class="jet-listing-dynamic-field__content">48.03 km/l</div><div class="jet-listing-dynamic-field__content">${site}</div></a></div>`;
+  pages['https://hd.test.dk/brugte-biler/'] = `<div class="jet-listing-grid__items" data-nav="{&quot;query&quot;:{&quot;post_type&quot;:&quot;brugte-biler&quot;,&quot;posts_per_page&quot;:&quot;16&quot;}}" data-page="1" data-pages="2">`
+    + hdItem('25706', 'bmw-i4-22', 'BMW i4', 'M50 Gran Coupé EL XDrive 544HK 5d Aut.', '319.900,-', '2022', 'El', '167.500 km', 'Randers SV') + '</div>';
+  pages['https://hd.test.dk/wp-json/wp/v2/brugte-biler?per_page=100&page=1&_fields=id,link,title,date,class_list'] = JSON.stringify([
+    { id: 25706, link: 'https://hd.test.dk/brugte-biler/bmw-i4-22/', title: { rendered: 'BMW i4' }, date: '2026-11-26T09:06:07', class_list: ['post-25706', 'drivmiddel-el', 'afdeling-randers-sv', 'model-i4', 'maerke-bmw'] },
+    { id: 26100, link: 'https://hd.test.dk/brugte-biler/bmw-x5/', title: { rendered: 'BMW X5' }, date: '2026-11-20T10:00:00', class_list: ['post-26100', 'drivmiddel-diesel', 'afdeling-hobro', 'model-x5', 'maerke-bmw'] }]);
+  ok(dsd.detectDealerProvider(pages['https://hd.test.dk/brugte-biler/']) === 'jetbrugte', 'Haldrup : JetEngine, type « brugte-biler » reconnu (jetbrugte)');
+  const hd = await dsd.fetchDealerStock('https://hd.test.dk/brugte-biler/');
+  const hi4 = hd.vehicles.find((v) => v.external_id === '25706'), x5 = hd.vehicles.find((v) => v.external_id === '26100');
+  ok(hd.vehicles.length === 2 && hi4?.price === 319900 && hi4?.km === 167500 && hi4?.year === 2022 && hi4?.location === 'Randers SV' && hi4?.power_ch === 544
+    && x5?.title === 'BMW X5' && x5?.brand === 'BMW' && x5?.fuel === 'Diesel' && x5?.location === 'Hobro' && x5?.price === null && x5?.listed_at === '2026-11-20T10:00:00',
+    'Haldrup : voiture de la page complète ; voiture absente de la page prise dans l\'API REST (marque, énergie, site, date), le reste attend sa fiche', hd.vehicles);
+  const hdDet = dsd.readJetBrugteDetail('<span>Kilometer</span><span>167.500</span><span>Drivmiddel</span><span>El</span><span>1. reg. dato</span><span>2022</span><div class="elementor-element carprice"><div><h3 class="elementor-heading-title">319.900 DKK</h3></div></div><p>Udstyrsliste</p><p>Android Auto, Automatgear, Klimaanlæg</p><span>Modelår</span><span>2022</span>');
+  ok(hdDet.km === 167500 && hdDet.year === 2022 && hdDet.price === 319900 && hdDet.fuel === 'El' && hdDet.gearbox === 'Automatique' && dsd.DETAIL_READERS.jetbrugte?.fields.includes('price') === true,
+    'Haldrup : la fiche rend prix, km, année, énergie et boîte', hdDet);
+
+  // Concept Biler : application Vue « car-list », stock par « /?bilinfo_generate_list ».
+  pages['https://cb.test.dk/biler/'] = '<link rel="stylesheet" href="https://cb.test.dk/wp-content/plugins/pb-elementor-widgets/partials/car-list/style.css"><div id="app"></div><script src="https://cb.test.dk/wp-content/plugins/pb-elementor-widgets/partials/car-list/js/app.5bfb3fcd.js"></script>';
+  pages['https://cb.test.dk/?bilinfo_generate_list'] = JSON.stringify([
+    { id: 318986, image: 'https://img.test/1.jpg', title: 'BMW X3 xDrive30e M-Sport 5d', make: 'BMW', model: 'X3', year: 2023, fuel: 'Benzin', fuel2: 'El', mileage: 41000, leasing: false, price: 389900, geartype: 'Automatisk', permalink: 'https://cb.test.dk/bil/bmw-x3/', publishedTime: '20261125', sold: false, new: false },
+    { id: 318984, image: 'https://img.test/2.jpg', title: 'MINI Cooper 5d', make: 'MINI', model: 'Cooper', year: 2019, fuel: 'Benzin', fuel2: null, mileage: 88000, leasing: false, price: 129900, geartype: 'Manuel', permalink: 'https://cb.test.dk/bil/mini-cooper/', publishedTime: '20261101', sold: true, new: false }]);
+  ok(dsd.detectDealerProvider(pages['https://cb.test.dk/biler/']) === 'bilinfolist', 'Concept Biler : application « car-list » reconnue (bilinfolist)');
+  const cb = await dsd.fetchDealerStock('https://cb.test.dk/biler/');
+  const x3 = cb.vehicles.find((v) => v.model === 'X3'), cooper = cb.vehicles.find((v) => v.model === 'Cooper');
+  ok(cb.vehicles.length === 2 && x3?.price === 389900 && x3?.km === 41000 && x3?.fuel === 'Benzin / El' && x3?.gearbox === 'Automatique' && x3?.listed_at === '2026-11-25T00:00:00'
+    && x3?.url === 'https://cb.test.dk/bil/bmw-x3/' && cooper?.gearbox === 'Manuelle' && cooper?.status === 'sold', 'Concept Biler : prix, km, énergie double, « Automatisk » / « Manuel », date de mise en ligne, vendue', cb.vehicles);
+}
+
 console.log('\n=== BMW PAYS-BAS (25/11) : FILTRE DE LIEU DES VITRINES dvapi (PALA, HEDIN), KALLENHARD (sucars) ===\n');
 {
   const dsn = await import('../worker/dealerStock');

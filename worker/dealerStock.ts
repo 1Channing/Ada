@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'estorik' | 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused' | 'kiaosp' | 'pappas' | 'jpauto' | 'fwcars' | 'mbmauto' | 'dunaauto' | 'schiller' | 'petranyi' | 'leierauto' | 'skodastock' | 'kiaihned' | 'autobazareu' | 'hedin' | 'kiaused' | 'todosjazdene' | 'cardveicolo' | 'youcan' | 'ibilista' | 'nuxtvehicles' | 'autoit' | 'occasionload' | 'easysite' | 'productfilter' | 'carsgrid' | 'nextcars' | 'carclicked' | 'sucars' | 'bilinfo';
-const PROVIDERS_KNOWN: DealerProvider[] = ['estorik', 'dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused', 'kiaosp', 'pappas', 'jpauto', 'fwcars', 'mbmauto', 'dunaauto', 'schiller', 'petranyi', 'leierauto', 'skodastock', 'kiaihned', 'autobazareu', 'hedin', 'kiaused', 'todosjazdene', 'cardveicolo', 'youcan', 'ibilista', 'nuxtvehicles', 'autoit', 'occasionload', 'easysite', 'productfilter', 'carsgrid', 'nextcars', 'carclicked', 'sucars', 'bilinfo'];
+export type DealerProvider = 'estorik' | 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused' | 'kiaosp' | 'pappas' | 'jpauto' | 'fwcars' | 'mbmauto' | 'dunaauto' | 'schiller' | 'petranyi' | 'leierauto' | 'skodastock' | 'kiaihned' | 'autobazareu' | 'hedin' | 'kiaused' | 'todosjazdene' | 'cardveicolo' | 'youcan' | 'ibilista' | 'nuxtvehicles' | 'autoit' | 'occasionload' | 'easysite' | 'productfilter' | 'carsgrid' | 'nextcars' | 'carclicked' | 'sucars' | 'bilinfo' | 'attityde' | 'fluidcards' | 'datavehicle' | 'jetbrugte' | 'bilinfolist';
+const PROVIDERS_KNOWN: DealerProvider[] = ['estorik', 'dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused', 'kiaosp', 'pappas', 'jpauto', 'fwcars', 'mbmauto', 'dunaauto', 'schiller', 'petranyi', 'leierauto', 'skodastock', 'kiaihned', 'autobazareu', 'hedin', 'kiaused', 'todosjazdene', 'cardveicolo', 'youcan', 'ibilista', 'nuxtvehicles', 'autoit', 'occasionload', 'easysite', 'productfilter', 'carsgrid', 'nextcars', 'carclicked', 'sucars', 'bilinfo', 'attityde', 'fluidcards', 'datavehicle', 'jetbrugte', 'bilinfolist'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -373,6 +373,16 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/<a data-event="carClicked"/.test(html) && /itemprop="mileageFromOdometer"/.test(html)) return 'carclicked';
   // bilinfo (Meiniche, Procar, DK, 25/11) : stock au format Bilinfo — module « Brugtbilsmodulet » ou « vehiclesArr » dans la page.
   if (/id="usedcarsmodule"\s+src="[^"]*\/bbm\/[0-9a-f-]{36}\.js"/i.test(html) || /vehiclesArr\s*=\s*\[\{"Id":/.test(html)) return 'bilinfo';
+  // attityde (Ejvind Nielsen, DK, 26/11) : Umbraco, formulaire « searchForm » qui poste à « /api/search/cars » (tout le stock).
+  if (/id="searchForm"\s+x-data="search\(\d+,\s*'[a-z]{2}-[A-Z]{2}'/.test(html) && /<a class="relative z-10 block h-full bg-muted" href="\/biler\//.test(html)) return 'attityde';
+  // fluidcards (Arne Poulsen, DK, 26/11) : cartes « /biler-til-salg/<slug>-<n°> » à cases « Modelår / Drivmiddel / Km ».
+  if (/<a href="\/biler-til-salg\/[^"]+"\s+class="relative flex flex-col/.test(html) && /opacity-50">\s*Drivmiddel\s*<\/div>/.test(html)) return 'fluidcards';
+  // datavehicle (Jens Winther, DK, 26/11) : cartes « data-vehicle » à attributs data-km / data-year / data-price / data-sold.
+  if (/\sdata-vehicle\s[^>]*data-km="/.test(html) && /data-sold="/.test(html)) return 'datavehicle';
+  // jetbrugte (Bilhuset Haldrup, DK, 26/11) : JetEngine, type de contenu « brugte-biler » (prix « 319.900,- »).
+  if (/class="jet-listing-grid__item /.test(html) && /&quot;post_type&quot;:&quot;brugte-biler&quot;/.test(html)) return 'jetbrugte';
+  // bilinfolist (Concept Biler, DK, 26/11) : application Vue « car-list » de « pb-elementor-widgets », stock par « /?bilinfo_generate_list ».
+  if (/pb-elementor-widgets\/partials\/car-list\/js\/app\./.test(html) && /<div id="app"><\/div>/.test(html)) return 'bilinfolist';
   // sucars (Kallenhard, NL, 25/11) : WordPress « su-cars », tout le stock dans un fichier JSON public (data-json-url).
   if (/data-json-url="[^"]*\/app-vehicles-[a-z]{2}\.json/.test(html)) return 'sucars';
   // nextcars (Jan Nygaard, DK, 25/11) : Next.js à composants serveur, stock dans les props de « UsedCarOverview » (« cars »).
@@ -4079,6 +4089,228 @@ async function scrapeSuCars(url: string, firstHtml: string): Promise<DealerStock
   const seen = new Set<string>();
   const vehicles = suCarsVehicles(data, origin).filter((v) => (seen.has(v.external_id) ? false : (seen.add(v.external_id), true)));
   return { provider: 'sucars', total: vehicles.length, declared: vehicles.length, vehicles, pages: 1, warnings: vehicles.length ? [] : ['fichier du stock vide'] };
+}
+// ── attityde (Ejvind Nielsen, Hobro, Danemark, 26/11 : partenaire BMW) : site Umbraco (agence Attityde). La page « /biler/ »
+//    n'affiche qu'une partie du stock (20 voitures sur 67 le 26/11) ; son formulaire de recherche (id="searchForm",
+//    x-data="search(<id>, '<culture>', …)") poste « Search » et « Sort » à « /api/search/cars?id=<id>&culture=<culture> »,
+//    qui renvoie toutes les cartes : « <a class="relative z-10 block h-full bg-muted" href="/biler/<slug>-<n°>"> » (n° de 32
+//    chiffres hexadécimaux ou code court « drmmnjspahv »),
+//    h3 marque et modèle, version, trois « span » (année, énergie, « 136.000 km »), h5 « DKK 199.900,- » (« Kontantpris »)
+//    ou « Solgt ». Boîte : « aut. », « DSG », « S-tr. » de la version, sinon la fiche (« Geartype : Automatgear »).
+export function parseAttityde(html: string, origin: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  for (const m of html.matchAll(/<a class="relative z-10 block h-full bg-muted" href="(\/biler\/[^"]*?-([0-9a-z]{8,}))">([\s\S]*?)<\/a>/g)) {
+    const [, href, id, card] = m;
+    const head = htmlText(hexDecode(card.match(/<h3[^>]*>([\s\S]*?)<\/h3>/)?.[1] ?? ''));
+    const version = htmlText(hexDecode(card.match(/<\/h3>\s*<span[^>]*>([\s\S]*?)<\/span>/)?.[1] ?? ''));
+    const title = [head, version].filter(Boolean).join(' ');
+    const { brand, model } = splitTitle(head);
+    const facts = [...card.matchAll(/<span class="(?:whitespace-nowrap|line-clamp-1)">\s*([^<]*?)\s*<\/span>/g)].map((f) => htmlText(hexDecode(f[1])));
+    const priceText = htmlText(card.match(/<h5[^>]*>([\s\S]*?)<\/h5>/)?.[1] ?? '');
+    const price = priceOrNull((priceText.match(/DKK\s*([\d.]+)/)?.[1] ?? '').replace(/\./g, ''));
+    const tags = [...card.matchAll(/<span class="px-2\.5[^"]*">([^<]*)<\/span>/g)].map((t) => htmlText(t[1])).join(' ');
+    out.push({
+      external_id: id, url: new URL(href, origin).toString(), title, brand, model, price, currency: 'DKK',
+      km: kmOf(facts.find((f) => /km/i.test(f))), year: yearOf(facts.find((f) => /^(?:19|20)\d{2}$/.test(f)) ?? ''),
+      fuel: facts.find((f) => !/km|^\d{4}$/i.test(f)) || null,
+      gearbox: /\baut\.?(?=\s|$)|\bDSG\b|\bS-?tr(?:onic|\.)/i.test(version) ? 'Automatique' : gearboxOfVersion(version),
+      plate: null, vin: null, body: null, image: unesc(card.match(/<img[^>]*\ssrc="([^"]+)"/)?.[1] ?? '') || null, listed_at: null,
+      status: dkStatus(`${tags} ${priceText}`) ?? (price == null ? 'price_on_request' : null), power_ch: powerFromText(version),
+    });
+  }
+  return out;
+}
+/** Fiche attityde (Ejvind Nielsen) : « Geartype » (Automatgear / Manuelt gear). */
+export function readGeartypeDetail(html: string): DetailFields {
+  const g = htmlText(html.match(/opacity-70">\s*Geartype\s*<\/div>\s*<span>([^<]*)<\/span>/i)?.[1] ?? '');
+  return { gearbox: /automat/i.test(g) ? 'Automatique' : /manuel/i.test(g) ? 'Manuelle' : null };
+}
+async function scrapeAttityde(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const form = firstHtml.match(/id="searchForm"\s+x-data="search\((\d+),\s*'([a-z]{2}-[A-Z]{2})'/);
+  const declared = num(htmlText(firstHtml).match(/Vi har i øjeblikket\s*(\d+)\s*biler/i)?.[1]);
+  let html = firstHtml;
+  let pages = 1;
+  if (form) {
+    const r = await getTextPatient(`${origin}/api/search/cars?id=${form[1]}&culture=${form[2]}`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', referer: url }, body: 'Search=&Sort=Date' });
+    pages++;
+    if (r.status === 200) html = r.text;
+  }
+  const seen = new Set<string>();
+  const vehicles = parseAttityde(html, origin).filter((v) => (seen.has(v.external_id) ? false : (seen.add(v.external_id), true)));
+  const warnings: string[] = [];
+  if (html === firstHtml) warnings.push('recherche du site (« /api/search/cars ») non lue : seules les voitures de la page');
+  if (declared != null && vehicles.length < declared) warnings.push(`${vehicles.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  if (!vehicles.length) warnings.push('aucune carte de voiture');
+  return { provider: 'attityde', total: declared ?? vehicles.length, declared, vehicles, pages, warnings };
+}
+// ── fluidcards (Arne Poulsen, Herning, Danemark, 26/11 : partenaire BMW) : tout le stock dans la page « /biler-til-salg/ »,
+//    cartes « <a href="/biler-til-salg/<slug>-<n°>" class="relative flex flex-col …"> » : h3 marque et modèle, version, trois
+//    cases étiquetées « Modelår », « Drivmiddel », « Km », prix dans le bouton (« DKK 375.000,- » ou « Solgt »).
+export function parseFluidCards(html: string, origin: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  for (const m of html.matchAll(/<a href="(\/biler-til-salg\/[^"]*?-([0-9a-z]{8,}))"\s+class="relative flex flex-col[^"]*">([\s\S]*?)<\/a>/g)) {
+    const [, href, id, card] = m;
+    const head = htmlText(hexDecode(card.match(/<h3[^>]*>([\s\S]*?)<\/h3>/)?.[1] ?? ''));
+    const version = htmlText(hexDecode(card.match(/<\/h3>\s*<span[^>]*>([\s\S]*?)<\/span>/)?.[1] ?? ''));
+    const label = (l: string) => htmlText(hexDecode(card.match(new RegExp(`opacity-50">\\s*${l}\\s*<\\/div>([^<]*)<`, 'i'))?.[1] ?? ''));
+    const priceText = htmlText(card.match(/<button[^>]*>([\s\S]*?)<\/button>/)?.[1] ?? '');
+    const price = priceOrNull((priceText.match(/DKK\s*([\d.]+)/)?.[1] ?? '').replace(/\./g, ''));
+    const tags = [...card.matchAll(/<div class="px-2 py-1[^"]*">([^<]*)<\/div>/g)].map((t) => htmlText(t[1])).join(' ');
+    const { brand, model } = splitTitle(head);
+    out.push({
+      external_id: id, url: new URL(href, origin).toString(), title: [head, version].filter(Boolean).join(' '), brand, model, price, currency: 'DKK',
+      km: num(label('Km').replace(/\D/g, '')), year: yearOf(label('Modelår')), fuel: label('Drivmiddel') || null,
+      gearbox: /\baut\.?(?=\s|$)/i.test(version) ? 'Automatique' : gearboxOfVersion(version),
+      plate: null, vin: null, body: null, image: unesc(card.match(/<img[^>]*\ssrc="([^"]+)"/)?.[1] ?? '') || null, listed_at: null,
+      status: dkStatus(`${tags} ${priceText}`) ?? (price == null ? 'price_on_request' : null), power_ch: powerFromText(version),
+    });
+  }
+  return out;
+}
+async function scrapeFluidCards(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const seen = new Set<string>();
+  const vehicles = parseFluidCards(firstHtml, new URL(url).origin).filter((v) => (seen.has(v.external_id) ? false : (seen.add(v.external_id), true)));
+  return { provider: 'fluidcards', total: vehicles.length, declared: null, vehicles, pages: 1, warnings: vehicles.length ? [] : ['aucune carte de voiture'] };
+}
+// ── datavehicle (Jens Winther, Roskilde, Danemark, 26/11 : partenaire BMW / MINI) : « /biler/ », données Auto IT ; chaque
+//    carte « <a href="…/koeretoejer/<marque>/<slug>/<n°>/" data-vehicle data-make data-fuel data-new data-sold data-price
+//    data-km data-year> » porte ses valeurs en attributs ; h2 modèle + version.
+export function parseDataVehicle(html: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  for (const m of html.matchAll(/<a href="([^"]+)"([^>]*\sdata-vehicle[^>]*)>([\s\S]*?)<\/a>/g)) {
+    const [, href, attrs, card] = m;
+    const at = (k: string) => unesc(attrs.match(new RegExp(`\\sdata-${k}="([^"]*)"`))?.[1] ?? '');
+    const id = href.match(/\/([A-Z]{2}\d{5,})\/?$/)?.[1] ?? href.replace(/\/$/, '').split('/').pop() ?? '';
+    if (!id) continue;
+    const make = at('make');
+    const model = htmlText(hexDecode((card.match(/<h2[^>]*>([\s\S]*?)<span/)?.[1] ?? '')));
+    const version = htmlText(hexDecode(card.match(/<h2[^>]*>[\s\S]*?<span[^>]*>([\s\S]*?)<\/span>/)?.[1] ?? ''));
+    const price = priceOrNull(at('price'));
+    const sold = at('sold') === '1';
+    out.push({
+      external_id: id, url: href, title: [make, model, version].filter(Boolean).join(' '), brand: make || null, model: model || null, price, currency: 'DKK',
+      km: num(at('km')), year: num(at('year')), fuel: at('fuel') || null,
+      gearbox: /\baut\.?(?=\s|$)/i.test(version) ? 'Automatique' : gearboxOfVersion(version),
+      plate: null, vin: null, body: at('new') === '1' ? 'neuve' : null, image: card.match(/<img[^>]*\ssrc="([^"]+)"/)?.[1] ?? null, listed_at: null,
+      status: sold ? 'sold' : price == null ? 'price_on_request' : null, power_ch: powerFromText(version),
+    });
+  }
+  return out;
+}
+async function scrapeDataVehicle(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const seen = new Set<string>();
+  const vehicles = parseDataVehicle(firstHtml).filter((v) => (seen.has(v.external_id) ? false : (seen.add(v.external_id), true)));
+  return { provider: 'datavehicle', total: vehicles.length, declared: null, vehicles, pages: 1, warnings: vehicles.length ? [] : ['aucune carte « data-vehicle »'] };
+}
+// ── jetbrugte (Bilhuset Haldrup, Randers et Hobro, Danemark, 26/11 : partenaire BMW) : WordPress + JetEngine, type de contenu
+//    « brugte-biler », 16 par page, pages « /brugte-biler/page/N/ ». Chaque élément « jet-listing-grid__item » (data-post-id)
+//    donne dans l'ordre : modèle, version, prix « 319.900,- », « Inkl. leveringsomkosting », année, type, énergie, « 167.500 km »,
+//    consommation, site (« Randers SV », « Hobro »).
+export function parseJetBrugte(html: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  for (const part of html.split(/<div class="jet-listing-grid__item /).slice(1)) {
+    const item = part.split(/<div class="jet-listing-grid__item /)[0];
+    const id = item.match(/data-post-id="(\d+)"/)?.[1];
+    const href = item.match(/href="(https?:\/\/[^"]+\/brugte-biler\/[^"]+)"/)?.[1];
+    if (!id || !href) continue;
+    const tokens = htmlText(hexDecode(item.replace(/<(script|style)[\s\S]*?<\/\1>/g, ' ').replace(/<[^>]+>/g, ' | '))).split('|').map((t) => t.trim()).filter((t) => t && !/^jet-listing|data-post-id|^"?\s*>$/.test(t));
+    const words = tokens.filter((t) => !/elementor|dcss|data-/.test(t));
+    const title = words[0] ?? '';
+    const priceAt = words.findIndex((t) => /^[\d.]+,-$/.test(t));
+    const version = priceAt > 1 ? words.slice(1, priceAt).join(' ') : '';
+    const price = priceAt >= 0 ? priceOrNull(words[priceAt].replace(/\D/g, '')) : null;
+    const after = priceAt >= 0 ? words.slice(priceAt + 1) : words;
+    const { brand, model } = splitTitle(title);
+    const kmText = after.find((t) => /\bkm$/i.test(t) && !/km\/l/i.test(t));
+    out.push({
+      external_id: id, url: href, title: [title, version].filter(Boolean).join(' '), brand, model, price, currency: 'DKK',
+      km: kmOf(kmText), year: yearOf(after.find((t) => /^(?:19|20)\d{2}$/.test(t)) ?? ''),
+      fuel: after.find((t) => /^(el|benzin|diesel|hybrid|plug-in|benzin\s*\/\s*el|diesel\s*\/\s*el)\b/i.test(t)) ?? null,
+      gearbox: /\baut\.?(?=\s|$)/i.test(version) ? 'Automatique' : gearboxOfVersion(version),
+      plate: null, vin: null, body: /varebil/i.test(after.join(' ')) ? 'utilitaire' : null, image: item.match(/<img[^>]*\ssrc="([^"]+)"/)?.[1] ?? null, listed_at: null,
+      status: dkStatus(item) ?? (price == null ? 'price_on_request' : null), power_ch: powerFromText(version),
+      location: after.length ? after[after.length - 1] : null,
+    });
+  }
+  return out;
+}
+/** Fiche jetbrugte (Haldrup) : « Kilometer », « Modelår » (ou 1re immatriculation), prix « carprice », « Automatgear ». */
+export function readJetBrugteDetail(html: string): DetailFields {
+  const t = htmlText(html.replace(/<(script|style)[\s\S]*?<\/\1>/g, ' ').replace(/<[^>]+>/g, ' | ')).replace(/(\|\s*)+/g, '| ');
+  const km = t.match(/Kilometer\s*\|\s*([\d.]+)\s*\|/)?.[1];
+  const year = t.match(/Modelår\s*\|\s*((?:19|20)\d{2})\b/)?.[1] ?? t.match(/1\. reg\. dato\s*\|\s*((?:19|20)\d{2})\b/)?.[1];
+  const price = html.match(/carprice[\s\S]{0,400}?<h3[^>]*>\s*([\d.]+)\s*DKK/)?.[1];
+  return {
+    km: km ? num(km.replace(/\./g, '')) : null, year: year ? Number(year) : null, price: price ? priceOrNull(price.replace(/\./g, '')) : null,
+    fuel: t.match(/Drivmiddel\s*\|\s*([^|]+?)\s*\|/)?.[1] ?? null,
+    gearbox: /Automatgear/i.test(t) ? 'Automatique' : /Manuel(?:t)? gear/i.test(t) ? 'Manuelle' : null,
+  };
+}
+async function scrapeJetBrugte(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  for (const v of parseJetBrugte(firstHtml)) if (!seen.has(v.external_id)) { seen.add(v.external_id); out.push(v); }
+  const warnings: string[] = [];
+  // La page n'en montre que 16 (la suite se charge par une requête signée du site, non utilisée) : la liste complète vient de
+  // l'API REST publique du type de contenu « brugte-biler » ; les voitures absentes de la page y prennent titre, lien, marque,
+  // modèle, énergie et site, puis prix, km et année sur leur fiche (DETAIL_READERS).
+  let declared: number | null = null;
+  let pages = 1;
+  const cls = (list: unknown, prefix: string) => (Array.isArray(list) ? (list as string[]) : []).find((c) => c.startsWith(prefix))?.slice(prefix.length) ?? null;
+  const word = (slug: string | null) => (slug ? slug.split('-').map((w) => (w.length <= 3 && !/^(el)$/.test(w) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1))).join(' ') : null);
+  for (let p = 1; p <= 20; p++) {
+    const r = await getTextPatient(`${origin}/wp-json/wp/v2/brugte-biler?per_page=100&page=${p}&_fields=id,link,title,date,class_list`, { headers: { accept: 'application/json' } });
+    pages++;
+    if (r.status !== 200) { if (!(p > 1 && r.status === 400)) warnings.push(`API REST du site : HTTP ${r.status}`); break; }
+    let list: Array<{ id?: number; link?: string; title?: { rendered?: string }; date?: string; class_list?: string[] }>;
+    try { list = JSON.parse(r.text); } catch { warnings.push('API REST du site : réponse illisible'); break; }
+    if (declared == null) declared = num(r.headers.get('x-wp-total'));
+    for (const it of list) {
+      const id = String(it.id ?? '');
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const title = htmlText(hexDecode(it.title?.rendered ?? ''));
+      const split = splitTitle(title);
+      out.push({
+        external_id: id, url: it.link ?? null, title, brand: word(cls(it.class_list, 'maerke-')) ?? split.brand, model: word(cls(it.class_list, 'model-')) ?? split.model,
+        price: null, currency: 'DKK', km: null, year: null, fuel: word(cls(it.class_list, 'drivmiddel-')), gearbox: null, plate: null, vin: null, body: null, image: null,
+        listed_at: it.date ? `${it.date.slice(0, 19)}` : null, status: null, power_ch: null, location: word(cls(it.class_list, 'afdeling-')),
+      });
+    }
+    if (list.length < 100) break;
+  }
+  if (!out.length) warnings.push('aucun élément « jet-listing-grid__item »');
+  return { provider: 'jetbrugte', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
+}
+// ── bilinfolist (Concept Biler, Næstved, Danemark, 26/11 : partenaire BMW) : WordPress, extension « pb-elementor-widgets »
+//    « car-list » (application Vue) ; la page charge tout le stock en JSON par « /?bilinfo_generate_list » : [{ id, title, make,
+//    model, year, fuel, fuel2, mileage, price, leasing, geartype « Automatisk », permalink, publishedTime « 20261125 », sold, new }].
+export function bilinfoListVehicle(c: Record<string, unknown>): DealerVehicle | null {
+  const str = (v: unknown) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : typeof v === 'number' ? String(v) : '');
+  const id = str(c.id);
+  if (!id) return null;
+  const price = c.leasing === true ? null : priceOrNull(c.price);
+  const pub = str(c.publishedTime).match(/^(\d{4})(\d{2})(\d{2})$/);
+  const title = str(c.title);
+  return {
+    external_id: id, url: str(c.permalink) || null, title, brand: str(c.make) || null, model: str(c.model) || null, price, currency: 'DKK',
+    km: num(c.mileage), year: num(c.year), fuel: [str(c.fuel), str(c.fuel2)].filter(Boolean).join(' / ') || null,
+    gearbox: gearboxOf(str(c.geartype) || null) ?? gearboxOfVersion(title), plate: null, vin: null, body: c.new === true ? 'neuve' : null,
+    image: str(c.image) || null, listed_at: pub ? `${pub[1]}-${pub[2]}-${pub[3]}T00:00:00` : null,
+    status: c.sold === true ? 'sold' : price == null ? 'price_on_request' : null, power_ch: powerFromText(title),
+  };
+}
+async function scrapeBilinfoList(url: string): Promise<DealerStockResult> {
+  const origin = new URL(url).origin;
+  const r = await getTextPatient(`${origin}/?bilinfo_generate_list`, { headers: { accept: 'application/json', 'x-requested-with': 'XMLHttpRequest', referer: url } });
+  if (r.status !== 200) return { provider: 'bilinfolist', total: null, declared: null, vehicles: [], pages: 1, warnings: [`liste « bilinfo_generate_list » : HTTP ${r.status}`] };
+  let list: unknown;
+  try { list = JSON.parse(r.text); } catch { return { provider: 'bilinfolist', total: null, declared: null, vehicles: [], pages: 1, warnings: ['liste « bilinfo_generate_list » illisible'] }; }
+  const seen = new Set<string>();
+  const vehicles = (Array.isArray(list) ? (list as Array<Record<string, unknown>>) : []).map(bilinfoListVehicle).filter((v): v is DealerVehicle => !!v && (seen.has(v.external_id) ? false : (seen.add(v.external_id), true)));
+  return { provider: 'bilinfolist', total: vehicles.length, declared: vehicles.length, vehicles, pages: 2, warnings: vehicles.length ? [] : ['liste vide'] };
 }
 // ── bilinfo (Danemark, 25/11 : Meiniche, Holstebro, et Procar, Køge — partenaires BMW) : stock au format Bilinfo (la base
 //    des annonces danoises), soit dans le module « Brugtbilsmodulet » (la page de la vitrine charge « /bbm/<guid>.js », puis
@@ -7963,6 +8195,11 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'carclicked') return scrapeCarClicked(url, first.text);
   if (provider === 'sucars') return scrapeSuCars(url, first.text);
   if (provider === 'bilinfo') return scrapeBilinfo(url, first.text);
+  if (provider === 'attityde') return scrapeAttityde(url, first.text);
+  if (provider === 'fluidcards') return scrapeFluidCards(url, first.text);
+  if (provider === 'datavehicle') return scrapeDataVehicle(url, first.text);
+  if (provider === 'jetbrugte') return scrapeJetBrugte(url, first.text);
+  if (provider === 'bilinfolist') return scrapeBilinfoList(url);
   if (provider === 'nextcars') return scrapeNextCars(url, first.text);
   if (provider === 'eveho') return scrapeEveho(url, first.text);
   if (provider === 'autopalace') return scrapeAutopalace(url, first.text);
@@ -8199,6 +8436,10 @@ export const DETAIL_READERS: Partial<Record<DealerProvider, DetailReader>> = {
   easysite: { fields: ['fuel', 'gearbox'], read: readEasysiteDetail },
   // carsgrid (Caripo, 25/11) : km, année et énergie, absents de la carte (« used-car-facts » de la fiche).
   carsgrid: { fields: ['km', 'year', 'fuel'], read: readUsedCarFactsDetail },
+  // attityde (Ejvind Nielsen, 26/11) : la boîte, quand la version ne la dit pas (« Geartype » de la fiche).
+  attityde: { fields: ['gearbox'], read: readGeartypeDetail },
+  // jetbrugte (Haldrup, 26/11) : prix, km, année des voitures que la page ne montre pas (liste complète par l'API REST).
+  jetbrugte: { fields: ['price', 'km', 'year', 'gearbox'], read: readJetBrugteDetail },
 };
 
 /** Relève le stock d'une concession de la carte et le compare au relevé précédent. Avec `prefetched` (vitrine
