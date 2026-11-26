@@ -1073,15 +1073,16 @@ console.log('\n=== BMW DANEMARK (25/11) : BAYERN AUTOGROUP (productfilter), CARI
 
   // Bilinfo (Meiniche par le module « Brugtbilsmodulet », Procar par « vehiclesArr » dans la page) : même format.
   const bi = (id: string, o: Record<string, unknown>) => ({ Id: id, Make: 'BMW', Model: 'i4', Variant: 'eDrive35 M-Sport', Price: '329900', CashPrice: '329900', PriceType: 'RetailPrice', Mileage: '25000', Year: '2024',
-    Propellant: 'El', SecondaryPropellant: null, GearType: 'A', Effect: '286', Type: 'Personvogn', Vin: null, Pictures: [`https://img.test/${id}.jpg`], CreatedDate: '24-09-2026 11:51:40', VehicleSourceId: `src-${id}`, SoldAge: null, DeletedDate: null, ...o });
+    Propellant: 'El', SecondaryPropellant: null, GearType: 'A', Effect: '286', Type: 'Personvogn', Vin: null, Pictures: [`https://img.test/${id}.jpg`], CreatedDate: '24-09-2026 11:51:40', VehicleSourceId: `src-${id}`, SoldAge: -1, DeletedDate: null, ...o });
   pages['https://www.bbm.test.dk/meiniche-a-s/'] = '<div><script id="usedcarsmodule" src="//www.bbm.test.dk/bbm/537e1f7d-cc9f-48e2-8b20-94d7a73fe7c7.js"></script></div>';
-  pages['https://www.bbm.test.dk/bbm/bbm.app.js?guid=537e1f7d-cc9f-48e2-8b20-94d7a73fe7c7'] = `app.controller("x", function ($scope) {\n  $scope.data = null;\n  $scope.initialize = async function () {\n    $scope.data = ${JSON.stringify({ ApiVersion: '3', Vehicles: [bi('377670560', { Make: 'Kia', Model: 'Stonic', Variant: 'T-GDi Prestige DCT', Propellant: 'Benzin', Price: '199900', Effect: '100' }), bi('1843649265', { GearType: 'M', Propellant: 'Benzin', SecondaryPropellant: 'El', Model: '330e' })] })};\n  };\n});`;
+  pages['https://www.bbm.test.dk/bbm/bbm.app.js?guid=537e1f7d-cc9f-48e2-8b20-94d7a73fe7c7'] = `app.controller("x", function ($scope) {\n  $scope.data = null;\n  $scope.initialize = async function () {\n    $scope.data = ${JSON.stringify({ ApiVersion: '3', Vehicles: [bi('377670560', { Make: 'Kia', Model: 'Stonic', Variant: 'T-GDi Prestige DCT', Propellant: 'Benzin', Price: '199900', Effect: '100' }), bi('1843649265', { GearType: 'M', Propellant: 'Benzin', SecondaryPropellant: 'El', Model: '330e' }), bi('279043179', { Model: 'X1', SoldAge: '3', New: 'True' })] })};\n  };\n});`;
   ok(dsb.detectDealerProvider(pages['https://www.bbm.test.dk/meiniche-a-s/']) === 'bilinfo', 'Meiniche : module « usedcarsmodule » de Brugtbilsmodulet reconnu (bilinfo)');
   const mei = await dsb.fetchDealerStock('https://www.bbm.test.dk/meiniche-a-s/');
   const kia = mei.vehicles.find((v) => v.external_id === '377670560'), phev = mei.vehicles.find((v) => v.external_id === '1843649265');
-  ok(mei.vehicles.length === 2 && kia?.price === 199900 && kia?.currency === 'DKK' && kia?.km === 25000 && kia?.year === 2024 && kia?.gearbox === 'Automatique' && kia?.power_ch === 100
+  const x1s = mei.vehicles.find((v) => v.external_id === '279043179');
+  ok(mei.vehicles.length === 3 && kia?.status === null && phev?.status === null && x1s?.status === 'sold' && x1s?.body === 'neuve' && kia?.price === 199900 && kia?.currency === 'DKK' && kia?.km === 25000 && kia?.year === 2024 && kia?.gearbox === 'Automatique' && kia?.power_ch === 100
     && kia?.listed_at === '2026-09-24T11:51:00' && kia?.url === 'https://www.bbm.test.dk/meiniche-a-s/#377670560' && phev?.fuel === 'Benzin / El' && phev?.gearbox === 'Manuelle',
-    'Meiniche : stock lu dans « $scope.data » du module (prix en couronnes, km, année, « A » / « M », ch, date) ; énergie double « Benzin / El »', [kia, phev]);
+    'Meiniche : stock lu dans « $scope.data » du module (prix en couronnes, km, année, « A » / « M », ch, date) ; énergie double « Benzin / El » ; « SoldAge » -1 = en vente, 3 = vendue', [kia, phev, x1s]);
   pages['https://pc.test.dk/biler-til-salg/'] = `<a href="https://pc.test.dk/bil-detaljer?id=src-303856412">Se bilen</a><script>var vehiclesArr=[];var base_url='https://pc.test.dk';if(20)\nvehiclesArr=${JSON.stringify([
     bi('303856412', { Model: 'i4', Variant: 'M60 xDrive', Price: '569900' }),
     bi('218232938', { Model: 'M240i', Variant: 'Cabriolet xDrive aut.', Price: '2260', PriceType: 'Leasing', VehicleSourceId: 'src-m240' }),

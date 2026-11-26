@@ -4348,10 +4348,11 @@ export function bilinfoVehicle(c: Record<string, unknown>, origin: string, listU
     title: `${title}${/WithoutTax/i.test(priceType) ? ' · prix hors TVA' : ''}`, brand: str(c.Make) || null, model: str(c.Model) || null,
     price, currency: 'DKK', km: num(str(c.Mileage)), year: num(str(c.Year)), fuel,
     gearbox: str(c.GearType) === 'A' ? 'Automatique' : str(c.GearType) === 'M' ? 'Manuelle' : gearboxOfVersion(title),
-    plate: null, vin: str(c.Vin) || null, body: /varebil|van/i.test(str(c.Type)) ? 'utilitaire' : null,
+    plate: null, vin: str(c.Vin) || null, body: /varebil|van/i.test(str(c.Type)) ? 'utilitaire' : /^true$/i.test(str(c.New)) ? 'neuve' : null,
     image: typeof pics[0] === 'string' ? (pics[0] as string) : null,
     listed_at: created ? `${created[3]}-${created[2]}-${created[1]}T${created[4]}:${created[5]}:00` : null,
-    status: c.SoldAge != null || c.DeletedDate != null ? 'sold' : price == null ? 'price_on_request' : null, power_ch: num(str(c.Effect)),
+    // « SoldAge » : jours depuis la vente ; -1 = pas vendue (26/11, Meiniche : les 14 voitures du module portent -1).
+    status: (str(c.SoldAge) !== '' && Number(str(c.SoldAge)) >= 0) || c.DeletedDate != null ? 'sold' : price == null ? 'price_on_request' : null, power_ch: num(str(c.Effect)),
   };
 }
 async function scrapeBilinfo(url: string, firstHtml: string): Promise<DealerStockResult> {
