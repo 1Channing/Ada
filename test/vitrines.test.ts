@@ -1096,7 +1096,7 @@ console.log('\n=== BMW DANEMARK (25/11) : BAYERN AUTOGROUP (productfilter), CARI
     'Procar : une voiture en deux annonces (leasing + vente hors TVA) comptée une fois, sous celle qui a un prix ; leasing seul = sans prix de vente ; lien « bil-detaljer »', [pc.vehicles, pc.warnings]);
 }
 
-console.log('\n=== BMW DANEMARK, SUITE (26/11) : EJVIND NIELSEN (attityde), ARNE POULSEN (fluidcards), JENS WINTHER (datavehicle), HALDRUP (jetbrugte), CONCEPT BILER (bilinfolist) ===\n');
+console.log('\n=== BMW DANEMARK, SUITE (26/11) : EJVIND NIELSEN (attityde), ARNE POULSEN (fluidcards), JENS WINTHER (datavehicle), HALDRUP (jetbrugte), CONCEPT BILER (bilinfolist), HYRUP & NIELSEN (caritem) ===\n');
 {
   const dsd = await import('../worker/dealerStock');
   // Ejvind Nielsen : la page n'a que 20 cartes ; le formulaire de recherche de la page poste à « /api/search/cars », qui les rend toutes.
@@ -1168,6 +1168,18 @@ console.log('\n=== BMW DANEMARK, SUITE (26/11) : EJVIND NIELSEN (attityde), ARNE
   const x3 = cb.vehicles.find((v) => v.model === 'X3'), cooper = cb.vehicles.find((v) => v.model === 'Cooper');
   ok(cb.vehicles.length === 2 && x3?.price === 389900 && x3?.km === 41000 && x3?.fuel === 'Benzin / El' && x3?.gearbox === 'Automatique' && x3?.listed_at === '2026-11-25T00:00:00'
     && x3?.url === 'https://cb.test.dk/bil/bmw-x3/' && cooper?.gearbox === 'Manuelle' && cooper?.status === 'sold', 'Concept Biler : prix, km, énergie double, « Automatisk » / « Manuel », date de mise en ligne, vendue', cb.vehicles);
+
+  // Hyrup & Nielsen (hyrup-nielsen.dk) : cartes « carItemCarPage » ; une voiture en leasing n'affiche que la mensualité.
+  const hn = (id: string, title: string, year: string, km: string, fuel: string, price: string, lease = false) => `<div class="col-xl-4"><div class="carItemCarPage"><a href="/bmw-pre-owned/${id}"><div class="image lazy" data-src="https://img.test/${id}.jpeg"></div></a>
+    <div class="carInfo"><h4>${title}</h4><div class="info"><p>Årgang <br/> <strong>${year}</strong></p><p>Kilometer <br/> <strong>${km}</strong></p><p>Brændstof <br/> <strong>${fuel}</strong></p></div>
+    <a href="/bmw-pre-owned/${id}"><div class="fakeLink">kr. ${price},-</div></a>${lease ? `<a href="/bmw-pre-owned/${id}"><div class="fakeLink leasingLink">Beregn leasing</div></a>` : ''}</div></div></div>`;
+  pages['https://hn.test.dk/brugte-biler'] = `<div class="renderCar"><div class="row">${hn('2063378617', 'BMW 225xe Active Tourer Advantage aut.', '2019', '89.000', 'Benzin', '149.900')}${hn('88592178', 'BMW 225e Active Tourer M-Sport xDrive aut.', '2022', '46.000', 'Benzin', '995', true)}</div></div>`;
+  ok(dsd.detectDealerProvider(pages['https://hn.test.dk/brugte-biler']) === 'caritem', 'Hyrup & Nielsen : cartes « carItemCarPage » reconnues (caritem)');
+  const hns = await dsd.fetchDealerStock('https://hn.test.dk/brugte-biler');
+  const e225 = hns.vehicles.find((v) => v.external_id === '2063378617'), lease = hns.vehicles.find((v) => v.external_id === '88592178');
+  ok(hns.vehicles.length === 2 && e225?.price === 149900 && e225?.km === 89000 && e225?.year === 2019 && e225?.fuel === 'Benzin' && e225?.gearbox === 'Automatique' && e225?.url === 'https://hn.test.dk/bmw-pre-owned/2063378617'
+    && lease?.price === null && lease?.status === 'price_on_request' && hns.warnings.some((w) => /leasing/.test(w)),
+    'Hyrup & Nielsen : « kr. 149.900,- », Årgang / Kilometer / Brændstof ; « kr. 995,- » (mensualité de leasing) n\'est pas un prix de vente', [hns.vehicles, hns.warnings]);
 }
 
 console.log('\n=== BMW PAYS-BAS (25/11) : FILTRE DE LIEU DES VITRINES dvapi (PALA, HEDIN), KALLENHARD (sucars) ===\n');

@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'estorik' | 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused' | 'kiaosp' | 'pappas' | 'jpauto' | 'fwcars' | 'mbmauto' | 'dunaauto' | 'schiller' | 'petranyi' | 'leierauto' | 'skodastock' | 'kiaihned' | 'autobazareu' | 'hedin' | 'kiaused' | 'todosjazdene' | 'cardveicolo' | 'youcan' | 'ibilista' | 'nuxtvehicles' | 'autoit' | 'occasionload' | 'easysite' | 'productfilter' | 'carsgrid' | 'nextcars' | 'carclicked' | 'sucars' | 'bilinfo' | 'attityde' | 'fluidcards' | 'datavehicle' | 'jetbrugte' | 'bilinfolist';
-const PROVIDERS_KNOWN: DealerProvider[] = ['estorik', 'dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused', 'kiaosp', 'pappas', 'jpauto', 'fwcars', 'mbmauto', 'dunaauto', 'schiller', 'petranyi', 'leierauto', 'skodastock', 'kiaihned', 'autobazareu', 'hedin', 'kiaused', 'todosjazdene', 'cardveicolo', 'youcan', 'ibilista', 'nuxtvehicles', 'autoit', 'occasionload', 'easysite', 'productfilter', 'carsgrid', 'nextcars', 'carclicked', 'sucars', 'bilinfo', 'attityde', 'fluidcards', 'datavehicle', 'jetbrugte', 'bilinfolist'];
+export type DealerProvider = 'estorik' | 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused' | 'kiaosp' | 'pappas' | 'jpauto' | 'fwcars' | 'mbmauto' | 'dunaauto' | 'schiller' | 'petranyi' | 'leierauto' | 'skodastock' | 'kiaihned' | 'autobazareu' | 'hedin' | 'kiaused' | 'todosjazdene' | 'cardveicolo' | 'youcan' | 'ibilista' | 'nuxtvehicles' | 'autoit' | 'occasionload' | 'easysite' | 'productfilter' | 'carsgrid' | 'nextcars' | 'carclicked' | 'sucars' | 'bilinfo' | 'attityde' | 'fluidcards' | 'datavehicle' | 'jetbrugte' | 'bilinfolist' | 'caritem';
+const PROVIDERS_KNOWN: DealerProvider[] = ['estorik', 'dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused', 'kiaosp', 'pappas', 'jpauto', 'fwcars', 'mbmauto', 'dunaauto', 'schiller', 'petranyi', 'leierauto', 'skodastock', 'kiaihned', 'autobazareu', 'hedin', 'kiaused', 'todosjazdene', 'cardveicolo', 'youcan', 'ibilista', 'nuxtvehicles', 'autoit', 'occasionload', 'easysite', 'productfilter', 'carsgrid', 'nextcars', 'carclicked', 'sucars', 'bilinfo', 'attityde', 'fluidcards', 'datavehicle', 'jetbrugte', 'bilinfolist', 'caritem'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -383,6 +383,8 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/class="jet-listing-grid__item /.test(html) && /&quot;post_type&quot;:&quot;brugte-biler&quot;/.test(html)) return 'jetbrugte';
   // bilinfolist (Concept Biler, DK, 26/11) : application Vue « car-list » de « pb-elementor-widgets », stock par « /?bilinfo_generate_list ».
   if (/pb-elementor-widgets\/partials\/car-list\/js\/app\./.test(html) && /<div id="app"><\/div>/.test(html)) return 'bilinfolist';
+  // caritem (Hyrup & Nielsen, DK, 26/11) : cartes « carItemCarPage » (Årgang, Kilometer, Brændstof, « kr. … ,- »).
+  if (/<div class="carItemCarPage">/.test(html) && /<div class="fakeLink">/.test(html)) return 'caritem';
   // sucars (Kallenhard, NL, 25/11) : WordPress « su-cars », tout le stock dans un fichier JSON public (data-json-url).
   if (/data-json-url="[^"]*\/app-vehicles-[a-z]{2}\.json/.test(html)) return 'sucars';
   // nextcars (Jan Nygaard, DK, 25/11) : Next.js à composants serveur, stock dans les props de « UsedCarOverview » (« cars »).
@@ -4312,6 +4314,39 @@ async function scrapeBilinfoList(url: string): Promise<DealerStockResult> {
   const vehicles = (Array.isArray(list) ? (list as Array<Record<string, unknown>>) : []).map(bilinfoListVehicle).filter((v): v is DealerVehicle => !!v && (seen.has(v.external_id) ? false : (seen.add(v.external_id), true)));
   return { provider: 'bilinfolist', total: vehicles.length, declared: vehicles.length, vehicles, pages: 2, warnings: vehicles.length ? [] : ['liste vide'] };
 }
+// ── caritem (Hyrup & Nielsen, Lynge, Danemark, 26/11 : partenaire BMW, hyrup-nielsen.dk) : tout le stock dans la page
+//    « /brugte-biler », cartes « <div class="carItemCarPage"> » : lien « /bmw-pre-owned/<n°> », h4 titre, « Årgang »,
+//    « Kilometer », « Brændstof », prix « kr. 149.900,- ». Une voiture proposée en leasing n'affiche que la mensualité
+//    (« kr. 995,- », sa fiche ne donne pas de prix comptant) : moins de 20 000 kr., ce n'est pas un prix de vente.
+export function parseCarItem(html: string, origin: string): DealerVehicle[] {
+  const out: DealerVehicle[] = [];
+  for (const part of html.split(/<div class="carItemCarPage">/).slice(1)) {
+    const card = part.split(/<div class="carItemCarPage">/)[0];
+    const href = card.match(/<a href="([^"]*\/(\d{5,}))"/);
+    if (!href) continue;
+    const title = htmlText(hexDecode(card.match(/<h4>([\s\S]*?)<\/h4>/)?.[1] ?? ''));
+    const fact = (l: string) => htmlText(card.match(new RegExp(`${l}\\s*<br\\/?>\\s*<strong>([^<]*)<\\/strong>`, 'i'))?.[1] ?? '');
+    const amount = num((card.match(/<div class="fakeLink">\s*kr\.\s*([\d.]+)/)?.[1] ?? '').replace(/\./g, ''));
+    const price = amount != null && amount >= 20000 ? amount : null;
+    const { brand, model } = splitTitle(title);
+    out.push({
+      external_id: href[2], url: new URL(href[1], origin).toString(), title, brand, model, price, currency: 'DKK',
+      km: num(fact('Kilometer').replace(/\D/g, '')), year: yearOf(fact('Årgang')), fuel: fact('Brændstof') || null,
+      gearbox: /\baut\.?(?=\s|$)/i.test(title) ? 'Automatique' : gearboxOfVersion(title),
+      plate: null, vin: null, body: null, image: card.match(/data-src="([^"]+)"/)?.[1] ?? null, listed_at: null,
+      status: dkStatus(card) ?? (price == null ? 'price_on_request' : null), power_ch: powerFromText(title),
+    });
+  }
+  return out;
+}
+async function scrapeCarItem(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const seen = new Set<string>();
+  const vehicles = parseCarItem(firstHtml, new URL(url).origin).filter((v) => (seen.has(v.external_id) ? false : (seen.add(v.external_id), true)));
+  const lease = vehicles.filter((v) => v.price == null).length;
+  const warnings = vehicles.length ? [] : ['aucune carte « carItemCarPage »'];
+  if (lease) warnings.push(`${lease} voiture(s) proposée(s) en leasing seulement (mensualité affichée) : sans prix de vente`);
+  return { provider: 'caritem', total: vehicles.length, declared: null, vehicles, pages: 1, warnings };
+}
 // ── bilinfo (Danemark, 25/11 : Meiniche, Holstebro, et Procar, Køge — partenaires BMW) : stock au format Bilinfo (la base
 //    des annonces danoises), soit dans le module « Brugtbilsmodulet » (la page de la vitrine charge « /bbm/<guid>.js », puis
 //    « /bbm/bbm.app.js?guid=<guid> », qui porte « $scope.data = {"ApiVersion":"3","Vehicles":[…]} »), soit écrit dans la
@@ -8201,6 +8236,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'datavehicle') return scrapeDataVehicle(url, first.text);
   if (provider === 'jetbrugte') return scrapeJetBrugte(url, first.text);
   if (provider === 'bilinfolist') return scrapeBilinfoList(url);
+  if (provider === 'caritem') return scrapeCarItem(url, first.text);
   if (provider === 'nextcars') return scrapeNextCars(url, first.text);
   if (provider === 'eveho') return scrapeEveho(url, first.text);
   if (provider === 'autopalace') return scrapeAutopalace(url, first.text);
