@@ -300,3 +300,18 @@ Ajoutées ensuite (lecteur bilinfo) : Meiniche (module Brugtbilsmodulet, 14 voit
 Non relevées, par choix : les 11 concessions Ekris et les 7 Hedin, dont les occasions sont déjà dans les vitrines nationales d'Emil Frey Nederland et de Hedin Automotive (les relever compterait deux fois les mêmes voitures ; l'adresse de chaque site est sur sa fiche). Pas de deuxième vitrine « neuves + démos » aux Pays-Bas : les démos y sont aussi dans la liste des occasions (16 sur 73 à NobraCars Uden, 28 sur 73 à Dusseldorp Hoorn), sans VIN pour les reconnaître.
 
 Sans lecteur encore (Danemark, fiche en « off ») : Ejvind Nielsen (la page ne porte que 17 des 65 voitures, le reste vient de la recherche du site), Arne Poulsen (liste construite dans le navigateur), Autoleth (AJAX), Concept Biler (application Vue), Bilhuset Haldrup (variante JetEngine), Jens Winther (1 voiture). Illisibles : Hyrup & Nielsen (certificat TLS invalide), Outzen (site bloquant) — leur stock n'est que sur bilbasen, place de marché non lue. Bilernes Hus : la page couvre toute la chaîne (1 196 voitures). Wenzel (îles Féroé, hors UE) n'a pas de fiche.
+
+**BMW Danemark, suite, le 26/11** (Channing : « on y met bien toutes les vitrines BMW ») — six lecteurs de plus ; premier relevé en production le 26/11 vers 21 h 30 UTC par « Relever maintenant » (le passage de rattrapage d'un déploiement précédent les avait tentés une minute avant l'arrivée du code) :
+
+| Fiche | Vitrine | Lecteur | Voitures en stock | Prix · km · année · énergie · boîte |
+|---|---|---|---:|---|
+| Ejvind Nielsen (Hobro) | /biler/ — la page n'en montre que 20, la recherche du site rend les 67 | attityde | 67 | prix 94 % (4 vendues), le reste 100 % |
+| Arne Poulsen (Herning) | /biler-til-salg/ | fluidcards | 31 | prix 74 % (8 vendues), le reste 100 % |
+| Concept Biler (Næstved) | /biler/ — liste JSON du site | bilinfolist | 41 | 100 % partout |
+| Bilhuset Haldrup (Randers et Hobro) | /brugte-biler/ — 16 dans la page, la liste complète par l'API REST publique, le reste sur les fiches | jetbrugte | 32 | 100 % ; boîte 94 % |
+| Jens Winther (Roskilde) | /biler/ | datavehicle | 1 (vendue) | — |
+| Hyrup & Nielsen (Lynge) | hyrup-nielsen.dk/brugte-biler — le vrai site (www.nhauto.dk, au certificat invalide, n'était pas le bon) | caritem | 37 | prix 57 % (16 voitures proposées en leasing seulement : la mensualité n'est pas un prix de vente), le reste 100 % |
+
+Corrigé le même soir : Meiniche avait toutes ses voitures « vendues » depuis le 25/11 (son module marque « -1 » une voiture en vente) ; relue : 18 en vente, aucune vendue.
+
+Danemark : 17 vitrines relevées chaque nuit sur 23 fiches (Hyrup & Nielsen relevée au passage de rattrapage de 21 h 49 UTC). Toujours sans relevé : Autoleth (la suite de sa liste se charge avec un jeton de sécurité du site, non utilisé ; son API publique mêle 350 fiches, voitures supprimées comprises), Outzen (sa page de stock répond 403), Bilernes Hus Silkeborg (les pages couvrent toute la chaîne Nielsen Car Group) ; les trois autres sites de Jan Nygaard sont dans la vitrine du groupe (Birkerød). KOED (4 ateliers BMW) ne vend pas de voitures ; Bayern AutoGroup Sønderborg n'a aucune voiture sur bag.dk.
