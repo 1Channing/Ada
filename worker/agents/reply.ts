@@ -55,7 +55,8 @@ export async function queueReplyDraft(agent: string, threadId: string, messageId
 
 /** 23/11 : demandée à la main depuis le fil (avec une note) — on refait même si un brouillon attend déjà, et quelle que soit l'origine de la conversation. */
 export interface ReplyAsk { note?: string | null; manual?: boolean }
-const GONE = ['valide', 'envoi', 'envoye', 'envoye_main'];
+const LEAVING = ['valide', 'envoi'];
+const SENT = ['envoye', 'envoye_main'];
 export async function draftReply(messageId: string, a: AiAgent, taskId: string | null, req: ReplyAsk = {}): Promise<ReplyOutcome> {
   const { data } = await sb.from('agent_messages').select('id, thread_id, agent, direction, from_email, from_name, subject, classification, auto_reply, received_at, created_at').eq('id', messageId).maybeSingle();
   const inMail = data as InMail | null;
@@ -77,7 +78,12 @@ export async function draftReply(messageId: string, a: AiAgent, taskId: string |
   const all = (ms ?? []) as ThreadMail[];
   if (!thread) return { status: 'echec', name: who, detail: 'fil introuvable', cost: 0 };
   const later = (m: ThreadMail) => m.direction === 'out' && m.channel === 'mail' && m.created_at > inMail.created_at;
-  if (all.some((m) => later(m) && GONE.includes(m.status))) return skip('une réponse est déjà partie ou va partir');
+  if (all.some((m) => later(m) && LEAVING.includes(m.status))) return skip('une réponse validée va partir');
+  // 26/11 (Channing, fil DS-CAR : « j'ai voulu relancer ce matin » — la demande était ignorée, « une réponse est déjà
+  // partie ») : demandée à la main après une réponse partie, c'est une RELANCE ; automatique, on s'arrête.
+  const sentAfter = all.filter((m) => later(m) && SENT.includes(m.status)).sort((x, y) => x.created_at.localeCompare(y.created_at));
+  const followUp = req.manual && sentAfter.length > 0 ? { sentAt: when(sentAfter[sentAfter.length - 1].sent_at ?? sentAfter[sentAfter.length - 1].created_at) } : null;
+  if (!req.manual && sentAfter.length) return skip('une réponse est déjà partie');
   if (!req.manual && all.some((m) => later(m) && ANSWERED.includes(m.status))) return skip('une réponse est déjà prête');
   if (!req.manual && all.some((m) => m.direction === 'in' && m.id !== inMail.id && m.created_at > inMail.created_at)) return skip('un mail plus récent est arrivé : c\'est à lui qu\'on répondra');
   const ours = all.some((m) => m.direction === 'out' && (m.status === 'envoye' || m.status === 'envoye_main'));
@@ -102,10 +108,10 @@ export async function draftReply(messageId: string, a: AiAgent, taskId: string |
   const ask = all.find((m) => m.direction === 'out' && m.ai_notes?.aiguillage)?.ai_notes?.aiguillage ?? null;
   const routing = ask ? { cherche: ask.cherche ?? 'pouvait nous aider', cible: ask.cible ?? null } : null;
   const lessons = await lessonsBlock(a.agent, 'mail', {});
-  const base = replyPrompt({ role, company, person: who, summary, history, instructions: agentInstructions(a.agent, a.instructions), routing, note: req.note ?? null });
+  const base = replyPrompt({ role, company, person: who, summary, history, instructions: agentInstructions(a.agent, a.instructions), routing, note: req.note ?? null, followUp });
   const prompt = lessons.length ? `${base}\n\n${lessons.join('\n')}` : base;
 
-  live(taskId, `${who} a répondu : ${a.display_name} prépare la réponse (IA${req.note?.trim() ? ', avec votre note' : ''})`);
+  live(taskId, followUp ? `${a.display_name} prépare une relance à ${who} (IA${req.note?.trim() ? ', avec votre note' : ''})` : `${who} a répondu : ${a.display_name} prépare la réponse (IA${req.note?.trim() ? ', avec votre note' : ''})`);
   let out: ReplyOutput;
   let cost = 0;
   try {
@@ -131,7 +137,7 @@ export async function draftReply(messageId: string, a: AiAgent, taskId: string |
   }
   const subject = replySubject(inMail.subject || thread.subject).slice(0, 200);
   const { data: ins, error } = await sb.from('agent_messages').insert({
-    thread_id: thread.id, agent: a.agent, mailbox: a.mailbox, channel: 'mail', direction: 'out', status: 'a_valider', kind: 'reponse', author: a.agent,
+    thread_id: thread.id, agent: a.agent, mailbox: a.mailbox, channel: 'mail', direction: 'out', status: 'a_valider', kind: followUp ? 'relance' : 'reponse', author: a.agent,
     to_emails: [inMail.from_email], cc_emails: [], subject, body_text: withAgentSignature(out.corps, a.signature ?? ''),
     translation_fr: out.langue === 'fr' ? null : out.traduction_fr ?? null,
     ai_notes: {
@@ -144,7 +150,7 @@ export async function draftReply(messageId: string, a: AiAgent, taskId: string |
   if (error || !id) return { status: 'echec', name: who, detail: `réponse non enregistrée : ${error?.message ?? '?'}`, cost };
   await journal({
     agent: a.agent, actor: a.agent, kind: 'reponse_preparee', threadId: thread.id, messageId: id,
-    summary: `Réponse préparée pour ${who} (« ${subject} ») : ${INTENT_LABEL[out.intention] ?? out.intention}${out.appel ? ', à appeler' : ''} — à valider`,
+    summary: `${followUp ? 'Relance' : 'Réponse'} préparée pour ${who} (« ${subject} ») : ${INTENT_LABEL[out.intention] ?? out.intention}${out.appel ? ', à appeler' : ''} — à valider`,
     details: { cout_usd: Math.round(cost * 10_000) / 10_000, intention: out.intention, resume: out.resume },
   });
   return { status: 'redige', name: who, detail: out.resume, cost };

@@ -110,6 +110,8 @@ export interface ReplyMaterial {
   routing?: { cherche: string; cible: string | null } | null;
   /** 23/11 (Channing : « demander à l'agente un brouillon en réponse avec une note pour l'aider ») : ce qu'il veut dire, dans ses mots. */
   note?: string | null;
+  /** 26/11 : on a déjà répondu à son dernier mail (le … ) et il n'a rien dit depuis — ce brouillon est une RELANCE. */
+  followUp?: { sentAt: string } | null;
 }
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
@@ -133,6 +135,10 @@ export function replyPrompt(m: ReplyMaterial): string {
   if (m.routing) {
     l.push('');
     l.push(`<aiguillage>Notre premier mail lui demandait le contact direct de ${m.routing.cible ?? `la personne qui ${m.routing.cherche}`}. S'il le donne, rends-le dans « contact_donne » et remercie-le simplement.</aiguillage>`);
+  }
+  if (m.followUp) {
+    l.push('');
+    l.push(`<relance>Nous avons déjà répondu à son dernier mail (le ${m.followUp.sentAt}) et il n'a rien écrit depuis. Ce mail est une RELANCE : courte (30 à 70 mots), polie, qui ne redit pas ce qui a été dit — elle demande seulement où il en est, selon la note de Channing si elle en donne le motif. Intention : « relance ».</relance>`);
   }
   if (m.note?.trim()) {
     l.push('');
