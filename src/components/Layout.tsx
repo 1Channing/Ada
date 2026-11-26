@@ -408,17 +408,24 @@ function AdminTeamButton() {
   );
 }
 
-/** Compte connecté : prénom + déconnexion. */
+/** Compte connecté : prénom (→ Mon compte, 26/11) + déconnexion. */
 function UserChip() {
   const { displayName, email } = useAuth();
+  const onAccount = window.location.pathname === '/compte';
   return (
     <div className="flex items-center gap-1.5 ml-1 pl-3 border-l border-white/20">
-      <span className="w-7 h-7 rounded-full bg-white/15 text-white text-xs font-semibold grid place-items-center uppercase">
-        {(displayName || email || '?').slice(0, 1)}
-      </span>
-      <span className="hidden lg:block text-white/80 text-xs font-medium max-w-[90px] truncate">
-        {displayName || email || ''}
-      </span>
+      <button
+        onClick={() => { window.history.pushState({}, '', '/compte'); }}
+        title="Mon compte : coordonnées, organisation, signature e-mail"
+        className={`flex items-center gap-1.5 rounded-lg px-1 py-0.5 transition-colors ${onAccount ? 'bg-white/15' : 'hover:bg-white/10'}`}
+      >
+        <span className="w-7 h-7 rounded-full bg-white/15 text-white text-xs font-semibold grid place-items-center uppercase">
+          {(displayName || email || '?').slice(0, 1)}
+        </span>
+        <span className="hidden lg:block text-white/80 text-xs font-medium max-w-[90px] truncate">
+          {displayName || email || ''}
+        </span>
+      </button>
       <button
         onClick={() => { void signOut().then(() => window.location.reload()); }}
         title="Se déconnecter"

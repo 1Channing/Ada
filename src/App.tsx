@@ -18,6 +18,7 @@ import { Telemetrie } from './pages/Telemetrie';
 import { Apprendre } from './pages/Apprendre';
 import { Login, ResetPassword } from './pages/Login';
 import { Equipe } from './pages/Equipe';
+import { MonCompte } from './pages/MonCompte';
 import { Demandes } from './pages/Demandes';
 import { Statistiques } from './pages/Statistiques';
 import { startAuthWatcher, useAuth, ensureProfile } from './services/auth';
@@ -98,6 +99,8 @@ function App() {
     if (p === '/verite') return 'truth';
     if (p === '/telemetrie') return 'telemetrie';
     if (p === '/equipe') return 'equipe';
+    // Mon compte (26/11) : ouvert par le nom en haut à droite, pour tout compte connecté.
+    if (p === '/compte') return 'compte';
     if (p === '/demandes') return 'demandes';
     if (p === '/apprendre') return 'apprendre';
     if (p === '/statistiques') return 'stats';
@@ -118,6 +121,7 @@ function App() {
       case 'truth': return <TruthCenter />;
       case 'telemetrie': return <Telemetrie />;
       case 'equipe': return <Equipe />;
+      case 'compte': return <MonCompte />;
       case 'demandes': return <Demandes />;
       case 'apprendre': return <Apprendre />;
       case 'stats': return <Statistiques />;

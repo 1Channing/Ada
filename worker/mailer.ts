@@ -36,7 +36,8 @@ interface QueuedMail {
   id: string; to_email: string; subject: string; body: string; attachments: Attachment[];
   sender_email: string; sender_name: string | null; sent_by: string | null;
 }
-const ALLOWED_PREFIXES = ['transactions/', 'dossiers/', 'contacts/'];
+// relances/ (26/11) : PDF joints aux relances groupées de la Carte.
+const ALLOWED_PREFIXES = ['transactions/', 'dossiers/', 'contacts/', 'relances/'];
 const STUCK_MS = 10 * 60 * 1000;
 
 let running = false;
