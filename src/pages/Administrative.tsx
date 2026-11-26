@@ -463,7 +463,14 @@ export function Administrative() {
       senderFirstName: (myName || myEmail || '').split(/[\s@]/)[0] || 'MC Export',
     });
     if (mailTemplatedFor.current !== lastSavedTransactionId) {
-      setMailTo(''); mailPrefilledFor.current = null; setMailToSelf(false); setMailPieceIds([]); setMailError(null); setMailOpen(false);
+      // DESTINATAIRE PERDU (26/11, Channing : « dans le contact Oostendorp il y a bien le mail de Tim, mais quand j'ai
+      // voulu envoyer les cessions il n'était pas écrit »). Quand le dossier et son acheteur arrivaient dans le même
+      // rendu, l'effet de préremplissage posait l'adresse, puis cette remise à zéro l'effaçait — et le préremplissage ne
+      // se rejouait pas (ses dépendances n'avaient pas changé). La remise à zéro repose donc tout de suite l'adresse
+      // de l'acheteur du dossier ; l'opérateur peut ensuite la changer ou la vider, ce qu'il tape fait foi.
+      const clientMail = (selectedBuyerContact?.email ?? buyerForm.email ?? '').trim();
+      setMailTo(clientMail); mailPrefilledFor.current = clientMail ? lastSavedTransactionId : null;
+      setMailToSelf(false); setMailPieceIds([]); setMailError(null); setMailOpen(false);
     }
     mailTemplatedFor.current = lastSavedTransactionId;
     setMailSubject(t.subject); setMailBody(t.body);
