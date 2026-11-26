@@ -21,6 +21,8 @@ import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { createClient } from '@supabase/supabase-js';
 import express from 'express';
 import * as z from 'zod/v4';
+// Copie de src/lib/vehicleFamilies.ts (resynchronisée par prebuild / pretypecheck) : l'énergie lue dans toutes les langues des sites.
+import { vehicleFuelFamily, gearboxFamily, type FuelFamily } from './vehicleFamilies.js';
 
 const PORT = Number.parseInt(process.env.PORT || '3002', 10);
 
@@ -1052,6 +1054,123 @@ function buildServer(): McpServer {
     },
   );
 
+  // ── Chercher une voiture dans les vitrines (26/11, Channing : « que ChatGPT puisse trouver des voitures en direct
+  //    dans les vitrines en Hongrie, Slovaquie, etc. ») ────────────────────────────────────────────────────────────
+  server.registerTool(
+    'search_dealer_stock',
+    {
+      title: 'ADA : chercher une voiture dans les vitrines relevées',
+      description: "Cherche des voitures EN STOCK aujourd'hui dans toutes les vitrines de concessions relevées par ADA (carte du réseau : Hongrie, Slovaquie, Pays-Bas, France, Danemark, Italie, Allemagne, Espagne, Autriche…), par pays, marque, modèle, texte du titre, énergie (famille lue dans la langue du site : électrique, hybride rechargeable, hybride, essence, diesel, gaz), boîte, année, km, prix, arrivées récentes. Rend une liste plate triée (prix, km, année ou nouveauté), chaque voiture avec sa concession (nom, ville, pays, téléphone, e-mail, site) et le lien de l'annonce, plus un résumé par pays et par concession. Chaque prix est donné dans la devise du site (price + currency) et en euros (priceEur, taux BCE) ; les bornes de prix et les tris sont en euros. Pour la fiche complète d'une concession (relevés, arrivées, départs, résumé par modèle) : dealer_stock(contactId).",
+      inputSchema: z.object({
+        countries: z.array(z.string().trim().min(2).max(3)).optional().describe('Codes ISO-2 (HU, SK, NL, FR, DK, IT, DE, ES, AT…) ; vide = tous les pays relevés'),
+        brand: z.string().trim().min(1).optional().describe('Marque (contient)'),
+        model: z.string().trim().min(1).optional().describe('Modèle (contient, cherché aussi dans le titre)'),
+        text: z.string().trim().min(1).optional().describe('Texte libre cherché dans le titre (finition, moteur : « xDrive30e », « GT Line », « 7 places »)'),
+        fuel: z.enum(['electrique', 'hybride_rechargeable', 'hybride', 'essence', 'diesel', 'gaz']).optional().describe('Famille d\'énergie, lue dans la colonne du site ET dans le titre (une « 330e » rangée « Hibrid » est bien rechargeable)'),
+        gearbox: z.enum(['auto', 'manuelle']).optional(),
+        yearMin: z.number().int().min(1990).max(2100).optional(),
+        yearMax: z.number().int().min(1990).max(2100).optional(),
+        kmMax: z.number().int().min(0).optional(),
+        priceMin: z.number().min(0).optional().describe('Prix affiché minimal (euros)'),
+        priceMax: z.number().min(0).optional().describe('Prix affiché maximal (euros)'),
+        newDays: z.number().int().min(1).max(365).optional().describe('Seulement les voitures apparues dans les vitrines depuis N jours'),
+        sort: z.enum(['price_asc', 'price_desc', 'km_asc', 'year_desc', 'newest']).default('price_asc'),
+        limit: z.number().int().min(1).max(500).default(50),
+      }),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    async ({ countries, brand, model, text, fuel, gearbox, yearMin, yearMax, kmMax, priceMin, priceMax, newDays, sort, limit }) => {
+      type Dealer = { id: string; name: string; kind: string | null; country: string; city: string | null; phone: string | null; email: string | null; website: string | null; stock_total: number | null };
+      type Vehicle = { id: string; contact_id: string; title: string | null; brand: string | null; model: string | null; price: number | null; price_prev: number | null; currency: string | null; km: number | null; year: number | null; fuel: string | null; gearbox: string | null; power_ch: number | null; url: string | null; image: string | null; status: string | null; listed_at: string | null; first_seen_at: string; last_seen_at: string | null };
+      // Les prix sont dans la devise du site (forints sur .hu, couronnes sur .cz/.dk…) : convertis en euros avec les taux
+      // BCE tenus à jour par le worker (app_config « fx_rates »), sinon les taux de repli du 06/10/2026.
+      const FALLBACK_RATES: Record<string, number> = { EUR: 1, DKK: 7.4747, SEK: 11.2425, NOK: 10.778, HUF: 364.95, PLN: 4.365, CZK: 24.405, CHF: 0.9359, GBP: 0.8488, RON: 5.08, BGN: 1.9558 };
+      let rates = FALLBACK_RATES; let ratesDate = '2026-10-06 (repli)';
+      try {
+        const { data: fx } = await supabase.from('app_config').select('value').eq('key', 'fx_rates').maybeSingle();
+        const v = (fx as { value?: { date?: string; rates?: Record<string, number> } } | null)?.value;
+        if (v?.date && v.rates?.HUF) { rates = { ...FALLBACK_RATES, ...v.rates, EUR: 1 }; ratesDate = `${v.date} (BCE)`; }
+      } catch { /* taux de repli */ }
+      const toEur = (amount: number | null, currency: string | null): number | null => {
+        if (amount == null || amount <= 0) return null;
+        const c = (currency ?? 'EUR').toUpperCase(); const r = rates[c];
+        return r ? Math.round(amount / r) : null;
+      };
+      const FAMILY: Record<NonNullable<typeof fuel>, FuelFamily> = { electrique: 'electric', hybride_rechargeable: 'phev', hybride: 'hybrid', essence: 'petrol', diesel: 'diesel', gaz: 'gas' };
+      const wantedCountries = (countries ?? []).map((c) => c.trim().toUpperCase()).filter(Boolean);
+      let cq = supabase.from('network_contacts').select('id,name,kind,country,city,phone,email,website,stock_total').gt('stock_total', 0);
+      if (wantedCountries.length) cq = cq.in('country', wantedCountries);
+      const { data: crows, error: cerr } = await pageAll<Dealer>((from, to) => cq.order('name').range(from, to));
+      if (isMissingSchema(cerr)) return jsonToolResult({ note: 'Tables network_* absentes (SQL du 30/09 non collé).', count: 0, vehicles: [] });
+      assertDb(cerr, 'Unable to read contacts');
+      const dealers = new Map<string, Dealer>((crows ?? []).map((d) => [d.id, d]));
+      if (dealers.size === 0) return jsonToolResult({ note: 'Aucune vitrine relevée pour ces pays. Pays relevés : voir dealer_stock() sans argument.', count: 0, vehicles: [] });
+      const b = normalizeText(brand); const m = normalizeText(model); const t = normalizeText(text);
+      const all: Vehicle[] = [];
+      const ids = [...dealers.keys()];
+      for (let i = 0; i < ids.length; i += 60) {
+        const chunk = ids.slice(i, i + 60);
+        const { data, error } = await pageAll<Vehicle>((from, to) => {
+          let q = supabase.from('network_stock_vehicles')
+            .select('id,contact_id,title,brand,model,price,price_prev,currency,km,year,fuel,gearbox,power_ch,url,image,status,listed_at,first_seen_at,last_seen_at')
+            .in('contact_id', chunk).is('gone_at', null);
+          if (b) q = q.ilike('brand', `%${b}%`);
+          if (m) q = q.or(`model.ilike.%${m}%,title.ilike.%${m}%`);
+          if (t) q = q.ilike('title', `%${t}%`);
+          if (yearMin != null) q = q.gte('year', yearMin);
+          if (yearMax != null) q = q.lte('year', yearMax);
+          if (kmMax != null) q = q.lte('km', kmMax);
+          if (newDays != null) q = q.gte('first_seen_at', sinceIso(newDays));
+          return q.order('id').range(from, to);
+        });
+        if (isMissingSchema(error)) return jsonToolResult({ note: 'Tables network_stock_* absentes (SQL du 30/09 non collé).', count: 0, vehicles: [] });
+        assertDb(error, 'Unable to read stock vehicles');
+        all.push(...(data ?? []));
+      }
+      const familyOf = (v: Vehicle) => vehicleFuelFamily(v.fuel, v.title);
+      let list = all.filter((v) => !/^(sold|reserved)$/i.test(String(v.status ?? '')));
+      if (fuel) list = list.filter((v) => familyOf(v) === FAMILY[fuel]);
+      if (gearbox) list = list.filter((v) => gearboxFamily(v.gearbox ?? v.title) === gearbox);
+      const price = (v: Vehicle) => toEur(v.price, v.currency); // en euros
+      if (priceMin != null) list = list.filter((v) => { const p = price(v); return p != null && p >= priceMin; });
+      if (priceMax != null) list = list.filter((v) => { const p = price(v); return p != null && p <= priceMax; });
+      const seen = (v: Vehicle) => String(v.listed_at ?? v.first_seen_at);
+      const cmp: Record<typeof sort, (x: Vehicle, y: Vehicle) => number> = {
+        price_asc: (x, y) => (price(x) ?? Infinity) - (price(y) ?? Infinity),
+        price_desc: (x, y) => (price(y) ?? -1) - (price(x) ?? -1),
+        km_asc: (x, y) => (x.km ?? Infinity) - (y.km ?? Infinity),
+        year_desc: (x, y) => (y.year ?? 0) - (x.year ?? 0) || (x.km ?? Infinity) - (y.km ?? Infinity),
+        newest: (x, y) => seen(y).localeCompare(seen(x)),
+      };
+      list.sort(cmp[sort]);
+      const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.floor((s.length - 1) / 2)] : null; };
+      const count = (key: (v: Vehicle) => string) => { const o = new Map<string, number>(); for (const v of list) o.set(key(v), (o.get(key(v)) ?? 0) + 1); return [...o.entries()].sort((a, b) => b[1] - a[1]); };
+      const FAMILY_FR: Record<string, string> = { electric: 'électrique', phev: 'hybride rechargeable', hybrid: 'hybride', petrol: 'essence', diesel: 'diesel', gas: 'gaz' };
+      const dealerOf = (v: Vehicle) => dealers.get(v.contact_id);
+      return jsonToolResult({
+        filter: { countries: wantedCountries.length ? wantedCountries : 'tous', brand: b ?? null, model: m ?? null, text: t ?? null, fuel: fuel ?? null, gearbox: gearbox ?? null, yearMin: yearMin ?? null, yearMax: yearMax ?? null, kmMax: kmMax ?? null, priceMin: priceMin ?? null, priceMax: priceMax ?? null, newDays: newDays ?? null, sort },
+        dealersSearched: dealers.size,
+        count: list.length, returned: Math.min(list.length, limit),
+        priceMedianEur: median(list.map(price).filter((p): p is number => p != null)),
+        fxRates: ratesDate,
+        kmMedian: median(list.map((v) => v.km).filter((k): k is number => typeof k === 'number')),
+        byCountry: count((v) => dealerOf(v)?.country ?? '?').map(([country, n]) => ({ country, count: n })),
+        byDealer: count((v) => v.contact_id).slice(0, 15).map(([id, n]) => { const d = dealers.get(id); return { contactId: id, name: d?.name ?? '?', city: d?.city ?? null, country: d?.country ?? null, count: n }; }),
+        byFuel: count((v) => FAMILY_FR[familyOf(v) ?? ''] ?? 'inconnue').map(([family, n]) => ({ fuel: family, count: n })),
+        note: 'price = prix affiché sur le site de la concession dans sa devise (currency : HUF en Hongrie, CZK, DKK…), priceEur = converti en euros aux taux BCE indiqués ; TTC. priceMin / priceMax et les tris s\'appliquent en euros. Famille d\'énergie lue dans la colonne du site et le titre. Pour une concession : dealer_stock(contactId) ; pour écrire : les coordonnées sont celles de la fiche de la carte.',
+        vehicles: list.slice(0, limit).map((v) => {
+          const d = dealerOf(v);
+          return {
+            title: v.title, brand: v.brand, model: v.model, year: v.year, km: v.km, price: typeof v.price === 'number' && v.price > 0 ? v.price : null, currency: v.currency ?? 'EUR', priceEur: price(v), pricePrevEur: toEur(v.price_prev, v.currency), powerCh: v.power_ch, status: v.status ?? null,
+            fuel: v.fuel, fuelFamily: FAMILY_FR[familyOf(v) ?? ''] ?? null, gearbox: v.gearbox, url: v.url, image: v.image,
+            listedAt: v.listed_at, firstSeenAt: v.first_seen_at, daysListed: Math.floor((Date.now() - new Date(seen(v)).getTime()) / 86_400_000),
+            dealer: d ? { contactId: d.id, name: d.name, kind: d.kind, country: d.country, city: d.city, phone: d.phone, email: d.email, website: d.website, stockTotal: d.stock_total } : { contactId: v.contact_id },
+          };
+        }),
+      });
+    },
+  );
+
   // ── Boîte à apprendre (01/10 : les cas qu'ADA ne sait pas encore traiter) ─
   server.registerTool(
     'learning_cases',
@@ -1697,7 +1816,7 @@ const outer = express();
 // navigateur, si le service avait redéployé ou si le connecteur gardait
 // une liste en cache). Aucune donnée, aucun secret.
 const MCP_VERSION = '0.7.0';
-const TOOL_NAMES = ['ada_health', 'list_people', 'list_studies', 'get_study', 'list_inbox', 'list_leads', 'list_negotiations', 'market_prices', 'truth_status', 'list_offers', 'get_offer', 'network_contacts', 'dealer_stock', 'learning_cases', 'treasury_statements', 'treasury_lines', 'treasury_monthly', 'agents_overview', 'agents_mailbox', 'agents_thread', 'agents_queue', 'agents_prospects', 'agents_directory', 'agents_lots', 'agents_accounts', 'agents_journal'];
+const TOOL_NAMES = ['ada_health', 'list_people', 'list_studies', 'get_study', 'list_inbox', 'list_leads', 'list_negotiations', 'market_prices', 'truth_status', 'list_offers', 'get_offer', 'network_contacts', 'dealer_stock', 'search_dealer_stock', 'learning_cases', 'treasury_statements', 'treasury_lines', 'treasury_monthly', 'agents_overview', 'agents_mailbox', 'agents_thread', 'agents_queue', 'agents_prospects', 'agents_directory', 'agents_lots', 'agents_accounts', 'agents_journal'];
 outer.get('/health', (_req, res) => {
   res.json({
     status: 'ok',

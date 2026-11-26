@@ -1,6 +1,6 @@
 {
   "name": "ada-mcp-readonly",
-  "version": "0.1.0",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -8,8 +8,10 @@
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "prebuild": "node -e \"try{require('fs').copyFileSync('../src/lib/vehicleFamilies.ts','src/vehicleFamilies.ts')}catch{}\"",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
+    "pretypecheck": "node -e \"try{require('fs').copyFileSync('../src/lib/vehicleFamilies.ts','src/vehicleFamilies.ts')}catch{}\"",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

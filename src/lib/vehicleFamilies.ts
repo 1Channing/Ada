@@ -28,6 +28,8 @@ export function fuelFamily(text: string | null | undefined): FuelFamily | null {
   // « benzín + elektro » = hybride (sinon lu « électrique » par la ligne suivante).
   // Slovaquie (Das WeltAuto) : « Hybr.B/E ext.nab. », « Hybr.D/E ext.nab. » (externé nabíjanie = recharge extérieure).
   if (/kulso tolto|ext\.?\s?nab/.test(t)) return 'phev';
+  // 26/11 (Hongrie, via le MCP) : « Kombinált: benzin és elektromotor » = hybride (combiné), pas électrique.
+  if (/kombinalt/.test(t)) return 'hybrid';
   // Renault « E-Tech » : électrique quand suivi de EV / 120 / 150 / 170 / 220 (Mégane, Scénic, 5, Twingo) ; hybride sinon (145 / 200).
   if (/e-tech\s?(?:ev\s?\d{2}|ev\b|120\b|150\b|170\b|220\b)/.test(t)) return 'electric';
   // 22/11 (Italie, Spazio Group) : « Diesel/Elettrica », « Benzina/Elettrica » (italien « elettr- », double t).
