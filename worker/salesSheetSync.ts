@@ -410,7 +410,11 @@ export async function syncOnce(creds: string): Promise<void> {
         void recordLearningCase({ kind: 'sheet_row_incoherent', key: `${tab}|${s.ref}`, actor: 'dev', link: '/admin', title: `Tableur ${tab} : ligne ${s.ref} incohérente (achat ${s.prixAchat} €, vente ${s.prixVente} €) — colonnes du bloc à vérifier`, detail: { tab, ref: s.ref, header: s.header, vehicule: s.vehicule, prixAchat: s.prixAchat, prixVente: s.prixVente, fraisHt: s.fraisHt, commissionHt: s.commissionHt } });
         s.prixAchat = null; s.prixVente = null; s.fraisHt = null;
       }
-      const closed = s.paiement && s.livre;
+      // PLUS DE CLÔTURE AUTOMATIQUE (26/11, Antoine : « une fois qu'on indique une date de livraison dans le tableau,
+      // les dossiers sont automatiquement clôturés ; il faudrait que ce soit nous, manuellement »). Le tableur
+      // (PAIEMENT + LIVRÉ cochés) ne ferme plus un dossier : la clôture se fait dans ADA (« Clôturer »). Un dossier
+      // rouvert à la main n'est plus refermé par la synchro suivante.
+
       const buyerId = resolveContact(s.client);
       const tableurNotes = [
         `[Tableur ${tab}]`,
@@ -466,7 +470,6 @@ export async function syncOnce(creds: string): Promise<void> {
         }
         if (!prev.buyer_contact_id && buyerId) patch.buyer_contact_id = buyerId;
         if (!prev.transaction_date && s.dateAchat) patch.transaction_date = s.dateAchat;
-        if (closed && prev.status !== 'cloturee') { patch.status = 'cloturee'; if (!prev.closed_at && s.dateLivraison) patch.closed_at = `${s.dateLivraison}T12:00:00Z`; }
         if (prev.transaction_type === 'purchase' && s.prixVente != null) {
           // BASCULE ACHAT → VENTE AVEC LES PARTIES (29/09, dossier I776 : le
           // type changeait seul, MC Export restait acheteur et le co-vendeur
@@ -511,8 +514,8 @@ export async function syncOnce(creds: string): Promise<void> {
       const { data: ins, error } = await supabase.from('transactions_admin').insert({
         transaction_type: 'sale',
         reference: s.ref,
-        status: closed ? 'cloturee' : 'en_cours',
-        closed_at: closed && s.dateLivraison ? `${s.dateLivraison}T12:00:00Z` : null,
+        status: 'en_cours',
+        closed_at: null,
         purchase_price: s.prixAchat, sale_price: s.prixVente, fees: s.fraisHt,
         // Marge du dossier = COMMISSIONS HT du tableur (règle Channing 27/07).
         commission_ht: s.commissionHt,
@@ -525,7 +528,7 @@ export async function syncOnce(creds: string): Promise<void> {
         notes: tableurNotes,
       }).select('id').single();
       if (error) { console.warn(`[SHEET_SYNC] insert ${s.ref} impossible: ${error.message}`); continue; }
-      known.set(s.ref, { id: (ins as { id: string }).id, reference: s.ref, notes: tableurNotes, purchase_price: s.prixAchat, sale_price: s.prixVente, fees: s.fraisHt, commission_ht: s.commissionHt, commercial: s.seller || null, buyer_contact_id: buyerId, transaction_date: s.dateAchat, status: closed ? 'cloturee' : 'en_cours', closed_at: null, transaction_type: 'sale' });
+      known.set(s.ref, { id: (ins as { id: string }).id, reference: s.ref, notes: tableurNotes, purchase_price: s.prixAchat, sale_price: s.prixVente, fees: s.fraisHt, commission_ht: s.commissionHt, commercial: s.seller || null, buyer_contact_id: buyerId, transaction_date: s.dateAchat, status: 'en_cours', closed_at: null, transaction_type: 'sale' });
       inserted++;
     }
   }
