@@ -32,6 +32,8 @@ import { BODY_TYPES } from '../lib/study-core/bodyTypes';
 import { allSiteAdapters } from '../lib/study-core/marketplaces';
 import { loadNetwork, type NetworkContact } from '../services/network';
 import { listLatestStockRuns, listStockVehicles, type LatestStockRun, type StockVehicle } from '../services/dealerStock';
+import { toEur, loadFxRates } from '../services/fxRates';
+import { fmtMoney } from '../lib/fx';
 import { COUNTRY_NAMES } from '../data/cities';
 import { langOfCountry } from '../lib/fycPdf';
 
@@ -398,10 +400,15 @@ function InspectionPanel({ insp, contacts, refreshTick, editRequest, onChanged, 
   const [clientSearch, setClientSearch] = useState('');
   const client = contacts.find((c) => c.id === clientId) ?? null;
   const [stock, setStock] = useState<StockVehicle[] | null>(null);
+  // PRIX DU CLIENT EN EUROS (27/11, Channing : « problème dans le calcul de prix danois dans le FYC ») : la vitrine est
+  // relevée dans la devise du site (DKK, SEK, HUF…) ; 354 900 DKK s'affichaient « 354 900 € ». Taux BCE du worker
+  // (app_config fx_rates, repli intégré), chargés avant le stock ; l'écart et les tuiles comparent des euros.
   useEffect(() => {
     if (!clientId) { setStock(null); return; }
-    void listStockVehicles(clientId).then((r) => setStock(r.vehicles));
+    void loadFxRates().catch(() => { /* repli : taux intégrés */ }).then(() => listStockVehicles(clientId)).then((r) => setStock(r.vehicles));
   }, [clientId]);
+  const eurOf = (v: StockVehicle): number | null => (v.price != null && v.price > 0 ? toEur(v.price, v.currency ?? 'EUR') : null);
+  const priceCell = (v: StockVehicle): string => { const e = eurOf(v); if (e == null) return '—'; const c = (v.currency ?? 'EUR').toUpperCase(); return c === 'EUR' ? fmtEur(e) : `${fmtEur(e)} (${fmtMoney(v.price as number, c)})`; };
   // STOCK DU CLIENT AUX MÊMES CRITÈRES QUE LE MARCHÉ (11/11, Channing : « il ne faut pas comparer un 2015 avec un
   // 2026 : prendre en compte au moins le kilométrage et l'année, plus si on peut ») : années, km max, énergie, boîte,
   // carrosserie, puissance et finition des filtres MI, appliqués au stock relevé (valeurs canonisées, une donnée
@@ -410,7 +417,7 @@ function InspectionPanel({ insp, contacts, refreshTick, editRequest, onChanged, 
   const clientAll = useMemo(() => {
     if (!stock) return [];
     const b = canonKey(insp.brand ?? ''); const m = canonKey(insp.model ?? '');
-    return stock.filter((v) => !v.gone_at && canonKey(v.brand ?? '') === b && (!m || canonKey(v.model ?? '').includes(m) || m.includes(canonKey(v.model ?? '')))).sort((a, c) => (a.price ?? 1e12) - (c.price ?? 1e12));
+    return stock.filter((v) => !v.gone_at && canonKey(v.brand ?? '') === b && (!m || canonKey(v.model ?? '').includes(m) || m.includes(canonKey(v.model ?? '')))).sort((a, c) => (eurOf(a) ?? 1e12) - (eurOf(c) ?? 1e12));
   }, [stock, insp.brand, insp.model]);
   const clientRows = useMemo(() => {
     if (!sameCriteria) return clientAll;
@@ -428,7 +435,7 @@ function InspectionPanel({ insp, contacts, refreshTick, editRequest, onChanged, 
       && (!trim || `${v.title ?? ''}`.toLowerCase().includes(trim)));
   }, [clientAll, sameCriteria, filtersKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const criteriaLabel = [filters.yearMin != null || filters.yearMax != null ? `${filters.yearMin ?? '…'}–${filters.yearMax ?? '…'}` : null, filters.mileageMax != null ? `≤ ${fmtNum(filters.mileageMax)} km` : null, filters.fuel ? FUEL_LABEL[filters.fuel] ?? filters.fuel : null, filters.gearbox ? GEARBOX_LABELS[filters.gearbox as GearboxToken] ?? filters.gearbox : null, filters.vehicleType || null, filters.powerMin != null ? `≥ ${filters.powerMin} ch` : null, filters.trim || null].filter(Boolean).join(' · ');
-  const clientPrices = clientRows.map((v) => v.price).filter((p): p is number => typeof p === 'number' && p > 0);
+  const clientPrices = clientRows.map(eurOf).filter((p): p is number => typeof p === 'number' && p > 0);
   const clientMin = clientPrices.length ? clientPrices[0] : null;
   const clientMedian = clientPrices.length ? clientPrices[Math.floor(clientPrices.length / 2)] : null;
   const chooseClient = async (id: string | null) => { setClientId(id); await updateInspection(insp.id, { client_contact_id: id }); };
@@ -565,8 +572,10 @@ function InspectionPanel({ insp, contacts, refreshTick, editRequest, onChanged, 
                           <td className="py-1.5 pr-3 text-right tabular-nums">{fmtNum(v.km)}</td>
                           <td className="py-1.5 pr-3 text-right tabular-nums">{v.power_ch ?? '—'}</td>
                           <td className="py-1.5 pr-3">{[v.fuel, v.gearbox].filter(Boolean).join(' · ') || '—'}</td>
-                          <td className="py-1.5 pr-3 text-right tabular-nums font-medium">{fmtEur(v.price)}</td>
-                          <td className={`py-1.5 pr-3 text-right tabular-nums ${attackPrice != null && v.price != null ? (v.price > attackPrice ? 'text-emerald-700' : 'text-red-700') : 'text-slate-400'}`}>{attackPrice != null && v.price != null ? `${v.price > attackPrice ? '+' : ''}${fmtEur(v.price - attackPrice)}` : '—'}</td>
+                          <td className="py-1.5 pr-3 text-right tabular-nums font-medium">{priceCell(v)}</td>
+                          {(() => { const e = eurOf(v); return (
+                          <td className={`py-1.5 pr-3 text-right tabular-nums ${attackPrice != null && e != null ? (e > attackPrice ? 'text-emerald-700' : 'text-red-700') : 'text-slate-400'}`}>{attackPrice != null && e != null ? `${e > attackPrice ? '+' : ''}${fmtEur(e - attackPrice)}` : '—'}</td>
+                          ); })()}
                         </tr>
                       ))}
                     </tbody>
