@@ -18,15 +18,16 @@
  * Rien n'est inventé : ce qui n'est pas lu reste vide et se voit.
  */
 import * as XLSX from 'xlsx';
+import { canonicalizeBody } from '../study-core/bodyTypes';
 
 export type OfferField =
   | 'vin' | 'brand' | 'model' | 'version' | 'reg_date' | 'km' | 'color' | 'fuel' | 'engine' | 'power'
-  | 'gearbox' | 'co2' | 'damages' | 'report_url' | 'location' | 'price_ht' | 'price_ttc' | 'vat' | 'import' | 'plate' | 'quantity' | 'year' | 'ignore';
+  | 'gearbox' | 'body' | 'co2' | 'damages' | 'report_url' | 'location' | 'price_ht' | 'price_ttc' | 'vat' | 'import' | 'plate' | 'quantity' | 'year' | 'ignore';
 
 export const OFFER_FIELD_LABELS: Record<OfferField, string> = {
   vin: 'VIN / châssis', brand: 'Marque', model: 'Modèle', version: 'Version / ligne libre', reg_date: '1re immatriculation', year: 'Année (millésime)',
   km: 'Kilométrage', color: 'Couleur', fuel: 'Énergie', engine: 'Motorisation', power: 'Puissance (ch)', gearbox: 'Boîte',
-  co2: 'CO₂ (g/km)', damages: 'Dommages / frais (€)', report_url: 'Rapport (lien)', location: 'Lieu de stockage',
+  body: 'Carrosserie', co2: 'CO₂ (g/km)', damages: 'Dommages / frais (€)', report_url: 'Rapport (lien)', location: 'Lieu de stockage',
   price_ht: 'Prix fournisseur HT (€)', price_ttc: 'Prix fournisseur TTC (€)', vat: 'TVA récupérable', import: 'Import', plate: 'Immatriculation (plaque)', quantity: 'Quantité (exemplaires)', ignore: '— ignorer —',
 };
 
@@ -88,6 +89,8 @@ const HEADER_RULES: Array<[OfferField, RegExp]> = [
   ['engine', /^(engine|moteur|motorisation|motor|motore)$/],
   ['power', /(power|puissance|^ch$|^cv$|^kw$|^hp$|^ps$|leistung|potenza|effekt)/],
   ['gearbox', /(gearbox|boite|transmission|getriebe|^bv$|cambio|vaxellada|gearkasse|girkasse)/],
+  // Carrosserie (27/11, JP.cars : « type de carrosserie » requis sur la vitrine).
+  ['body', /(carrosserie|body ?type|bodytype|^body$|karosserie|carrozzeria|carroceria|koetswerk|karosseri|segment)/],
   // « LOADING » (liste espagnole 22/10 : le pays de chargement, BÉLGICA) = le lieu d'enlèvement.
   ['location', /(location|\blieu\b|stock|storage|standort|depot|\bparc\b|\bsite\b|\bsede\b|ubicazione|deposito|luogo|loading|ubicacion|\bcampa\b|^parcs?$|compound|\bville\b|\bcity\b)/],
   // « Type de taxation » (export enchères 30/10 : « TVA récupérable (h.t.) ») = le régime de TVA.
@@ -176,6 +179,8 @@ export interface OfferVehicle {
   engine: string | null;
   power_ch: number | null;
   gearbox: string | null;
+  /** Carrosserie, jeton canon (suv, berline, break, citadine, monospace, coupe, cabriolet, societe) — 27/11, requis par la vitrine. */
+  body: string | null;
   co2: number | null;
   damages: number | null;
   report_url: string | null;
@@ -1028,6 +1033,7 @@ export function parseSupplierWorkbook(input: ArrayBuffer | { sheet: string; grid
       // Une électrique n'a pas de boîte manuelle : automatique quand rien n'est dit.
       gearbox: (cell(rec.gearbox) ? parseFreeLine(cell(rec.gearbox)).gearbox ?? cell(rec.gearbox).toUpperCase() : free.gearbox)
         ?? (fuelOfCell(cell(rec.fuel), free.fuel, versionLine) === 'ELECTRIQUE' || /^(tesla|polestar)$/i.test(brand) ? 'AUTOMATIQUE' : null),
+      body: canonicalizeBody(cell(rec.body)) || null,
       co2: toNumber(rec.co2),
       damages: toNumber(rec.damages),
       // « &amp; » dans le lien (fichiers fournisseur exportés d'une page web, 12/11 : six liens DEKRA fleetbox illisibles) : rétabli.

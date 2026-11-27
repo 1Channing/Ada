@@ -180,7 +180,7 @@ export function unitToVehicle(u: SingleUnit, id?: string): OfferVehicle {
   return {
     id: id ?? (u.vin ? `unit-${u.vin}` : `unit-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`),
     vin: u.vin, brand: u.brand, model: u.model, version: u.title, reg_date: u.reg_date, year: u.year, km: u.km, color: u.color,
-    fuel: u.fuel, engine: u.engine, power_ch: u.power_ch, gearbox: u.gearbox, co2: u.co2, damages: null, report_url: null, location: null,
+    fuel: u.fuel, engine: u.engine, power_ch: u.power_ch, gearbox: u.gearbox, body: null, co2: u.co2, damages: null, report_url: null, location: null,
     // Le prix annoncé est NOTRE prix (unité présentée au client) : prix de vente MC Export, pas prix fournisseur.
     price_ht: null, price_ttc: null, vat_recoverable: null, imported: null, extras, selected: true,
     sale_price: u.price, quantity: 1,

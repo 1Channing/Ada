@@ -166,7 +166,7 @@ export function FycView({ onOpenMarket, active = true }: { onOpenMarket: (f: Mar
           set((j) => ({ ...j, done: j.done + 1, progress: { ...j.progress, [r.id]: `fiche ${lang.toUpperCase()} publiée` } }));
           vehicles.push({
             id: r.vin ?? r.id, vin: r.vin, brand: (r.brand ?? '').toUpperCase(), model: r.model ?? '', version: r.version ?? '', reg_date: r.first_registration, year: r.year, km: r.km,
-            color: r.color, fuel: r.fuel, engine: engineOfInspection(r), power_ch: r.power_ch, gearbox: r.gearbox, co2: null, damages: r.repair_cost ?? null, report_url: pub.url, location: null,
+            color: r.color, fuel: r.fuel, engine: engineOfInspection(r), power_ch: r.power_ch, gearbox: r.gearbox, body: null, co2: null, damages: r.repair_cost ?? null, report_url: pub.url, location: null,
             // Lien du rapport d'origine gardé en colonne libre : « Fiches MC Export » dans l'offre repart de lui, jamais de notre fiche (12/11).
             price_ht: null, price_ttc: null, vat_recoverable: null, imported: null, extras: isExternalReport(r.source_url) ? { [SUPPLIER_REPORT_KEY]: r.source_url } : {}, selected: true, sale_price: prices[r.id] ?? null, quantity: 1,
           });

@@ -1,9 +1,10 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
   Upload, FileSpreadsheet, FileText, Trash2, Loader2, ExternalLink, Check, CloudOff, Search, SlidersHorizontal,
-  PanelLeftOpen, X, StickyNote, Settings, Pencil, ArrowUp, ArrowDown, Plus, RotateCcw, BarChart3, ListChecks, Columns3, Megaphone, ImagePlus, MoreHorizontal, Car, Archive, ArchiveRestore, Merge,
-} from 'lucide-react';
-import { listShowcase, publishToShowcase, unpublishFromShowcase, reorderShowcase, setShowcaseNote, setShowcaseTitle, setShowcasePrice, setShowcaseVehicle, snapshotVehicle, addShowcasePhotos, removeShowcasePhoto, reorderShowcasePhotos, addManualShowcase, type IntraItem, type IntraDraft } from '../services/intra';
+  PanelLeftOpen, X, StickyNote, Settings, Pencil, ArrowUp, ArrowDown, Plus, RotateCcw, BarChart3, ListChecks, Columns3, Megaphone, ImagePlus, MoreHorizontal, Car, Archive, ArchiveRestore, Merge, AlertTriangle } from 'lucide-react';
+import { missingForSite } from '../lib/offers/showcaseCompleteness';
+import { BODY_TYPES } from '../lib/study-core/bodyTypes';
+import { listShowcase, publishToShowcase, unpublishFromShowcase, reorderShowcase, setShowcaseNote, setShowcaseTitle, showcaseTitle, setShowcasePrice, setShowcaseVehicle, snapshotVehicle, addShowcasePhotos, removeShowcasePhoto, reorderShowcasePhotos, addManualShowcase, type IntraItem, type IntraDraft } from '../services/intra';
 import { useAuth } from '../services/auth';
 import { recordLearningCaseFromApp } from '../services/learningCases';
 import { listRefBrandModels } from '../services/workflow';
@@ -156,7 +157,7 @@ export function Offres() {
   /** AJOUT DIRECT d'une bonne affaire, sans liste fournisseur (14/10) : le véhicule saisi dans le crayon habituel. */
   const emptyManual = (): OfferVehicle => ({
     id: 'manual', vin: null, brand: '', model: '', version: '', reg_date: null, year: null, km: null, color: null, fuel: null, engine: null, power_ch: null,
-    gearbox: null, co2: null, damages: null, report_url: null, location: null, price_ht: null, price_ttc: null, vat_recoverable: null, imported: null, extras: {}, selected: true, sale_price: null, quantity: 1,
+    gearbox: null, body: null, co2: null, damages: null, report_url: null, location: null, price_ht: null, price_ttc: null, vat_recoverable: null, imported: null, extras: {}, selected: true, sale_price: null, quantity: 1,
   });
   const [manualOpen, setManualOpen] = useState(false);
   const [manual, setManual] = useState<OfferVehicle>(emptyManual);
@@ -705,6 +706,8 @@ export function Offres() {
   const lots = useMemo(() => (draft ? lotsOf(draft.vehicles).map((l) => applyLotCriteria(l, lotEntry(draft.lot_criteria, l.key))) : []), [draft]);
 
   // ── INTRA : publier dans la vitrine de l'Accueil ────────────────────────────
+  // COMPLÉTUDE POUR LE SITE (27/11, JP.cars) : les bonnes affaires auxquelles il manque une donnée requise par la vitrine.
+  const incompleteDeals = useMemo(() => showcase.map((it) => ({ it, missing: missingForSite(it) })).filter((x) => x.missing.length > 0), [showcase]);
   const publishedHere = useMemo(() => new Map(showcase.filter((i) => draft?.id && i.offer_id === draft.id).map((i) => [i.vehicle_id, i])), [showcase, draft?.id]);
   const intraDraftOf = (v: OfferVehicle): IntraDraft | null => {
     if (!draft?.id) return null;
@@ -919,10 +922,11 @@ export function Offres() {
       {busy === 'lecture' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} Nouvelle offre
     </button>
   );
-  const tabButton = (id: View, label: string, Icon: typeof BarChart3, badge: string) => (
+  const tabButton = (id: View, label: string, Icon: typeof BarChart3, badge: string, alert?: { n: number; title: string }) => (
     <button onClick={() => setView(id)} role="tab" aria-selected={view === id}
       className={`flex items-center gap-2 px-4 py-2.5 text-sm border-b-2 -mb-px transition-colors ${view === id ? 'border-brand-ocean text-brand-encre font-semibold' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
       <Icon className="w-4 h-4" /> {label} <span className={`text-xs px-1.5 py-0.5 rounded-full ${view === id ? 'bg-blue-50 text-brand-encre' : 'bg-slate-100 text-slate-500'}`}>{badge}</span>
+      {alert && alert.n > 0 && <span title={alert.title} aria-label={alert.title} className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-600 text-white ring-2 ring-white">{alert.n}</span>}
     </button>
   );
 
@@ -1262,7 +1266,7 @@ export function Offres() {
               {tabButton('selection', 'Sélection', ListChecks, `${selectedUnits}/${totalUnits}`)}
               {tabButton('analyse', 'Analyse', BarChart3, `${lotsOf(draft.vehicles).length} lot${lotsOf(draft.vehicles).length > 1 ? 's' : ''}`)}
               {tabButton('export', 'Export', Columns3, `${previewColumns.length} col.`)}
-              {tabButton('intra', 'Intra', Megaphone, `${publishedHere.size} publié${publishedHere.size > 1 ? 's' : ''}`)}
+              {tabButton('intra', 'Intra', Megaphone, `${publishedHere.size} publié${publishedHere.size > 1 ? 's' : ''}`, { n: incompleteDeals.length, title: `${incompleteDeals.length} bonne${incompleteDeals.length > 1 ? 's' : ''} affaire${incompleteDeals.length > 1 ? 's' : ''} à compléter pour le site (JP.cars)` })}
             </div>
           </div>
 
@@ -1793,6 +1797,17 @@ export function Offres() {
                   <p className="flex-1 min-w-[280px]">L'Intra, ce sont les <strong>bonnes affaires de l'Accueil</strong> de tous les utilisateurs d'ADA, toutes organisations : les véhicules disponibles que l'équipe MC Export choisit de montrer, avec le prix MC Export {B} et le relevé du marché FRANÇAIS du lot (verdict France, recherches françaises cliquables ; les autres pays restent ici ; étude complète pour ceux qui ont l'onglet Offres). Publier photographie le véhicule tel qu'il est maintenant ; republier rafraîchit.</p>
                   {showcaseError && <span className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{showcaseError}</span>}
                 </div>
+                {incompleteDeals.length > 0 && (
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-900 space-y-1">
+                    <p className="font-semibold flex items-center gap-1.5"><AlertTriangle className="w-4 h-4" /> {incompleteDeals.length} bonne{incompleteDeals.length > 1 ? 's' : ''} affaire{incompleteDeals.length > 1 ? 's' : ''} incomplète{incompleteDeals.length > 1 ? 's' : ''} pour le site — JP.cars relit notre vitrine et a besoin, pour chaque véhicule : marque, modèle, kilométrage, énergie, boîte, carrosserie, 1re immatriculation, puissance, photo.</p>
+                    <ul className="space-y-0.5">
+                      {incompleteDeals.map(({ it, missing }) => (
+                        <li key={it.id} className="flex items-center gap-2 flex-wrap"><span className="font-medium">{showcaseTitle(it)}</span><span>manque : {missing.join(', ')}</span>
+                          <button onClick={() => { setOpenDeal(it.id); startEditDeal(it); document.getElementById(`deal-${it.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }} className="text-brand-ocean hover:underline">compléter</button></li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm min-w-0">
                   <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3 flex-wrap">
@@ -1922,7 +1937,7 @@ export function Offres() {
                         /** Un clic sur la ligne (hors champs et boutons) déplie les réglages. */
                         const toggle = (e: ReactMouseEvent) => { if ((e.target as HTMLElement).closest('input,button,a,label,textarea')) return; setOpenDeal(isOpen ? null : it.id); };
                         return (
-                        <li key={it.id} className={`px-4 py-2 text-xs space-y-1.5 cursor-pointer ${isOpen ? 'bg-blue-50/40' : 'hover:bg-slate-50'}`} onClick={toggle} title={isOpen ? '' : 'Cliquer pour modifier le prix, le mot et les réglages'}>
+                        <li key={it.id} id={`deal-${it.id}`} className={`px-4 py-2 text-xs space-y-1.5 cursor-pointer ${isOpen ? 'bg-blue-50/40' : 'hover:bg-slate-50'}`} onClick={toggle} title={isOpen ? '' : 'Cliquer pour modifier le prix, le mot et les réglages'}>
                           <div className="flex items-center gap-3">
                             {/* Ordre (29/10) : flèches, même ordre sur l'Accueil et sur le site. */}
                             <span className="flex flex-col shrink-0 -my-1">
@@ -1935,6 +1950,7 @@ export function Offres() {
                               onBlur={async (e) => { const t = e.target.value.trim(); if (t === (it.title ?? '').trim()) return; const err = await setShowcaseTitle(it.id, t); if (err) fail(err); else void reloadShowcase(); }}
                               className="w-56 px-2 py-1 rounded border border-slate-200 font-medium text-slate-800 placeholder:text-slate-800 placeholder:font-medium hover:border-slate-400 focus:border-brand-ocean" />
                             <span className="text-slate-500 truncate">{it.vehicle.engine || it.vehicle.version}</span>
+                            {missingForSite(it).length > 0 && <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-red-600 text-white" title={`Pour le site (JP.cars), il manque : ${missingForSite(it).join(', ')}`}>à compléter : {missingForSite(it).join(', ')}</span>}
                             <span className="tabular-nums font-semibold text-brand-encre shrink-0">{it.price_ht != null ? fmtEur(it.price_ht) + (it.vehicle.vat_recoverable === false ? ' TTC · TVA sur marge' : ' HT') : 'sur proposition'}</span>
                             <span className="text-slate-400 shrink-0">{it.offer_title || 'offre'} · {it.published_by_name} · {new Date(it.published_at).toLocaleDateString('fr-FR')}</span>
                             {it.note && <span className="text-slate-600 truncate">« {it.note} »</span>}
@@ -2140,6 +2156,12 @@ function VehicleEditor({ v, onChange }: { v: OfferVehicle; onChange: (patch: Par
         <select value={v.gearbox ?? ''} onChange={(e) => onChange({ gearbox: e.target.value || null })} className={field}>
           <option value="">—</option><option value="AUTOMATIQUE">Automatique</option><option value="MANUELLE">Manuelle</option>
           {v.gearbox && !['AUTOMATIQUE', 'MANUELLE'].includes(v.gearbox) && <option value={v.gearbox}>{v.gearbox}</option>}
+        </select>
+      </label>
+      <label className="text-slate-600" title="Type de carrosserie — requis sur la vitrine (JP.cars, 27/11)">Carrosserie
+        <select value={v.body ?? ''} onChange={(e) => onChange({ body: e.target.value || null })} className={field}>
+          <option value="">—</option>
+          {BODY_TYPES.map((b) => <option key={b.token} value={b.token}>{b.label}</option>)}
         </select>
       </label>
       <label className="text-slate-600">Ch<input type="number" value={v.power_ch ?? ''} onChange={(e) => onChange({ power_ch: numOrNull(e.target.value) })} className={`${field} w-20`} /></label>

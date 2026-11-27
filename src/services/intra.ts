@@ -28,12 +28,15 @@ export interface IntraVehicle {
   reg_date: string | null; year: number | null; km: number | null; color: string | null; fuel: string | null;
   power_ch: number | null; gearbox: string | null; damages: number | null; report_url: string | null; quantity: number;
   vat_recoverable: boolean | null;
+  /** Carrosserie (27/11, requise par JP.cars sur la vitrine). */
+  body?: string | null;
 }
 export const snapshotVehicle = (v: OfferVehicle): IntraVehicle => ({
   vin: v.vin ?? null, brand: v.brand, model: v.model, version: v.version, engine: v.engine ?? null,
   reg_date: v.reg_date ?? null, year: v.year ?? null, km: v.km ?? null, color: v.color ?? null, fuel: v.fuel ?? null,
-  power_ch: v.power_ch ?? null, gearbox: v.gearbox ?? null, damages: v.damages ?? null, report_url: v.report_url ?? null,
-  quantity: Math.max(1, v.quantity ?? 1), vat_recoverable: v.vat_recoverable ?? null,
+  // Une électrique n'a pas de boîte manuelle (27/11, iX3 publiée sans boîte) : automatique quand rien n'est dit.
+  power_ch: v.power_ch ?? null, gearbox: v.gearbox ?? (/^electri/i.test(v.fuel ?? '') ? 'AUTOMATIQUE' : null), damages: v.damages ?? null, report_url: v.report_url ?? null,
+  quantity: Math.max(1, v.quantity ?? 1), vat_recoverable: v.vat_recoverable ?? null, body: v.body ?? null,
 });
 
 export interface IntraItem {

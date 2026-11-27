@@ -208,7 +208,7 @@ export function parseDealerExtractPdf(
       km, color, fuel, engine: free.engine ?? (ccm ? `${(ccm / 1000).toFixed(1)} (${ccm} ccm)` : null), power_ch: powerCh, gearbox,
       co2: null, damages: null, report_url: null, location: id.split('/')[0] || null,
       price_ht: null, price_ttc: priceTtc, vat_recoverable: vatRecoverable, vat_rate: GERMAN_VAT, imported,
-      extras, selected: true, sale_price: null, quantity: 1,
+      body: null, extras, selected: true, sale_price: null, quantity: 1,
     });
   });
   if (warnings.length > 12) { warnings.length = 12; warnings.push('… (avertissements suivants masqués)'); }
