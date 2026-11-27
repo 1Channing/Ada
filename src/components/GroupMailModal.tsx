@@ -82,7 +82,8 @@ export function GroupMailModal({ contacts, scope, onClose }: { contacts: Network
   const render = (tpl: string, c: NetworkContact) => tpl
     .replace(/\{prenom\}/gi, firstName(c)).replace(/\{societe\}/gi, c.name).replace(/\{ville\}/gi, c.city ?? '')
     .replace(/\{pays\}/gi, COUNTRY_NAMES[c.country] ?? c.country).replace(/\{signature\}/gi, signature)
-    .replace(/^(Bonjour|Hello) ,/m, '$1,');
+    // Prénom inconnu : « Beste , » / « Hej , » / « Guten Tag , » → la salutation seule (27/11 : seuls Bonjour et Hello étaient rattrapés).
+    .replace(/^([^\n{}]{2,24}?) ,(?=\s*$)/m, '$1,');
   const setDraft = (k: ContactKind, patch: Partial<Draft>) => setDrafts((d) => ({ ...d, [k]: { ...(d[k] as Draft), ...patch } }));
   const applyTemplate = (k: ContactKind, patch: { lang?: MailLang; theme?: MailTheme }) => setDrafts((d) => {
     const cur = d[k] as Draft; const lang = patch.lang ?? cur.lang; const theme = patch.theme ?? cur.theme;
