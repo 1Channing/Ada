@@ -38,7 +38,7 @@ import {
   type ScrapedListing,
   type StudyCriteria,
 } from '../../src/lib/study-core';
-import { setFxRates, fxMultiplier } from '../../src/lib/study-core/business-logic';
+import { setFxRates, fxMultiplier, structuredModelMatchesListing, structuredModelIsRangePlaceholder } from '../../src/lib/study-core/business-logic';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
@@ -342,5 +342,19 @@ runTest('Parity check - Identical results', () => {
 });
 
 console.log('\n═══════════════════════════════════════════════════');
+// ─── Gamme sans identité (27/11, MINI COOPER sur La Centrale) ────────────────
+runTest('structuredModelMatchesListing: La Centrale « MINI 3 3P » + COOPER en version entre dans une étude COOPER', () => {
+  const lc = { brand: 'MINI', model: 'MINI 3 3P', title: 'MINI MINI 3 3P 184ch 32.6kWh COOPER S ESSENTIAL', trim: 'COOPER S ESSENTIAL' };
+  assert(structuredModelMatchesListing(lc, 'COOPER', 'MINI'), 'MINI 3 3P / COOPER S doit entrer');
+  const ph2 = { brand: 'MINI', model: 'MINI III 3P phase 2', title: 'MINI MINI III 3P phase 2 184ch 32.6kWh COOPER S EDITION CAMDEN', trim: null };
+  assert(structuredModelMatchesListing(ph2, 'COOPER', 'MINI'), 'phase 2 doit entrer');
+  const countryman = { brand: 'MINI', model: 'COUNTRYMAN', title: 'MINI COUNTRYMAN Cooper S 178ch', trim: 'Cooper S' };
+  assert(!structuredModelMatchesListing(countryman, 'COOPER', 'MINI'), 'un Countryman Cooper S n\'est pas une COOPER');
+  const one = { brand: 'MINI', model: 'MINI 3 3P', title: 'MINI MINI 3 3P 102ch ONE', trim: 'ONE' };
+  assert(!structuredModelMatchesListing(one, 'COOPER', 'MINI'), 'une ONE n\'entre pas dans COOPER');
+  assert(structuredModelIsRangePlaceholder('MINI 5P', 'MINI') && !structuredModelIsRangePlaceholder('CLUBMAN', 'MINI'), 'placeholder : MINI 5P oui, CLUBMAN non');
+  assert(structuredModelMatchesListing({ model: 'RAV 4', title: 'TOYOTA RAV 4 2.5 Hybride', trim: null }, 'RAV4', 'TOYOTA'), 'RAV 4 reste accepté comme avant');
+});
+
 console.log('✅ ALL PARITY TESTS PASSED');
 console.log('═══════════════════════════════════════════════════\n');

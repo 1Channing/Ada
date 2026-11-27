@@ -29,7 +29,7 @@ import type { SiteKey } from '../src/lib/linkgen/types';
 import { brandKey, canonKey, brandKeysForQuery, refModelKey } from '../src/services/marketData';
 import { canonicalizeGearbox, canonicalizeFuel, refineFuelToken } from '../src/lib/study-core/ingestion';
 import { canonicalizeBody } from '../src/lib/study-core/bodyTypes';
-import { isDamagedVehicleText, structuredModelMatches, trimMatchesText } from '../src/lib/study-core/business-logic';
+import { isDamagedVehicleText, structuredModelMatchesListing, trimMatchesText } from '../src/lib/study-core/business-logic';
 import { archiveOldObservations, recordTruthGap, refreshDashboards, runTruthSweep, capped } from './dashboards';
 import { runTruthDiagnose } from './truthDiagnose';
 import { scrapeSearch, recordStudyMarketSnapshot } from './scraper';
@@ -496,8 +496,9 @@ async function scrapeCountry(
       // Gaspedaal nomme « 5-serie » ce que l'étude appelle « Série 5 » —
       // l'ancienne clé ordonnée (SERIE5 ≠ 5SERIE) jetait 100 % des annonces.
       const before = listings.length;
+      // + gamme sans identité (27/11, MINI COOPER sur La Centrale : « MINI 3 3P » structuré, COOPER dans la version).
       listings = listings.filter((l) =>
-        structuredModelMatches((l as { model?: string | null }).model, s.model!));
+        structuredModelMatchesListing(l as { model?: string | null; title?: string | null; trim?: string | null; brand?: string | null }, s.model!, s.brand));
       if (listings.length < before) {
         console.warn(`[DAILY] « ${name} »: ${site.key} — ${before - listings.length} annonce(s) écartée(s) (modèle structuré ≠ ${s.model})`);
       }

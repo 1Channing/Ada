@@ -27,7 +27,7 @@ import {
 } from '../src/lib/study-core/index';
 import { parseDetailPage, type DetailPageData, MAX_LISTING_PHOTOS } from '../src/lib/study-core/detailParsers';
 import { titleContradictsModel } from '../src/services/marketData';
-import { structuredModelMatches, shouldFilterListing, fxMultiplier } from '../src/lib/study-core/business-logic';
+import { structuredModelMatchesListing, shouldFilterListing, fxMultiplier } from '../src/lib/study-core/business-logic';
 import { findSiteAdapterByDomain } from '../src/lib/study-core/marketplaces';
 import { mpSlugOfLabel } from '../src/lib/study-core/marketplaces/marktplaats';
 import { generateInternalRef } from '../src/lib/internalRefGenerator';
@@ -121,7 +121,7 @@ export async function recordStudyMarketSnapshot(
     // l'étude les écartait, le snapshot MI les prenait). Même règle que la
     // voie front (writeMarketSnapshot) : fail-open sans modèle structuré.
     const identityOk = (l: ScrapedListing) =>
-      structuredModelMatches((l as { model?: string | null }).model, segment.model)
+      structuredModelMatchesListing(l as { model?: string | null; title?: string | null; trim?: string | null; brand?: string | null }, segment.model, segment.brand)
       && !titleContradictsModel(segment.model, l.title ?? '');
     const contradicted = listings.filter((l) => !identityOk(l)).length;
     if (contradicted > 0) console.warn(`[MARKET_SNAPSHOT] ${contradicted} annonce(s) écartée(s) — titre d'un autre modèle que ${segment.brand} ${segment.model} (${segment.site})`);

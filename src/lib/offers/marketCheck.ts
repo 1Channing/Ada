@@ -22,7 +22,7 @@ import { sharedSupabase as supabase } from '../supabaseShared';
 import { generateSearchUrlsWithMemory } from '../linkgen/generator';
 import type { SiteKey } from '../linkgen/types';
 import { allSiteAdapters } from '../study-core/marketplaces';
-import { structuredModelMatches, toEur } from '../study-core/business-logic';
+import { structuredModelMatchesListing, toEur } from '../study-core/business-logic';
 import type { Currency } from '../study-core/types';
 import { titleContradictsModel, attackWindowSize } from '../../services/marketData';
 import type { OfferVehicle } from './parseSupplierFile';
@@ -185,7 +185,7 @@ export function listingIsLot(
   if (/withouttax|without tax|engros|wholesale|excl/.test((l.priceType ?? '').toLowerCase())) return false;
   // Hors TVA UE (Canaries / IGIC, DOM…) : pas un débouché comparable.
   if (l.fiscalTerritory) return false;
-  if (!structuredModelMatches(l.model, model)) return false;
+  if (!structuredModelMatchesListing(l, model)) return false;
   if (titleContradictsModel(model, l.title ?? '')) return false;
   const t = ` ${soft(l.title ?? '')} `;
   if (strict && !soft(model).split(' ').filter(Boolean).every((w) => t.includes(` ${w} `))) return false;

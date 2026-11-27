@@ -12,7 +12,7 @@ import type { Database } from '../lib/database.types';
 import { generateInternalRef } from '../lib/internalRefGenerator';
 import { canonicalizeFuel, refineFuelToken, FUEL_LABELS } from '../lib/study-core/ingestion';
 import { canonicalizeBody } from '../lib/study-core/bodyTypes';
-import { isDamagedVehicleText, modelKeyLoose, modelFamilyKey, seriesFamilyKey, fxMultiplier } from '../lib/study-core/business-logic';
+import { isDamagedVehicleText, modelKeyLoose, modelFamilyKey, seriesFamilyKey, fxMultiplier, structuredModelIsRangePlaceholder, modelNamedInText } from '../lib/study-core/business-logic';
 import type { FuelToken } from '../lib/study-core/ingestion';
 import type { ScrapedListing } from '../lib/study-core/types';
 import { allSiteAdapters, findSiteAdapterByDomain } from '../lib/study-core/marketplaces';
@@ -121,8 +121,9 @@ export async function writeMarketSnapshot(params: {
     // Série / classe (05/10) : « 118d » est une Série 1, « A 180 » une Classe A.
     const sk = seriesFamilyKey(segment.brand, segModel);
     if (sk && seriesFamilyKey(segment.brand, lm) === sk) return true;
-    return modelKeyLoose(lm) === modelKeyLoose(segModel)
-      || refModelKey(segment.brand, lm) === refModelKey(segment.brand, segModel);
+    if (modelKeyLoose(lm) === modelKeyLoose(segModel) || refModelKey(segment.brand, lm) === refModelKey(segment.brand, segModel)) return true;
+    // Gamme sans identité (27/11) : « MINI 3 3P » structuré, COOPER dans la version — même règle que le worker.
+    return structuredModelIsRangePlaceholder(lm, segment.brand) && modelNamedInText(segModel, `${l.title ?? ''} ${l.trim ?? ''}`);
   };
   const contradicted = listings.filter((l) => !identityOk(l)).length;
   if (contradicted > 0) {

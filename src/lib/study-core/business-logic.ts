@@ -338,6 +338,41 @@ export function structuredModelMatches(structured: string | null | undefined, wa
 }
 
 /**
+ * MODÈLE STRUCTURÉ « GAMME SANS IDENTITÉ » (27/11, Channing : « on fait des recherches sur les Mini, le modèle
+ * n'existe pas sur La Centrale mais il y a quand même plein d'annonces »). La Centrale nomme la gamme MINI par la
+ * carrosserie-génération — « MINI 3 3P », « MINI III 3P phase 2 », « MINI 5P » — et met l'identité du modèle
+ * (COOPER, COOPER S, ONE…) dans la VERSION : 35 à 69 annonces par étude étaient écartées « modèle structuré ≠
+ * COOPER ». Règle : quand le modèle structuré ne porte AUCUN mot d'identité (seulement la marque, un chiffre, une
+ * génération « III » / « phase 2 », un nombre de portes « 3P »), on juge sur le texte (titre + finition) : le modèle
+ * d'étude doit y figurer en mots entiers. Un modèle structuré qui porte une identité (« COUNTRYMAN », « CLUBMAN »)
+ * reste jugé comme avant — un Countryman Cooper S n'entre pas dans une étude COOPER.
+ */
+const RANGE_NOISE = new Set(['i', 'ii', 'iii', 'iv', 'v', 'vi', 'phase', 'gen', 'generation', 'mk', 'p', 'portes', 'porte', 'doors', 'door', 'turer', 'new', 'nouvelle', 'nouveau', 'neue', 'neuer', 'nuova', 'nueva', 'hatch', 'hatchback']);
+const plainTokens = (s: string | null | undefined) => String(s ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+export function structuredModelIsRangePlaceholder(structured: string | null | undefined, brand: string | null | undefined): boolean {
+  const toks = plainTokens(structured);
+  if (toks.length === 0) return false;
+  const brandToks = new Set(plainTokens(brand));
+  return toks.every((t) => brandToks.has(t) || RANGE_NOISE.has(t) || /^\d+$/.test(t) || /^\d+p$/.test(t) || /^mk\d+$/.test(t));
+}
+/** Le modèle d'étude, en mots entiers, dans le texte de l'annonce (titre + finition). */
+export function modelNamedInText(wanted: string, text: string): boolean {
+  const words = plainTokens(wanted);
+  if (words.length === 0) return false;
+  const bag = new Set(plainTokens(text));
+  return words.every((w) => bag.has(w));
+}
+/** Même jugement que structuredModelMatches, puis la règle « gamme sans identité » ci-dessus. */
+export function structuredModelMatchesListing(
+  l: { model?: string | null; title?: string | null; trim?: string | null; brand?: string | null },
+  wanted: string, brand?: string | null,
+): boolean {
+  if (structuredModelMatches(l.model, wanted)) return true;
+  if (!structuredModelIsRangePlaceholder(l.model, brand ?? l.brand)) return false;
+  return modelNamedInText(wanted, `${l.title ?? ''} ${l.trim ?? ''}`);
+}
+
+/**
  * MODÈLE STRUCTURÉ « PLUS PRÉCIS » QUE LE MODÈLE D'ÉTUDE (02/10, boîte à
  * apprendre : 146 lacunes « 0/35 annonces = CLASSE CLA » sur AutoScout et
  * Marktplaats). Les sites structurent souvent la VERSION : « CLA 200 » pour
