@@ -18,14 +18,16 @@
  * signature du compte (image déposée dans Mon compte + signature Gmail) ajoutée par le serveur.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { X, Mail, Loader2, Check, AlertTriangle, Paperclip, FileText, Trash2 } from 'lucide-react';
+import { X, Mail, Loader2, Check, AlertTriangle, Paperclip, FileText, Trash2, Sparkles, Languages } from 'lucide-react';
 import { useAuth } from '../services/auth';
+import { recipientOptions, defaultRecipient, recipientFirstName, type RecipientOption } from '../lib/network/recipients';
+import { queueGroupMailRewrite, getGroupMailTask, type GroupMailTaskResult } from '../services/agents';
 import { queueContactEmail, listBatchEmails, uploadRelanceAttachment } from '../services/dossierEmails';
 import { groupTemplate, mailLangOfCountry, MAIL_LANGS, MAIL_LANG_LABEL, MAIL_THEMES, MAIL_THEME_LABEL, MAIL_THEME_HINT, type MailLang, type MailTheme } from '../lib/mail/groupTemplates';
 import { KIND_LABEL, type NetworkContact, type ContactKind } from '../services/network';
 import { COUNTRY_NAMES } from '../data/cities';
 
-type Draft = { subject: string; body: string; lang: MailLang; theme: MailTheme };
+type Draft = { subject: string; body: string; lang: MailLang; theme: MailTheme; translation?: string | null; translatedOf?: string; alertes?: string[] };
 
 /** Langue proposée : celle du pays des destinataires quand ils la partagent tous (Danemark → danois) ; anglais sinon,
  *  et toujours pour les loueurs (07/11). Modifiable dans la fenêtre. */
@@ -37,7 +39,15 @@ function defaultLang(kind: ContactKind, members: NetworkContact[]): MailLang {
 
 export function GroupMailModal({ contacts, scope, onClose }: { contacts: NetworkContact[]; scope: string; onClose: () => void }) {
   const { userId, email, displayName } = useAuth();
-  const withMail = useMemo(() => contacts.filter((c) => !!(c.email ?? '').trim()), [contacts]);
+  // DESTINATAIRE = LE DÉCISIONNAIRE (27/11) : parmi l'adresse de la fiche et ses personnes, l'acheteur VO d'abord, puis le
+  // responsable, puis l'interlocuteur principal ; l'adresse générale en repli ; jamais un vendeur d'office. Changeable par fiche.
+  const options = useMemo(() => new Map(contacts.map((c) => [c.id, recipientOptions(c)])), [contacts]);
+  const withMail = useMemo(() => contacts.filter((c) => (options.get(c.id)?.length ?? 0) > 0), [contacts, options]);
+  const [chosen, setChosen] = useState<Record<string, string>>({});
+  const recipientOf = (c: NetworkContact): RecipientOption | null => {
+    const opts = options.get(c.id) ?? [];
+    return opts.find((o) => o.key === chosen[c.id]) ?? defaultRecipient(c);
+  };
   const [picked, setPicked] = useState<Set<string>>(() => new Set(withMail.map((c) => c.id)));
   // Un brouillon par catégorie présente, pré-rempli avec le modèle de la catégorie.
   const kinds = useMemo(() => (Object.keys(KIND_LABEL) as ContactKind[]).filter((k) => withMail.some((c) => c.kind === k)), [withMail]);
@@ -66,7 +76,7 @@ export function GroupMailModal({ contacts, scope, onClose }: { contacts: Network
 
   const toggle = (id: string) => setPicked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const recipients = withMail.filter((c) => picked.has(c.id));
-  const firstName = (c: NetworkContact) => (c.contact_name ?? '').trim().split(/\s+/)[0] || '';
+  const firstName = (c: NetworkContact) => recipientFirstName(recipientOf(c));
   // Nom + société seulement : la signature Gmail enregistrée de l'expéditeur est ajoutée par le serveur (07/11).
   const signature = `${displayName || email || ''}\nMC Export`;
   const render = (tpl: string, c: NetworkContact) => tpl
@@ -80,6 +90,38 @@ export function GroupMailModal({ contacts, scope, onClose }: { contacts: Network
   });
   // PDF joints (26/11) : les mêmes pour tous les destinataires de la relance, déposés au moment de l'envoi.
   const [files, setFiles] = useState<File[]>([]);
+  // DANA RÉÉCRIT OU TRADUIT (27/11) : une tâche de l'agente, relue toutes les 4 s ; le résultat remplace l'objet et le texte
+  // de l'onglet, la traduction française s'affiche dessous. Le mail reste signé par la personne connectée.
+  const [aiNote, setAiNote] = useState('');
+  const [aiTask, setAiTask] = useState<{ id: string; kind: ContactKind; mode: 'reecrire' | 'traduire'; since: number } | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!aiTask) return;
+    const t = setInterval(() => {
+      void getGroupMailTask(aiTask.id).then((r) => {
+        if (!r) return;
+        if (r.status === 'terminee' && r.result) {
+          const res = r.result as GroupMailTaskResult;
+          setDrafts((d) => ({ ...d, [aiTask.kind]: { ...(d[aiTask.kind] as Draft), subject: res.objet, body: res.corps, translation: res.traduction_fr, translatedOf: res.corps, alertes: res.alertes ?? [] } }));
+          setAiTask(null); if (aiTask.mode === 'reecrire') setAiNote('');
+        } else if (r.status === 'echec' || r.status === 'annulee') { setAiError(r.error || 'Dana n\'a pas pu faire la réécriture.'); setAiTask(null); }
+        else if (Date.now() - aiTask.since > 4 * 60_000) { setAiError('Dana n\'a pas répondu en 4 minutes : la tâche continue dans l\'onglet Agents, réessaie plus tard.'); setAiTask(null); }
+      });
+    }, 4000);
+    return () => clearInterval(t);
+  }, [aiTask]);
+  const askDana = async (k: ContactKind, mode: 'reecrire' | 'traduire') => {
+    const d = drafts[k]; if (!d) return;
+    if (mode === 'reecrire' && !aiNote.trim()) { setAiError('Écris d\'abord ce que Dana doit changer.'); return; }
+    setAiError(null);
+    const ex = recipients.find((c) => c.kind === k) ?? withMail.find((c) => c.kind === k);
+    const r = await queueGroupMailRewrite('dana', {
+      objet: d.subject, corps: d.body, langue: d.lang, theme: MAIL_THEME_LABEL[d.theme], categorie: KIND_LABEL[k], signataire: displayName || email || 'Channing',
+      n: recipients.filter((c) => c.kind === k).length, exemple: ex ? { societe: ex.name, prenom: firstName(ex), pays: COUNTRY_NAMES[ex.country] ?? ex.country } : null, mode,
+    }, aiNote, userId);
+    if (r.error || !r.id) { setAiError(r.error ?? 'Demande impossible.'); return; }
+    setAiTask({ id: r.id, kind: k, mode, since: Date.now() });
+  };
   const addFiles = (list: FileList | null) => {
     if (!list) return;
     const picked = [...list]; // copie : la FileList de l'input est vidée juste après (value = '')
@@ -107,14 +149,16 @@ export function GroupMailModal({ contacts, scope, onClose }: { contacts: Network
     const rows: Array<{ id: string; to_email: string; status: string; error: string | null }> = [];
     for (const c of recipients) {
       const d = drafts[c.kind] as Draft;
-      const r = await queueContactEmail({ contactId: c.id, batchId, to: c.email!.trim(), subject: render(d.subject, c), body: render(d.body, c), senderEmail: email, senderName: displayName || null, sentBy: userId, attachments });
+      const to = recipientOf(c)?.email ?? '';
+      if (!to) continue;
+      const r = await queueContactEmail({ contactId: c.id, batchId, to, subject: render(d.subject, c), body: render(d.body, c), senderEmail: email, senderName: displayName || null, sentBy: userId, attachments });
       if (r.error) { setError(r.error); break; }
-      rows.push({ id: r.id!, to_email: c.email!.trim(), status: 'queued', error: null });
+      rows.push({ id: r.id!, to_email: to, status: 'queued', error: null });
     }
     setSending(false);
     if (rows.length) setBatch({ id: batchId, rows });
   };
-  const copyAddresses = async () => { try { await navigator.clipboard.writeText(recipients.map((c) => c.email!.trim()).join(', ')); setError(null); alert(`${recipients.length} adresse${recipients.length > 1 ? 's' : ''} copiée${recipients.length > 1 ? 's' : ''} — à coller en Cci dans ta messagerie.`); } catch { setError('Copie impossible dans ce navigateur.'); } };
+  const copyAddresses = async () => { try { await navigator.clipboard.writeText(recipients.map((c) => recipientOf(c)?.email ?? '').filter(Boolean).join(', ')); setError(null); alert(`${recipients.length} adresse${recipients.length > 1 ? 's' : ''} copiée${recipients.length > 1 ? 's' : ''} — à coller en Cci dans ta messagerie.`); } catch { setError('Copie impossible dans ce navigateur.'); } };
   const sentCount = batch ? batch.rows.filter((r) => r.status === 'sent').length : 0;
   const failedRows = batch ? batch.rows.filter((r) => r.status === 'failed') : [];
   const current = tab ? drafts[tab] : undefined;
@@ -158,7 +202,14 @@ export function GroupMailModal({ contacts, scope, onClose }: { contacts: Network
                   {withMail.filter((c) => c.kind === k).map((c) => (
                     <label key={c.id} className="flex items-start gap-2 text-xs rounded-lg px-2 py-1.5 hover:bg-slate-50 cursor-pointer">
                       <input type="checkbox" checked={picked.has(c.id)} onChange={() => toggle(c.id)} className="mt-0.5" />
-                      <span className="min-w-0"><span className="block font-medium text-slate-800 truncate">{c.name}</span><span className="block text-slate-500 truncate">{COUNTRY_NAMES[c.country] ?? c.country} · {c.email}</span></span>
+                      <span className="min-w-0 flex-1"><span className="block font-medium text-slate-800 truncate">{c.name}</span>
+                        <span className="block text-slate-500 truncate">{COUNTRY_NAMES[c.country] ?? c.country}{(options.get(c.id)?.length ?? 0) <= 1 ? ` · ${recipientOf(c)?.label ?? ''}` : ''}</span>
+                        {(options.get(c.id)?.length ?? 0) > 1 && (
+                          <select value={recipientOf(c)?.key ?? ''} onClick={(e) => e.stopPropagation()} onChange={(e) => setChosen((m) => ({ ...m, [c.id]: e.target.value }))} className="mt-0.5 w-full text-[11px] rounded border border-slate-200 bg-white text-slate-700 px-1 py-0.5" title="À qui écrire sur cette fiche">
+                            {(options.get(c.id) ?? []).map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+                          </select>
+                        )}
+                      </span>
                     </label>
                   ))}
                 </div>
@@ -195,6 +246,29 @@ export function GroupMailModal({ contacts, scope, onClose }: { contacts: Network
                   <textarea value={current.body} onChange={(e) => setDraft(tab, { body: e.target.value })} rows={11} className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
                 </label>
                 <p className="text-[11px] text-slate-500">Champs remplis pour chacun : <code>{'{prenom}'}</code> (interlocuteur), <code>{'{societe}'}</code>, <code>{'{ville}'}</code>, <code>{'{pays}'}</code>, <code>{'{signature}'}</code> (ton nom, MC Export). Ta signature en image et ta signature Gmail sont ajoutées dessous par le serveur.</p>
+                <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-3 space-y-2 text-xs">
+                  <p className="flex items-center gap-1.5 font-medium text-slate-800"><Sparkles className="w-3.5 h-3.5 text-violet-600" /> Demander à Dana — le mail reste signé par toi ({displayName || email}), ta signature en image est ajoutée à l'envoi.</p>
+                  <textarea value={aiNote} onChange={(e) => setAiNote(e.target.value)} rows={2} placeholder="Ta note pour Dana : ce qu'il faut changer, ajouter, retirer… (ex. « insiste sur les électriques, plus court, demande leurs volumes mensuels »)" className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white" />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button onClick={() => void askDana(tab, 'reecrire')} disabled={!!aiTask || !aiNote.trim()} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50">
+                      {aiTask?.mode === 'reecrire' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />} Réécrire selon ma note
+                    </button>
+                    <button onClick={() => void askDana(tab, 'traduire')} disabled={!!aiTask || current.lang === 'fr'} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-violet-300 text-violet-800 bg-white hover:bg-violet-50 disabled:opacity-50" title={current.lang === 'fr' ? 'Le mail est déjà en français' : 'Dana rend la traduction française du texte, sans le changer'}>
+                      {aiTask?.mode === 'traduire' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Languages className="w-3.5 h-3.5" />} Voir la traduction en français
+                    </button>
+                    {aiTask && <span className="text-slate-500">Dana travaille… (quelques dizaines de secondes)</span>}
+                  </div>
+                  {aiError && <p className="text-red-700">{aiError}</p>}
+                  {(current.alertes ?? []).length > 0 && (
+                    <ul className="text-amber-800 space-y-0.5">{current.alertes!.map((a, i) => <li key={i} className="flex items-start gap-1"><AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" /> {a}</li>)}</ul>
+                  )}
+                  {current.translation && (
+                    <div className="rounded-lg border border-slate-200 bg-white p-2.5">
+                      <p className="text-slate-500 mb-1">Traduction française{current.translatedOf !== current.body ? ' (du texte avant tes dernières modifications)' : ''} :</p>
+                      <pre className="whitespace-pre-wrap font-sans text-slate-700">{current.translation}</pre>
+                    </div>
+                  )}
+                </div>
                 {previewFor && (
                   <div className="text-xs rounded-lg border border-slate-200 bg-slate-50 p-3">
                     <p className="text-slate-500 mb-1">Aperçu pour {previewFor.name} :</p>

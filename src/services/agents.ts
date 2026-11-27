@@ -1064,6 +1064,19 @@ export async function queueRewrite(agent: AgentKey, messageId: string, note: str
   const { error } = await sb.from('agent_tasks').insert({ agent, kind: 'premier_mail', params: { reecrire: messageId, note: note.trim() }, created_by: userId });
   return error ? errMails(error.message) : null;
 }
+/** RELANCE GROUPÉE DE LA CARTE (27/11) : l'agente réécrit le mail type selon la note, ou le traduit — résultat dans la tâche. */
+export interface GroupMailTaskInput { objet: string; corps: string; langue: string; theme: string; categorie: string; signataire: string; n: number; exemple: { societe: string; prenom: string; pays: string } | null; mode: 'reecrire' | 'traduire' }
+export async function queueGroupMailRewrite(agent: AgentKey, input: GroupMailTaskInput, note: string, userId: string | null): Promise<{ id: string | null; error: string | null }> {
+  if (input.mode === 'reecrire' && !note.trim()) return { id: null, error: 'Écris ce que Dana doit changer.' };
+  const { data, error } = await sb.from('agent_tasks').insert({ agent, kind: 'premier_mail', params: { relance_groupee: input, note: note.trim() }, created_by: userId }).select('id').single();
+  if (error) return { id: null, error: /policy|security|violates/i.test(error.message) ? 'Réservé aux comptes qui ont l\'onglet Agents (Admin → comptes).' : errMails(error.message) };
+  return { id: (data as { id: string }).id, error: null };
+}
+export interface GroupMailTaskResult { objet: string; corps: string; traduction_fr: string | null; alertes: string[]; mots: number; cout_usd: number; mode: 'reecrire' | 'traduire' }
+export async function getGroupMailTask(id: string): Promise<{ status: string; result: GroupMailTaskResult | null; error: string | null } | null> {
+  const { data } = await sb.from('agent_tasks').select('status, result, error').eq('id', id).maybeSingle();
+  return (data as { status: string; result: GroupMailTaskResult | null; error: string | null } | null) ?? null;
+}
 /** Un message seul, relu (pour attendre une correction). */
 export async function getMessage(id: string): Promise<AgentMessage | null> {
   const { data } = await sb.from('agent_messages').select('*').eq('id', id).maybeSingle();

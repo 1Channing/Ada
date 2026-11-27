@@ -35,7 +35,8 @@ export function splitContactName(contactName: string | null | undefined): { pers
 
 export function contactRoleOf(c: Pick<CampaignContactLike, 'contact_name'>): ContactRole {
   const role = (splitContactName(c.contact_name).role ?? '').split('«')[0].normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
-  if (/achet|vykup|felvasar|buyer|einkauf|inkoop|remarketing/.test(role)) return 'acheteur';
+  // 27/11 : « achats et ventes « Inkoop/Verkoop » » (fiches de Dana) est un acheteur — « achat » manquait, la personne passait en rôle inconnu.
+  if (/achat|achet|vykup|felvasar|buyer|einkauf|inkoop|indkob|inkop|acquist|compra|remarketing/.test(role)) return 'acheteur';
   if (/responsable|chef|direct|manager|leiter|hoofd|vedouci|veduci|vezet/.test(role)) return 'responsable';
   if (/vend|conseil|commercial|verk|sales|predaj|ertekesit/.test(role)) return 'vendeur';
   return 'inconnu';

@@ -62,7 +62,9 @@ export type ContactSource = 'manuel' | 'ada' | 'dana';
 export const isAiContact = (c: { source?: ContactSource }) => c.source === 'ada' || c.source === 'dana';
 export const AI_SOURCE_LABEL: Record<'ada' | 'dana', string> = { ada: 'IA · Ada', dana: 'IA · Dana' };
 
-export interface NetworkContactPerson { name: string; role: string; phone: string; email: string }
+/** Une personne de la fiche. note / added_by / added_at (27/11) : ce que l'équipe sait d'elle (« décisionnaire achats VO, vu au
+ *  téléphone ») et qui l'a ajoutée — relu par les agentes (mémoire d'équipe) quand elles complètent une fiche. */
+export interface NetworkContactPerson { name: string; role: string; phone: string; email: string; note?: string; added_by?: string; added_at?: string }
 
 export interface NetworkContactModel {
   id: string;
@@ -118,7 +120,7 @@ export async function saveContact(input: ContactInput, userId: string | null): P
   if (row.created_by === undefined) delete row.created_by;
   // Interlocuteurs : lignes vides retirées ; colonne absente (SQL du 08/10 pas
   // collé) → on enregistre sans eux et on le dit.
-  if (Array.isArray(row.people)) row.people = (row.people as NetworkContactPerson[]).map((p) => ({ name: (p.name ?? '').trim(), role: (p.role ?? '').trim(), phone: (p.phone ?? '').trim(), email: (p.email ?? '').trim() })).filter((p) => p.name || p.phone || p.email);
+  if (Array.isArray(row.people)) row.people = (row.people as NetworkContactPerson[]).map((p) => ({ name: (p.name ?? '').trim(), role: (p.role ?? '').trim(), phone: (p.phone ?? '').trim(), email: (p.email ?? '').trim(), ...((p.note ?? '').trim() ? { note: (p.note ?? '').trim() } : {}), ...(p.added_by ? { added_by: p.added_by } : {}), ...(p.added_at ? { added_at: p.added_at } : {}) })).filter((p) => p.name || p.phone || p.email);
   let { data, error } = await sb.from('network_contacts').upsert(row, { onConflict: 'id' }).select('id').maybeSingle();
   let peopleDropped = false;
   if (error && /people/.test(error.message) && /column|schema cache/i.test(error.message)) {

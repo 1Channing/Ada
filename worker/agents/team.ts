@@ -28,7 +28,7 @@ const ROLE_FR: Record<string, string> = { vendeur: 'vendeur sur la carte', achet
 
 interface MapRow {
   id: string; name: string; country: string | null; city: string | null; website: string | null; phone: string | null; email: string | null;
-  contact_name: string | null; role: string | null; source: string | null; people: Array<{ name?: string; role?: string; phone?: string; email?: string }> | null;
+  contact_name: string | null; role: string | null; source: string | null; people: Array<{ name?: string; role?: string; phone?: string; email?: string; note?: string; added_by?: string }> | null;
 }
 interface WfContact { id: string; company_name: string | null; first_name: string | null; last_name: string | null; email: string | null; phone: string | null; country: string | null; category: string | null; type: string | null }
 interface MailRow {
@@ -45,12 +45,16 @@ export async function loadTeamRecords(): Promise<TeamRecord[]> {
   // 1. La carte : ce que l'équipe a saisi.
   const { data: map } = await sb.from('network_contacts').select('id, name, country, city, website, phone, email, contact_name, role, source, people').limit(5000);
   for (const c of (map ?? []) as MapRow[]) {
-    if ((c.source ?? 'manuel') !== 'manuel') continue;
+    const manual = (c.source ?? 'manuel') === 'manuel';
     const relation = ROLE_FR[c.role ?? ''] ?? 'sur la carte';
-    rows.push({ source: 'carte', ref: c.id, company: c.name, country: c.country, person: c.contact_name?.trim() || null, role: null, email: c.email?.trim().toLowerCase() || null, phone: c.phone, website: c.website, relation });
+    if (manual) rows.push({ source: 'carte', ref: c.id, company: c.name, country: c.country, person: c.contact_name?.trim() || null, role: null, email: c.email?.trim().toLowerCase() || null, phone: c.phone, website: c.website, relation });
     for (const p of c.people ?? []) {
       if (!p?.name && !p?.email) continue;
-      rows.push({ source: 'carte', ref: c.id, company: c.name, country: c.country, person: p.name?.trim() || null, role: p.role?.trim() || null, email: p.email?.trim().toLowerCase() || null, phone: p.phone ?? null, website: c.website, relation });
+      // 27/11 : sur une fiche créée par une agente, seules les personnes AJOUTÉES PAR L'ÉQUIPE comptent (added_by) — avec
+      // leur note (« décisionnaire achats VO, vu au téléphone »), pour que les agentes s'y retrouvent en complétant la fiche.
+      if (!manual && !p.added_by) continue;
+      const note = p.note?.trim() ? ` — note de ${p.added_by ?? 'l\'équipe'} : ${p.note.trim()}` : (p.added_by ? ` — ajoutée par ${p.added_by}` : '');
+      rows.push({ source: 'carte', ref: c.id, company: c.name, country: c.country, person: p.name?.trim() || null, role: p.role?.trim() || null, email: p.email?.trim().toLowerCase() || null, phone: p.phone ?? null, website: c.website, relation: `${relation}${note}` });
     }
   }
 

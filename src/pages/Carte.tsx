@@ -19,7 +19,7 @@ import {
   ZoomIn, ZoomOut, Maximize2, Move, Loader2, Check, Car, ListChecks,
 } from 'lucide-react';
 import { useAuth } from '../services/auth';
-import { nameBrands } from '../lib/agents/campaignContacts';
+import { nameBrands, splitContactName } from '../lib/agents/campaignContacts';
 import { CAR_BRANDS } from '../lib/agents/brands';
 import { canSeeTab } from '../lib/appTabs';
 import { ShowcaseModal } from '../components/ShowcaseModal';
@@ -28,8 +28,7 @@ import { listLatestStockRuns, listRunningStockRuns, subscribeDealerScans, isDeal
 import {
   loadNetwork, saveContact, deleteContact, moveContact, saveContactModels, subscribeNetwork, contactMatchesQuery,
   KIND_LABEL, RELATION_LABEL, RELATION_SUGGESTIONS, RELATION_HELP, relationLevelOf, latestAgentThread, isAiContact, AI_SOURCE_LABEL,
-  type NetworkContact, type ContactInput, type ContactKind,
-} from '../services/network';
+  type NetworkContact, type ContactInput, type ContactKind, type NetworkContactPerson } from '../services/network';
 import { CITIES, COUNTRY_NAMES, COUNTRY_CENTROIDS, NETWORK_COUNTRIES, findCities, findCity } from '../data/cities';
 
 // ── Projection : conique conforme de Lambert (Europe) ────────────────────────
@@ -430,6 +429,25 @@ export function Carte() {
     setSelectedId(r.id);
     void reload();
   };
+  /** INTERLOCUTEUR PRINCIPAL (27/11, Channing : « pouvoir ajouter chaque décisionnaire comme personne de contact ») : une
+   *  personne de la fiche devient le contact principal (nom — rôle, e-mail, téléphone) ; l'ancien contact principal, s'il
+   *  était nommé, passe dans les autres interlocuteurs. Les relances groupées écrivent alors à cette personne. */
+  const promote = async (c: NetworkContact, p: NetworkContactPerson) => {
+    const { id, created_by: _cb, created_at: _ca, updated_at: _ua, models: _m, ...rest } = c; // eslint-disable-line @typescript-eslint/no-unused-vars
+    const prev = splitContactName(c.contact_name);
+    const others = (c.people ?? []).filter((x) => x !== p && !(x.email && p.email && x.email.toLowerCase() === p.email.toLowerCase()) && !(x.name && x.name.trim().toLowerCase() === p.name.trim().toLowerCase()));
+    const keepPrev = prev.person && prev.person.trim().toLowerCase() !== p.name.trim().toLowerCase() && !others.some((x) => x.name.trim().toLowerCase() === prev.person!.trim().toLowerCase());
+    const people: NetworkContactPerson[] = [
+      ...(keepPrev ? [{ name: prev.person!, role: prev.role ?? '', email: c.email && c.email.toLowerCase() !== p.email.toLowerCase() ? c.email : '', phone: c.phone && c.phone !== p.phone ? c.phone : '' }] : []),
+      ...others,
+    ];
+    setBusy(true);
+    const r = await saveContact({ ...rest, id, contact_name: p.role.trim() ? `${p.name.trim()} — ${p.role.trim()}` : p.name.trim(), email: p.email || c.email, phone: p.phone || c.phone, people }, userId);
+    setBusy(false);
+    if (r.error) { setFlash(r.error); return; }
+    setFlash(`${p.name} est maintenant l'interlocuteur principal.`);
+    void reload();
+  };
   const remove = async (c: NetworkContact) => {
     if (!confirm(`Supprimer « ${c.name} » de la carte ?`)) return;
     setBusy(true);
@@ -572,7 +590,7 @@ export function Carte() {
         {editing ? (
           <ContactForm value={editing} models={editModels} onChange={setEditing} onModels={setEditModels} onPlace={() => setPlacing('form')} onCancel={() => { setEditing(null); setPlacing(null); }} onSubmit={submit} busy={busy} />
         ) : selected ? (<>
-          <ContactDetail c={selected} canEdit={canEdit} busy={busy} onClose={() => setSelectedId(null)} onEdit={() => startEdit(selected)} onMove={() => setPlacing(selected.id)} onDelete={() => remove(selected)} onFilterBrand={(b) => { setQuery(b); setSelectedId(null); }} onShowcase={() => setShowcaseFor({ id: selected.id, name: selected.name, url: selected.website, url2: selected.website2 ?? null, country: selected.country, frequency: selected.stock_frequency ?? null, unreadable: selected.showcase_unreadable ?? null })} run={lastRuns.get(selected.id)} scanning={scanningIds.has(selected.id)} />
+          <ContactDetail c={selected} canEdit={canEdit} busy={busy} onClose={() => setSelectedId(null)} onEdit={() => startEdit(selected)} onMove={() => setPlacing(selected.id)} onDelete={() => remove(selected)} onFilterBrand={(b) => { setQuery(b); setSelectedId(null); }} onShowcase={() => setShowcaseFor({ id: selected.id, name: selected.name, url: selected.website, url2: selected.website2 ?? null, country: selected.country, frequency: selected.stock_frequency ?? null, unreadable: selected.showcase_unreadable ?? null })} run={lastRuns.get(selected.id)} scanning={scanningIds.has(selected.id)} onPromote={(p) => void promote(selected, p)} />
           {showcaseFor && <ShowcaseModal contactId={showcaseFor.id} name={showcaseFor.name} url={showcaseFor.url} url2={showcaseFor.url2 ?? null} country={showcaseFor.country} frequency={showcaseFor.frequency} unreadable={showcaseFor.unreadable} onClose={() => { setShowcaseFor(null); void reload(); }} />}
         </>) : (
           <>
@@ -786,8 +804,8 @@ function StockFigure({ c, run, chip, scanning }: { c: { stock_total: number | nu
   return null;
 }
 
-function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, onFilterBrand, onShowcase, run, scanning }: {
-  run?: LatestStockRun; scanning?: boolean;
+function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, onFilterBrand, onShowcase, run, scanning, onPromote }: {
+  run?: LatestStockRun; scanning?: boolean; onPromote: (p: NetworkContactPerson) => void;
   c: NetworkContact; canEdit: boolean; busy: boolean; onClose: () => void; onEdit: () => void; onMove: () => void; onDelete: () => void; onFilterBrand: (b: string) => void; onShowcase: () => void;
 }) {
   const rows: Array<[string, string]> = [
@@ -830,6 +848,11 @@ function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, on
                   <p className="text-slate-800 font-medium">{p.name || '—'}{p.role ? <span className="ml-1.5 text-xs font-normal text-slate-500">{p.role}</span> : null}</p>
                   {p.phone && <a href={`tel:${p.phone.replace(/\s/g, '')}`} className="flex items-center gap-2 text-brand-ocean hover:underline"><Phone className="w-4 h-4" /> {p.phone}</a>}
                   {p.email && <a href={`mailto:${p.email}`} className="flex items-center gap-2 text-brand-ocean hover:underline break-all"><Mail className="w-4 h-4 shrink-0" /> {p.email}</a>}
+                  {/* 27/11 : la note de l'équipe sur cette personne (lue aussi par les agentes), et « en faire l'interlocuteur principal ». */}
+                  {p.note && <p className="text-xs text-slate-600 italic">« {p.note} »{p.added_by ? <span className="not-italic text-slate-400"> — {p.added_by}</span> : null}</p>}
+                  {canEdit && (p.email || p.phone) && (
+                    <button onClick={() => onPromote(p)} disabled={busy} className="text-[11px] text-brand-ocean hover:underline disabled:opacity-50" title="Les relances groupées et les agentes écriront à cette personne">→ En faire l'interlocuteur principal</button>
+                  )}
                 </div>
               ))}
             </div>
@@ -894,6 +917,8 @@ function ContactForm({ value: v, models, onChange, onModels, onPlace, onCancel, 
   const suggestions = cityOpen ? findCities(cityQ, v.country) : [];
   const inp = 'w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-ocean/40';
   const label = 'block text-[11px] font-medium text-slate-500 mb-1';
+  const { displayName: myName, email: myEmail } = useAuth();
+  const addedBy = myName || myEmail || 'équipe';
   const countryOptions = [...NETWORK_COUNTRIES, ...Object.keys(COUNTRY_NAMES).filter((k) => !NETWORK_COUNTRIES.includes(k))];
   return (
     <div className="flex flex-col h-full">
@@ -960,7 +985,7 @@ function ContactForm({ value: v, models, onChange, onModels, onPlace, onCancel, 
         <div>
           <div className="flex items-center justify-between">
             <label className={label}>Autres interlocuteurs</label>
-            <button type="button" onClick={() => set({ people: [...(v.people ?? []), { name: '', role: '', phone: '', email: '' }] })} className="text-xs text-brand-ocean hover:underline">+ Ajouter une personne</button>
+            <button type="button" onClick={() => set({ people: [...(v.people ?? []), { name: '', role: '', phone: '', email: '', note: '', added_by: addedBy, added_at: new Date().toISOString() }] })} className="text-xs text-brand-ocean hover:underline">+ Ajouter une personne</button>
           </div>
           {(v.people ?? []).length === 0 && <p className="text-xs text-slate-400">Aucune autre personne. Le contact ci-dessus reste l'interlocuteur principal.</p>}
           <div className="space-y-1.5">
@@ -971,6 +996,8 @@ function ContactForm({ value: v, models, onChange, onModels, onPlace, onCancel, 
                 <input value={p.phone} onChange={(e) => set({ people: (v.people ?? []).map((x, j) => (j === i ? { ...x, phone: e.target.value } : x)) })} className={inp} placeholder="+31 …" />
                 <input type="email" value={p.email} onChange={(e) => set({ people: (v.people ?? []).map((x, j) => (j === i ? { ...x, email: e.target.value } : x)) })} className={inp} placeholder="email" />
                 <button type="button" onClick={() => set({ people: (v.people ?? []).filter((_, j) => j !== i) })} className="text-xs text-slate-400 hover:text-red-600 px-1" title="Retirer">✕</button>
+                {/* 27/11 : une note sur la personne, pour l'équipe ET les agentes (« décisionnaire achats VO, confirmé au téléphone ») — elle entre dans la mémoire d'équipe. */}
+                <input value={p.note ?? ''} onChange={(e) => set({ people: (v.people ?? []).map((x, j) => (j === i ? { ...x, note: e.target.value, added_by: x.added_by ?? addedBy, added_at: x.added_at ?? new Date().toISOString() } : x)) })} className={`${inp} col-span-4`} placeholder="Note pour l'équipe et les agentes : pourquoi cette personne (décisionnaire achats VO, vu au téléphone…)" />
               </div>
             ))}
           </div>

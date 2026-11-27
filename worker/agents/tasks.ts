@@ -61,6 +61,7 @@ import { deepResearch } from './deep';
 import { preparedThreads } from './prepared';
 import { draftReply } from './reply';
 import { reviseDraft } from './revise';
+import { rewriteGroupMail, type GroupMailParams } from './groupMail';
 import { targetedResearch, lotMail } from './targeted';
 import { runBench } from './bench';
 import { applyRightContact } from './rightContact';
@@ -117,6 +118,7 @@ function startLabel(t: Task): string {
     return `${k} fiche${k > 1 ? 's' : ''} à préparer`;
   }
   if (t.kind === 'premier_mail' && t.params.reecrire) return 'mail à corriger selon votre note';
+  if (t.kind === 'premier_mail' && t.params.relance_groupee) return (t.params.relance_groupee as { mode?: string }).mode === 'traduire' ? 'relance groupée de la Carte à traduire' : 'relance groupée de la Carte à réécrire selon votre note';
   if (t.kind === 'premier_mail' && t.params.reponse_a) return typeof t.params.note === 'string' && t.params.note.trim() ? 'réponse à un mail reçu, à préparer avec votre note' : 'réponse à un mail reçu, à préparer';
   if (t.kind === 'premier_mail') { const k = n(t.params.prospect_ids); return `${k} premier${k > 1 ? 's' : ''} mail${k > 1 ? 's' : ''} à écrire`; }
   if (t.kind === 'recherche_comptes' && typeof t.params.notes === 'string' && t.params.notes.trim()) return 'recherche ciblée, avec vos notes';
@@ -322,6 +324,15 @@ export async function runNextTask(): Promise<void> {
         await liveDone(t.id);
         await sb.from('agent_tasks').update({ status: 'terminee', result, finished_at: new Date().toISOString() }).eq('id', t.id);
         await journal({ agent: t.agent, actor: 'systeme', actorId: t.created_by, kind: 'campagne_carte_serie', summary, details: result });
+      } else if (t.kind === 'premier_mail' && t.params.relance_groupee) {
+        // 27/11 : la relance groupée de la Carte, réécrite ou traduite par l'agente (./groupMail.ts) — résultat dans la tâche, mail signé par la personne.
+        const a = await agentRow(t.agent);
+        if (!a) throw new Error('agente introuvable');
+        if (!aiConfigured()) throw new AiUnavailable(NO_KEY);
+        const result = await rewriteGroupMail(t.params.relance_groupee as GroupMailParams, typeof t.params.note === 'string' ? t.params.note : '', a, t.id);
+        await liveDone(t.id);
+        await sb.from('agent_tasks').update({ status: 'terminee', result, finished_at: new Date().toISOString() }).eq('id', t.id);
+        await journal({ agent: t.agent, actor: a.agent, actorId: t.created_by, kind: 'relance_groupee', summary: `${result.mode === 'traduire' ? 'Relance groupée traduite' : 'Relance groupée réécrite selon la note'} pour ${(t.params.relance_groupee as GroupMailParams).signataire ?? 'l\'équipe'} (${(t.params.relance_groupee as GroupMailParams).langue ?? 'fr'})${result.alertes.length ? ` — ${result.alertes.length} point(s) à vérifier` : ''}`, details: { cost_usd: result.cout_usd, note: typeof t.params.note === 'string' ? t.params.note : '' } });
       } else if (t.kind === 'premier_mail' && t.params.reecrire) {
         // 23/11 : la modification demandée à l'agente depuis Relire (./revise.ts) — le mail est remplacé en place.
         const a = await agentRow(t.agent);
