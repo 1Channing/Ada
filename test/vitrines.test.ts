@@ -1267,5 +1267,121 @@ console.log('\n=== SUZUKI PAYS-BAS (27/11) : PAGE « OCCASIONS » D\'UNE CONCESS
   ok(none === 'non reconnue' && fetched.filter((u) => u.startsWith(api)).length === before, 'Suzuki NL : sans n° de concession, page non reconnue et pas d\'appel à l\'API (jamais tout le réseau)', none);
 }
 
+console.log('\n=== SUZUKI BELGIQUE (27/11) : HOUMAN (allwheels), GSL (jetcards), VERCRUYSSEN (tcresults), BUTTIENS (webspark), MARVELLE, M. GENT, CARRECT, DAB, FAST CAR, DELFOSSE ===\n');
+{
+  const dsb = await import('../worker/dealerStock');
+  // Houman (All Wheels) : mensualité hors du prix, « Nieuw » = neuve, version qui répète le titre, identifiant de la photo.
+  const awCard = (id: string, slug: string, h2: string, desc: string, km: string, first: string, fuel: string, box: string, price: string) => `<div class="aw-vehicle"><div class="aw-vehicle-image"><a href="https://aw.test/voertuigen/${slug}/?from=%2Fstock-2dehands%2F"><img decoding="async" src="https://aw.test/wp-content/uploads/vehicle-images/${id}/0.jpeg" alt="${h2}"></a></div>
+    <a href="https://aw.test/voertuigen/${slug}/?from=%2Fstock-2dehands%2F"><h2>${h2}</h2><span class="description">${desc}</span></a>
+    <div class="aw-vehicle-meta"><span class="mileage">${km}</span> | <span class="mileage">${first}</span><br /><span>${fuel}</span> | <span>${box}</span></div>
+    <div class="bottom"><!-- <span class="price">Prijs: ${price} --><span class="price">${price}</span><br><small>Of € 312,70/maand</small></span></div></div>`;
+  pages['https://aw.test/stock-2dehands/'] = `<a class="wpc-filters-apply-button"><span class="wpc-filters-found-posts" data-wpc-total-found-posts="2">2</span></a>`
+    + awCard('11612', 'dacia-duster', 'Dacia Duster', '', '28275 km', '03/2022', 'Benzine', 'Automaat', '€ 18.495')
+    + awCard('9234', 'isuzu-d-max-x', 'Isuzu D-Max', 'Isuzu D-Max 2.2D V-Cross', '1 km', 'Nieuw', 'Diesel', 'Automaat', '€ 51.200');
+  ok(dsb.detectDealerProvider(pages['https://aw.test/stock-2dehands/']) === 'allwheels', 'Houman : cartes « aw-vehicle » de l\'extension All Wheels reconnues (allwheels)');
+  const aw = await dsb.fetchDealerStock('https://aw.test/stock-2dehands/');
+  const du = aw.vehicles.find((v) => v.external_id === '11612'), dm = aw.vehicles.find((v) => v.external_id === '9234');
+  ok(aw.vehicles.length === 2 && aw.declared === 2 && du?.price === 18495 && du?.km === 28275 && du?.year === 2022 && du?.fuel === 'Benzine' && du?.gearbox === 'Automatique'
+    && du?.url === 'https://aw.test/voertuigen/dacia-duster/' && dm?.body === 'neuve' && dm?.year == null && dm?.title === 'Isuzu D-Max 2.2D V-Cross' && dm?.price === 51200,
+    'Houman : prix sans la mensualité, km, 1re immatriculation, « Nieuw » = neuve, titre sans répétition, adresse sans « ?from= »', [du, dm]);
+
+  // GSL (JetEngine + Elementor) : pages par « ?jsf=jet-engine&pagenum=N », le pied de page n'est pas une voiture.
+  const jc = (id: string, slug: string, title: string, items: string[], price: string) => `<div class="jet-listing-grid__item jet-listing-dynamic-post-${id}" data-post-id="${id}"><div class="card-vehicule"><a href="https://gsl.test/vehicles/${slug}/"><img src="https://gsl.test/wp-content/uploads/2026/11/1280x960-${id}-1024x768.jpg" alt=""></a>
+    <h3 class="elementor-heading-title elementor-size-default"><a href="https://gsl.test/vehicles/${slug}/">${title}</a></h3><ul class="elementor-icon-list-items">${items.map((t) => `<li class="elementor-icon-list-item"><a href="https://gsl.test/vehicles/${slug}/"><span class="elementor-icon-list-icon"><svg viewBox="0 0 1 1"><path d="M0 0"></path></svg></span><span class="elementor-icon-list-text">${t}</span></a></li>`).join('')}</ul>
+    <a class="elementor-element" href="https://gsl.test/vehicles/${slug}/"><div class="elementor-element js-price elementor-widget"><div class="elementor-widget-container"><span class="elementor-heading-title elementor-size-default">${price}</span></div></div><div class="elementor-element tva_value elementor-widget"><div class="elementor-widget-container"><span class="elementor-heading-title elementor-size-default">TTC</span></div></div></a></div></div>`;
+  const state = (page: number) => `<script>var JetSmartFilterSettings = {"misc":{"url_type":"plain"},"props":{"jet-engine":{"default":{"found_posts":3,"max_num_pages":2,"page":${page}}}}};</script>`;
+  const footer = '<footer class="elementor-location-footer"><ul><li><span class="elementor-icon-list-text">Rue de Mons 502</span></li><li><span class="elementor-icon-list-text">2024</span></li></ul><span>13450€ TTC</span></footer>';
+  pages['https://gsl.test/nos-vehicules-occasion/'] = state(1) + jc('3167655', 'renault-twingo-5', 'Renault Twingo', ['71 ch ', '83194 km', 'Boîte manuelle', 'Berline', 'Essence', '2019'], '7495€')
+    + jc('3167653', 'fiat-500-2', 'Fiat 500', ['95 ch', '158750 km', 'Boîte automatique', 'Citadine', 'Diesel', '2010'], '2500€') + footer;
+  pages['https://gsl.test/nos-vehicules-occasion/?jsf=jet-engine&pagenum=2'] = state(2) + jc('3144319', 'citroen-c4-aircross', 'Citroën C4 Aircross', ['117 ch', '85536 km', 'Boîte manuelle', 'SUV/4x4/Pick-Up', 'Essence', '2013'], '9250€') + footer;
+  ok(dsb.detectDealerProvider(pages['https://gsl.test/nos-vehicules-occasion/']) === 'jetcards', 'GSL : cartes JetEngine à liste d\'icônes et prix « js-price » reconnues (jetcards)');
+  const gsl = await dsb.fetchDealerStock('https://gsl.test/nos-vehicules-occasion/');
+  const tw = gsl.vehicles.find((v) => v.external_id === '3167655'), c4 = gsl.vehicles.find((v) => v.external_id === '3144319');
+  ok(gsl.vehicles.length === 3 && gsl.declared === 3 && gsl.pages === 2 && tw?.power_ch === 71 && tw?.km === 83194 && tw?.gearbox === 'Manuelle' && tw?.body === 'Berline'
+    && tw?.fuel === 'Essence' && tw?.year === 2019 && tw?.price === 7495 && c4?.price === 9250 && c4?.year === 2013 && gsl.vehicles.every((v) => v.price !== 13450),
+    'GSL : 3 voitures sur 2 pages (« ?jsf=jet-engine&pagenum=2 »), puissance, km, boîte, carrosserie, énergie, année, prix ; le pied de page n\'est pas lu', [gsl.vehicles.length, gsl.pages, tw, gsl.warnings]);
+
+  // Vercruyssen (« tc_results ») : la carte donne prix, boîte, énergie ; la fiche donne km et année.
+  pages['https://tc.test/tweedehands/'] = `<div id="tc_results"><div class="row"><div class="car square cover"><div class="car-content d-flex"><div class="d-flex"><h2 class="me-auto my-auto">Mitsubishi</h2><span class="car-price my-auto me-0">€ 12.990</span></div><div class="d-flex"><h3 class="me-auto my-auto">ASX 1.6i 2WD Diamond Edition (EU6d-TEMP)</h3><div><span class="badge">Manueel</span><span class="badge badge-danger">Benzine</span></div></div></div><a href="/aanbod/5378495/mitsubishi-asx-1-6i" title="Bekijk details"></a></div></div></div>`;
+  ok(dsb.detectDealerProvider(pages['https://tc.test/tweedehands/']) === 'tcresults', 'Vercruyssen : bloc « tc_results » reconnu (tcresults)');
+  const tcr = await dsb.fetchDealerStock('https://tc.test/tweedehands/');
+  const asx = tcr.vehicles[0];
+  const tcd = dsb.readTcResultsDetail('<ul><li><span>Brandstof</span><span>Benzine</span></li><li><span>Kilometerstand</span><span>75.000 km</span></li><li><span>Bouwjaar</span><span>02/2019</span></li><li><span>Transmissie</span><span>Manueel</span></li></ul>');
+  ok(tcr.vehicles.length === 1 && asx?.external_id === '5378495' && asx?.url === 'https://tc.test/aanbod/5378495/mitsubishi-asx-1-6i' && asx?.price === 12990 && asx?.brand === 'Mitsubishi'
+    && asx?.gearbox === 'Manuelle' && asx?.fuel === 'Benzine' && tcd.km === 75000 && tcd.year === 2019 && tcd.gearbox === 'Manuelle' && DETAIL_READERS.tcresults?.fields.includes('km') === true,
+    'Vercruyssen : carte (prix, boîte, énergie) puis fiche pour km et année (lecteur de fiche « tcresults »)', [asx, tcd]);
+
+  // Buttiens (webspark, gabarit « vcard-extended ») : lieu, état, boîte, km, date, énergie en « extra--item », prix « € 31.000 ».
+  pages['https://bt.test/autos/tweedehands/'] = `<div class="card card--boxed card--theme-light vcard vcard--revolution vcard--status-free vcard--layout-block" data-id="706343"><div class="vcard-content"><div class="vcard-extended-main-info"><div class="vcard-extended-main-info--title ws-skeleton"><h2><a href="https://bt.test/autos/tweedehands/tienen/suzuki/jimny/benzine/1-5-gl-2pl-jim-21/706343/" class="vcard--link">Suzuki Jimny</a></h2><h3 class="text text__default">1.5 GL (2PL) JIM-21</h3></div>
+    <div class="vcard-extended-main-info--extra ws-skeleton">${['Tienen', 'Tweedehands', 'Manueel', '15.613 Km', '01/04/2024', 'Benzine'].map((t) => `<span class="vcard-extended-main-info--extra--item">${t}</span>`).join('')}</div></div></div>
+    <div class="vcard-price vcard-price__standard"><div class="vcard-price__price-with-vat"><div class="vcard-price__price text-offer bold">€ 31.000</div></div></div></div>`;
+  ok(dsb.detectDealerProvider(pages['https://bt.test/autos/tweedehands/']) === 'webspark', 'Buttiens : gabarit webspark « vcard-extended » reconnu (webspark)');
+  const bt = await dsb.fetchDealerStock('https://bt.test/autos/tweedehands/');
+  const ji = bt.vehicles[0];
+  ok(bt.vehicles.length === 1 && ji?.external_id === '706343' && ji?.title === 'Suzuki Jimny 1.5 GL (2PL) JIM-21' && ji?.price === 31000 && ji?.km === 15613 && ji?.year === 2024
+    && ji?.fuel === 'Benzine' && ji?.gearbox === 'Manuelle' && ji?.status == null, 'Buttiens : version, prix « € 31.000 », km, année, énergie, boîte (le lieu « Tienen » n\'est pas pris pour l\'énergie)', ji);
+
+  // Marvelle (Astro) : données en attributs data-*, boîte et version dans la carte.
+  pages['https://mv.test/vehicules/occasion/'] = `<p><span id="occasion-count">1</span> résultats</p><div id="occasion-grid"><div class="vehicle-result" data-brand="Citroën" data-model="C3 Aircross" data-fuel="Essence" data-year="2026" data-mileage-bracket="Moins de 5 000 km" data-price="20990" data-mileage="10"><article class="group"><a href="/vehicules/citroen-c3-aircross-473" class="relative"><img src="https://www.marvelle-occasions.be/data/cars/473/a.jpg" alt="x"></a><!-- commentaire --><p class="font-wide text-[24px] leading-6">Citroën C3 Aircross</p><p class="w-full truncate text-[16px]" title="Plus - 100 Ch">Plus - 100 Ch</p><p class="w-full font-wide">20 990 €</p><div class="grid"><span>10 km</span><span>Essence</span><span>Manuelle</span><span>02/2026</span></div></article></div></div>`;
+  ok(dsb.detectDealerProvider(pages['https://mv.test/vehicules/occasion/']) === 'vehicleresult', 'Marvelle : cartes « vehicle-result » reconnues (vehicleresult)');
+  const mv = await dsb.fetchDealerStock('https://mv.test/vehicules/occasion/');
+  const c3 = mv.vehicles[0];
+  ok(mv.vehicles.length === 1 && mv.declared === 1 && c3?.external_id === '473' && c3?.price === 20990 && c3?.km === 10 && c3?.year === 2026 && c3?.gearbox === 'Manuelle' && c3?.power_ch === 100
+    && c3?.brand === 'Citroën' && c3?.model === 'C3 Aircross', 'Marvelle : n° de la fiche, prix, km, année, boîte, puissance de la version', c3);
+
+  // M. Gent : données en attributs data-* ; « nieuw » = neuve.
+  pages['https://mg.test/aanbod'] = `<a class="car" href="/aanbod/suzuki-s-cross-tsuki-n03" data-cond="nieuw" data-brand="Suzuki" data-fuel="Hybride" data-tx="Manueel" data-price="25249" data-monthly="215" data-km="1" data-year="2026"><div class="car-img"><img src="https://img.test/n03.webp" alt="Suzuki S-Cross Tsuki"><span class="chip chip-new">Nieuw</span></div><div class="car-body"><h3>S-Cross Tsuki</h3><p class="car-ver">1.4 benzine/hybride 131 pk 48V 4x2 manueel</p></div></a>`
+    + `<a class="car" href="/aanbod/honda-cr-v-f25283" data-cond="tweedehands" data-brand="Honda" data-fuel="Hybride" data-tx="Automatisch" data-price="36900" data-monthly="" data-km="39320" data-year="2025"><div class="car-body"><h3>CR-V</h3><p class="car-ver">e:HEV 2.0 i-MMD</p></div></a>`;
+  ok(dsb.detectDealerProvider(pages['https://mg.test/aanbod']) === 'datacar', 'M. Gent : cartes « a.car » à attributs data-* reconnues (datacar)');
+  const mg = await dsb.fetchDealerStock('https://mg.test/aanbod');
+  const sc = mg.vehicles.find((v) => v.external_id === 'suzuki-s-cross-tsuki-n03'), cr = mg.vehicles.find((v) => v.external_id === 'honda-cr-v-f25283');
+  ok(mg.vehicles.length === 2 && sc?.body === 'neuve' && sc?.gearbox === 'Manuelle' && sc?.price === 25249 && sc?.power_ch === 131 && cr?.km === 39320 && cr?.gearbox === 'Automatique' && cr?.body == null
+    && cr?.title === 'Honda CR-V e:HEV 2.0 i-MMD', 'M. Gent : prix, km, année, boîte, puissance ; « nieuw » = neuve, occasion sans mention', [sc, cr]);
+
+  // Carrect (Yappa) : prix TVA comprise, pas la mensualité ; pages « ?page=N ».
+  const cp = (id: string, tag: string, brand: string, model: string, lines: string[], price: string) => `<section class="c-page-preview c-page-preview--vehicle"><div class="c-page-preview__holder" href="https://cr.test/nl/ons-aanbod/voertuig-detail?vehicle=${id}"><img src="data:image/gif;base64,R0l" class="lazy" data-src="https://cr.test/media/${id}.jpg" alt="x"></div><article class="c-page-preview__content"><div class="c-page-preview__tags"><span class="c-tag c-tag--white">${tag}</span></div><span class="u-margin-bottom-s u-text-small u-color--primary">${brand}</span><a class="h6 u-color--primary" href="https://cr.test/nl/ons-aanbod/voertuig-detail?vehicle=${id}">${model}</a>
+    ${lines.map((t) => `<div class="u-iconline u-iconline--small"><svg viewBox="0 0 1 1"><path d="M0 0"/></svg><div class="u-text-small u-color--tertiary">${t}</div></div>`).join('')}
+    <div class="o-col"><span class="u-text-medium u-text-bold u-color--secondary">${price}</span><span class="u-text-tiny">Incl. 21% BTW</span></div><div class="o-col"><span class="u-text-medium u-text-bold u-color--secondary">€ 367,98<span class="u-color--primary">*</span></span><span class="u-text-tiny">Maandbedrag met ballonkrediet</span></div></article></section>`;
+  pages['https://cr.test/nl/ons-aanbod'] = '<span class="u-text-small">3 resultaten</span><a href="/nl/ons-aanbod?page=2">2</a>' + cp('10574', 'Occasie', 'Mazda', '3', ['24/06/2026', '10 km', 'Benzine', 'Automaat'], '€ 31.854') + cp('10601', 'Nieuw', 'Kia', 'Niro', ['Benzine', 'Automaat'], 'ca. € 39.990');
+  pages['https://cr.test/nl/ons-aanbod?page=2'] = '<span class="u-text-small">3 resultaten</span>' + cp('10590', 'Occasie', 'Kia', 'Niro EV', ['1 km', 'Elektrisch', 'Automaat'], '€ 49.900');
+  ok(dsb.detectDealerProvider(pages['https://cr.test/nl/ons-aanbod']) === 'pagepreview', 'Carrect : cartes « c-page-preview--vehicle » reconnues (pagepreview)');
+  const cre = await dsb.fetchDealerStock('https://cr.test/nl/ons-aanbod');
+  const mz = cre.vehicles.find((v) => v.external_id === '10574'), ni = cre.vehicles.find((v) => v.external_id === '10601');
+  ok(cre.vehicles.length === 3 && cre.declared === 3 && cre.pages === 2 && mz?.price === 31854 && mz?.km === 10 && mz?.year === 2026 && mz?.fuel === 'Benzine' && mz?.gearbox === 'Automatique'
+    && ni?.body === 'neuve' && ni?.price === 39990, 'Carrect : prix TVA comprise (pas la mensualité « € 367,98 »), km, date, énergie, boîte, « Nieuw » = neuve, page 2 lue', [mz, ni, cre.warnings]);
+
+  // DAB (S-DATA) : microdonnées, « 107 kw / 146 pk », l'étiquette « Nieuw » de la photo n'est pas une neuve ; pages « /NL/stock/?p=N ».
+  const sd = (id: string, brand: string, model: string, ver: string, fuel: string, box: string, kw: string, km: string, first: string, price: string) => `<div class="col xl3"><a href="/nl/stock/detail/${brand}/${model}/${id}" class="card" itemprop="itemOffered" itemscope itemtype="http://schema.org/Car"><meta itemprop='url' content="/nl/stock/detail/${brand}/${model}/${id}" /><meta itemprop='brand' content="${brand}" /><div class="car-img"><img itemprop="image" src="/uploads/images/cars/big//${id}-01.jpg" alt="${brand} ${model}" /><div class="band new">Nieuw</div></div><div class="car-content"><h3><strong itemprop="name">${brand} ${model}</strong> </h3><h4>${ver}</h4><div class="specs"><span itemprop='fuelType'>${fuel}</span><span>${box}</span><span><span>${kw}</span></span><span>${km}</span><span itemprop ="emissionsCO2" content="107">107 g/km (WLTP)</span><span>${first}</span></div></div><div class="car-price "><div class="price-left"><span class="" itemprop="offers" itemscope itemtype="http://schema.org/Offer">€ <span itemprop='price' content='${price}'>x</span></span> <em>incl BTW</em></div></div></a>\n    </div>`;
+  pages['https://dab.test/nl/'] = `<script>$(document).ready(function () { $('.car-count').html(2); });</script><a href="/NL/stock/?p=2">2</a>` + sd('1583', 'Renault', 'Arkana', 'Techno E-Tech full hybrid 145', 'Elektrisch/Benzine', 'Automaat', '107 kw / 146 pk', '47 437 km', '07/2025', '22995,00');
+  // Page 2 réelle (27/11) : les liens des cartes portent « ?p=2 » (« /nl/stock/detail/Dacia/Sandero/1582?p=2 »).
+  pages['https://dab.test/NL/stock/?p=2'] = sd('1582', 'Dacia', 'Sandero', 'Stepway TCe 90', 'Benzine', 'Manueel', '67 kw / 91 pk', '12 010 km', '03/2024', '16450,00').replace(/(\/stock\/detail\/Dacia\/Sandero\/1582)"/g, '$1?p=2"');
+  ok(dsb.detectDealerProvider(pages['https://dab.test/nl/']) === 'sdatacars', 'DAB : cartes S-DATA en microdonnées schema.org/Car reconnues (sdatacars)');
+  const dab = await dsb.fetchDealerStock('https://dab.test/nl/');
+  const ar = dab.vehicles.find((v) => v.external_id === '1583'), sa = dab.vehicles.find((v) => v.external_id === '1582');
+  ok(dab.vehicles.length === 2 && dab.declared === 2 && ar?.price === 22995 && ar?.km === 47437 && ar?.year === 2025 && ar?.gearbox === 'Automatique' && ar?.power_ch === 146 && ar?.body == null
+    && ar?.fuel === 'Elektrisch/Benzine' && sa?.gearbox === 'Manuelle' && sa?.price === 16450 && sa?.url === 'https://dab.test/nl/stock/detail/Dacia/Sandero/1582',
+    'DAB : prix, km, date, boîte, puissance en ch, page « ?p=2 » (liens « …?p=2 » lus, adresse sans « ?p= ») ; « Nieuw » sur la photo n\'en fait pas une neuve', [ar, sa]);
+
+  // Fast Car (FacetWP) : « type_de_vehicule-n » = neuve, puissance en kW, pages « /page/N/ ».
+  const fw = (id: string, cls: string, slug: string, title: string, price: string, items: string[]) => `<div id="post-${id}" class="post post-${id} catalogue-voitures type-catalogue-voitures status-publish has-post-thumbnail hentry type_de_vehicule-${cls}"><div class="post-inner"><div class="post-image"><a class="featured-image" href="https://fc.test/catalogue-voitures/${slug}/"><img class="" src="https://fc.test/files/uploads/${id}.jpg" /></a></div><div class="post-header"><h2 class="post-title" itemprop="headline"><a href="https://fc.test/catalogue-voitures/${slug}/" rel="bookmark">${title}</a></h2><p class="price">${price}</p><p class="text-right"><span class="${cls === 'n' ? 'neuf' : 'occasion'}">${cls === 'n' ? 'Neuf' : 'Occasion'}</span></p><ul>${items.map((t) => `<li>${t}</li>`).join('')}</ul></div></div></div>`;
+  pages['https://fc.test/catalogue-voitures/'] = `<div class="facetwp-template"><!--fwp-loop-->` + fw('15560', 'o', 'isuzu-d-max-ls', 'ISUZU D-MAX LS EXPERIENCE', '22 990,00 € TTC', ['121035 km', '2018', 'Diesel', '120.0 kW']) + `</div><script>var FWP_JSON = {"preload_data":{"settings":{"pager":{"page":1,"per_page":1,"total_rows":2,"total_pages":2}}}};</script>`;
+  pages['https://fc.test/catalogue-voitures/page/2/'] = `<div class="facetwp-template">` + fw('15572', 'n', 'suzuki-across', 'SUZUKI ACROSS 2.5 AWD 7HYB ECVT', '54 900,00 € TTC', ['2026', 'Essence', '227 kW']) + '</div>';
+  ok(dsb.detectDealerProvider(pages['https://fc.test/catalogue-voitures/']) === 'fwpcatalog', 'Fast Car : contenus « catalogue-voitures » de FacetWP reconnus (fwpcatalog)');
+  const fc = await dsb.fetchDealerStock('https://fc.test/catalogue-voitures/');
+  const dmx = fc.vehicles.find((v) => v.external_id === '15560'), acr = fc.vehicles.find((v) => v.external_id === '15572');
+  ok(fc.vehicles.length === 2 && fc.declared === 2 && dmx?.price === 22990 && dmx?.km === 121035 && dmx?.year === 2018 && dmx?.fuel === 'Diesel' && dmx?.power_ch === 163 && dmx?.body == null
+    && acr?.body === 'neuve' && acr?.price === 54900 && acr?.km == null && acr?.brand === 'Suzuki', 'Fast Car : prix TTC, km, année, énergie, kW en ch, « Neuf » = neuve, page 2 lue', [dmx, acr]);
+
+  // Delfosse : « Vendue » à la place du prix = vendue ; photo absente (« noimage ») non gardée.
+  const dc = (id: string, slug: string, make: string, model: string, specs: string[], price: string) => `<div class="car-card"><a href="/fr/occasions/${id}/${slug}.html" class="car-image"><img src="/images/noimage.jpg" alt="x"></a><div class="car-body"><h3 class="car-title">${make}</h3><div class="car-model">${model}</div><div class="car-specs">${specs.map((t) => `<span title="${t}"><i class="fa fa-x"></i> ${t}</span>`).join('')}</div><div class="tva">&nbsp;</div><div class="car-footer"><div class="price">${price}</div><a href="/fr/occasions/${id}/${slug}.html" class="btn-details">Voir</a></div></div></div>`;
+  pages['https://df.test/fr/occasions/index.php'] = `<div class="occasions-grid">` + dc('79', 'suzuki-s-cross-1-4-glx', 'SUZUKI', 'S-CROSS 1.4 GLX', ['2020', '77859 km', 'ESSENCE/ELECTRIQUE', 'MANUELLE 6V'], '17 800 €')
+    + dc('64', 'suzuki-swift-1-2', 'SUZUKI', 'SWIFT 1.2', ['2019', '61000 km', 'ESSENCE', 'AUTOMATIQUE'], '<span class="sold-text">Vendue</span>') + '</div>';
+  ok(dsb.detectDealerProvider(pages['https://df.test/fr/occasions/index.php']) === 'carspecs', 'Delfosse : cartes « car-card » à « car-specs » reconnues (carspecs)');
+  const df = await dsb.fetchDealerStock('https://df.test/fr/occasions/index.php');
+  const sx = df.vehicles.find((v) => v.external_id === '79'), sw = df.vehicles.find((v) => v.external_id === '64');
+  ok(df.vehicles.length === 2 && sx?.price === 17800 && sx?.km === 77859 && sx?.year === 2020 && sx?.gearbox === 'Manuelle' && sx?.brand === 'Suzuki' && sx?.model === 'S-Cross' && sx?.image == null
+    && sw?.status === 'sold' && sw?.price == null && sw?.gearbox === 'Automatique', 'Delfosse : prix, km, année, boîte, marque et modèle lisibles ; « Vendue » = vendue (pas « prix sur demande »)', [sx, sw]);
+}
+
 console.log(`\n${fails === 0 ? 'Tout est bon.' : `${fails} échec(s).`}`);
 if (fails) process.exit(1);
