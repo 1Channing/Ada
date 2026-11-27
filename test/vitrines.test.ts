@@ -1308,8 +1308,8 @@ console.log('\n=== SUZUKI BELGIQUE (27/11) : HOUMAN (allwheels), GSL (jetcards),
   const asx = tcr.vehicles[0];
   const tcd = dsb.readTcResultsDetail('<ul><li><span>Brandstof</span><span>Benzine</span></li><li><span>Kilometerstand</span><span>75.000 km</span></li><li><span>Bouwjaar</span><span>02/2019</span></li><li><span>Transmissie</span><span>Manueel</span></li></ul>');
   ok(tcr.vehicles.length === 1 && asx?.external_id === '5378495' && asx?.url === 'https://tc.test/aanbod/5378495/mitsubishi-asx-1-6i' && asx?.price === 12990 && asx?.brand === 'Mitsubishi'
-    && asx?.gearbox === 'Manuelle' && asx?.fuel === 'Benzine' && tcd.km === 75000 && tcd.year === 2019 && tcd.gearbox === 'Manuelle' && DETAIL_READERS.tcresults?.fields.includes('km') === true,
-    'Vercruyssen : carte (prix, boîte, énergie) puis fiche pour km et année (lecteur de fiche « tcresults »)', [asx, tcd]);
+    && asx?.gearbox === 'Manuelle' && asx?.fuel === 'Benzine' && tcd.km === 75000 && tcd.year === 2019 && tcd.gearbox === 'Manuelle' && DETAIL_READERS.tcresults?.fields.includes('km') === true && DETAIL_READERS.tcresults?.max === 3,
+    'Vercruyssen : carte (prix, boîte, énergie) puis fiche pour km et année (lecteur de fiche « tcresults », 3 fiches par relevé : le site répond 429 au-delà)', [asx, tcd]);
 
   // Buttiens (webspark, gabarit « vcard-extended ») : lieu, état, boîte, km, date, énergie en « extra--item », prix « € 31.000 ».
   pages['https://bt.test/autos/tweedehands/'] = `<div class="card card--boxed card--theme-light vcard vcard--revolution vcard--status-free vcard--layout-block" data-id="706343"><div class="vcard-content"><div class="vcard-extended-main-info"><div class="vcard-extended-main-info--title ws-skeleton"><h2><a href="https://bt.test/autos/tweedehands/tienen/suzuki/jimny/benzine/1-5-gl-2pl-jim-21/706343/" class="vcard--link">Suzuki Jimny</a></h2><h3 class="text text__default">1.5 GL (2PL) JIM-21</h3></div>

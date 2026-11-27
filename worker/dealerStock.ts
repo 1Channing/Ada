@@ -8980,7 +8980,9 @@ export const DETAIL_READERS: Partial<Record<DealerProvider, DetailReader>> = {
   attityde: { fields: ['gearbox'], read: readGeartypeDetail },
   // jetbrugte (Haldrup, 26/11) : prix, km, année des voitures que la page ne montre pas (liste complète par l'API REST).
   jetbrugte: { fields: ['price', 'km', 'year', 'gearbox'], read: readJetBrugteDetail },
-  tcresults: { fields: ['km', 'year', 'fuel', 'gearbox'], read: readTcResultsDetail },
+  // Vercruyssen (27/11) : le site répond 429 dès la 4ᵉ requête rapprochée (liste + 3 fiches au premier relevé) → 3 fiches par
+  // relevé, nouvelles d'abord ; les autres se complètent aux relevés suivants (valeurs connues gardées en base).
+  tcresults: { fields: ['km', 'year', 'fuel', 'gearbox'], read: readTcResultsDetail, max: 3 },
 };
 
 /** Relève le stock d'une concession de la carte et le compare au relevé précédent. Avec `prefetched` (vitrine

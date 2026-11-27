@@ -315,3 +315,65 @@ Sans lecteur encore (Danemark, fiche en « off ») : Ejvind Nielsen (la page ne 
 Corrigé le même soir : Meiniche avait toutes ses voitures « vendues » depuis le 25/11 (son module marque « -1 » une voiture en vente) ; relue : 18 en vente, aucune vendue.
 
 Danemark : 17 vitrines relevées chaque nuit sur 23 fiches (Hyrup & Nielsen relevée au passage de rattrapage de 21 h 49 UTC). Toujours sans relevé : Autoleth (la suite de sa liste se charge avec un jeton de sécurité du site, non utilisé ; son API publique mêle 350 fiches, voitures supprimées comprises), Outzen (sa page de stock répond 403), Bilernes Hus Silkeborg (les pages couvrent toute la chaîne Nielsen Car Group) ; les trois autres sites de Jan Nygaard sont dans la vitrine du groupe (Birkerød). KOED (4 ateliers BMW) ne vend pas de voitures ; Bayern AutoGroup Sønderborg n'a aucune voiture sur bag.dk.
+
+**Suzuki Pays-Bas et Belgique, le 27/11** (Channing : « de la même manière, ajoute les concessions Suzuki avec leurs vitrines, et ajoute également en prospects les concessions pour lesquelles on a les contacts acheteurs ; attention, on a déjà quelques concessions Suzuki, on ne fait pas de doublons ; Belgique et Pays-Bas uniquement »). Recensement par les localisateurs officiels : 95 points actifs aux Pays-Bas (API publique de suzuki.nl), 69 en Belgique (API de suzuki.be). Premiers relevés en production le 27/11 entre 8 h 20 et 9 h UTC, par « Relever maintenant ».
+
+Pays-Bas : 63 fiches ajoutées (62 relevées chaque nuit). 28 points sont déjà couverts par six fiches de groupe : Louwman, Mengelers, Oostendorp, Zeeuw & Zeeuw, ADG et Bennie Wilmink. Quatre ateliers sans occasions ne sont pas ajoutés : Cupido, Westend, Van Acht et Ista.
+
+| Fiche(s) | Vitrine | Lecteur | Voitures au 1er relevé | Note |
+|---|---|---|---:|---|
+| 47 points sans vitrine lisible sur leur site | page « occasions » du point sur suzuki.nl (API publique de Suzuki, POST JSON sans clé) | suzukinl | 1 612 | 5 champs 100 % ; autres marques comprises |
+| Jacob Schaap Lelystad + Suzuki Botman Alkmaar | jacobschaap.nl/voorraad/occasions, tout le groupe | datamotive | 748 | vitrine partagée |
+| Versteeg Buurman ×4 | versteegbuurman.com/voorraad | gatsbyvehicles | 433 | neuves et occasions mêlées ; km 91 % |
+| Van der Boon ×2 | vdboon.nl/voorraad (occasions) | dtcvm | 209 | vitrine partagée ; le lieu de chaque voiture est lu |
+| Auto Luykx Heemstede | autoluykx.nl/voorraad | dtcvm | 113 | suzuki.nl n'en montre que 19 |
+| EJ Suzuki Hapert | ejsuzuki.nl/occasions | cartelcaw | 96 | le total affiché (20) est faux |
+| Autobedrijf Bogers Halsteren | autobedrijfbogers.nl/voorraad | dtcvm | 92 | — |
+| Reno ×2 | renoauto.nl/occasions | cartelcaw | 62 | vitrine partagée |
+| Auto Traa Nijmegen | auto-traa.nl/voorraad | dtcvm | 43 | prix 95 % |
+| CiTO Capelle aan den IJssel | citoautobedrijf.nl/voorraad (occasions) | dtcvm | 29 | — |
+
+Total : 56 vitrines, 3 437 voitures. Sans relevé : VARI Vlaardingen (0 voiture sur suzuki.nl, site illisible). Lus sur suzuki.nl en attendant mieux :
+- Auto Toonder et Arnold de Rijk : leur site est reconnu par le lecteur autodata, qui lit un jeton CSRF ; décision de Channing attendue.
+- Kees Balvert : son site se lit, mais sans prix.
+
+Fiches existantes corrigées :
+- ADG Groep : vitrine passée de la page d'accueil (jamais lue) à adggroep.nl/occasions (datamotive, 510 sur 510).
+- Bennie Wilmink : relevé réactivé en hebdomadaire, comme conseillé le 18/11 (245 sur 245).
+- Mengelers Automotive (Mengelers Suzuki Limburg) : relevé arrêté. Sa page d'accueil échouait chaque nuit, et ses occasions sont dans la vitrine de Mengelers Groep.
+
+Belgique : 67 fiches ajoutées (17 relevées chaque nuit). Les deux ateliers sans occasions (Ben Car, Incar Houffalize) ne sont pas ajoutés. Aucun doublon : la Carte n'avait que deux fiches belges, Ayvens et Van Mossel VW Skoda Dendermonde.
+
+| Fiche(s) | Vitrine | Lecteur | Voitures au 1er relevé | Note |
+|---|---|---|---:|---|
+| GSL Charleroi | gslmotors.be/nos-vehicules-occasion/ (VO du groupe GSL) | jetcards | 451 | 16 pages par « ?jsf=jet-engine&pagenum=N » ; 5 champs 100 % |
+| Carrect Strombeek | carrect.be/nl/ons-aanbod | pagepreview | 120 | neuves (Super Stock Car) et occasions mêlées, neuves marquées |
+| Garage Vander Straeten (DAB Groep) | stock.dabgroep.be/nl/ | sdatacars | 63 | 4 pages |
+| Van Mossel Groot-Bijgaarden + Zaventem | vanmossel.be/voorraad filtrée sur les deux sites Suzuki | datamotive | 57 | vitrine partagée |
+| Garage Marvelle Gembloux | marvelle.be/vehicules/occasion/ | vehicleresult | 48 | boîte 94 % |
+| Garage M. Gent Zwijnaarde | garagemgent.be/aanbod | datacar | 47 | dont 24 neuves |
+| Houman Hombeek + Rijmenam | houman.be/stock-2dehands/ | allwheels | 36 | vitrine partagée ; 17 neuves |
+| Garage Moyaert Kuurne | /autos/tweedehands/ | webspark | 35 | — |
+| Garage Schokkaert Ninove | /autos/tweedehands/ | webspark | 23 | — |
+| Garage Delfosse Philippeville | /fr/occasions/index.php | carspecs | 22 | dont 13 « Vendue » |
+| Garage Vercruyssen Sint-Pauwels | /tweedehands/ | tcresults | 17 | km et année sur les fiches, 3 par relevé (le site répond 429 au-delà) |
+| Fast Car La Louvière | /catalogue-voitures/ | fwpcatalog | 16 | boîte absente du site |
+| Buttiens Tienen | /autos/tweedehands/ | webspark (gabarit « vcard-extended ») | 10 | — |
+| Callens Oudenaarde, De Laet Boom | /autos/tweedehands/ | webspark | 4, 2 | — |
+
+Total : 15 vitrines, 951 voitures. Sans relevé, 50 fiches ; la raison est écrite dans chaque fiche.
+- **AutoScout24, place de marché, à décider par Channing** (9) : Belauto, Bolland, Dams, Huybs-Goossens, Mullens, Van Leendert ×2, Wattier, Wouters.
+- **Jeton, clé ou nonce, interdits** (7) :
+  - Di Nitto : lecteur autodata, jeton CSRF ;
+  - Beyers et VV Auto : StockListDealer, identifiant chiffré ;
+  - Hosten-Durnez : « showroom » GoCar, clé Meilisearch ;
+  - Sud Motor ×3 : nonce admin-ajax.
+- **Refus 403, respectés** (2) :
+  - Van den Broecke : la « stocklist » GoCar répond 403 au lecteur alors qu'un navigateur la voit ;
+  - SNAB Leuven : novoto.be.
+- **Injoignables** (6) : Aywaille, Boi (TLS), Miroux ×2 (Modix en HTTP seul), Silvano, L'Univers de l'Automobile.
+- **Lecteur à écrire** (1) : Croonen (DealerNexa). La page montre 9 voitures sur 24 ; la suite arrive par un appel « Meer resultaten » (Datastar).
+- **Trop petits ou vides** (7) : BW Motors (0 occasion), Defrancq (catégories seulement), ECC (environ 4 voitures), Gwijde (boutique One.com), Van de Peer (aucune voiture), Pierret (environ 3), Road Motor.
+- **Pas de stock en ligne** (18) : mini-site Suzuki seulement, ou site sans occasions.
+
+Non-régression des nouveaux détecteurs : la détection a été comparée avant et après sur les 6 714 pages enregistrées des missions précédentes. Aucune page ne change de lecteur. Trois sites italiens au gabarit webspark « vcard-extended » (Gruppo Rosati, Pongini Bibbi, Scotti Ugo), jusque-là non reconnus, se lisent désormais.
