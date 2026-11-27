@@ -254,9 +254,12 @@ function ClassicDailySearchesTab({ showWatches, organisation, isManager, isAdmin
     if (!b) { setTrimsSource([]); setTrimsTarget([]); return; }
     const m = editing?.model ?? '';
     let cancelled = false;
-    void listKnownTrims(b, m, editing?.source_country).then((t) => { if (!cancelled) setTrimsSource(t); });
-    void listKnownTrims(b, m, editing?.target_country).then((t) => { if (!cancelled) setTrimsTarget(t); });
-    return () => { cancelled = true; };
+    // 27/11 : 400 ms après la dernière frappe (chaque lettre du modèle lançait deux lectures de 1 à 2 s).
+    const t = window.setTimeout(() => {
+      void listKnownTrims(b, m, editing?.source_country).then((t) => { if (!cancelled) setTrimsSource(t); });
+      void listKnownTrims(b, m, editing?.target_country).then((t) => { if (!cancelled) setTrimsTarget(t); });
+    }, 400);
+    return () => { cancelled = true; window.clearTimeout(t); };
   }, [editing?.brand, editing?.model, editing?.source_country, editing?.target_country]);
 
   const submit = async (e: React.FormEvent) => {

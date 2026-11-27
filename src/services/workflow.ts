@@ -76,6 +76,11 @@ export async function listRefBrandModels(): Promise<{ brands: string[]; modelsBy
 export async function listKnownTrims(brand: string, model: string, country?: string): Promise<string[]> {
   const bk = brandKey(brand);
   const mk = canonKey(model);
+  // MODÈLE OBLIGATOIRE (27/11, plafond « finitions.observations » touché 4× sur TOYOTA sans modèle) : pour une marque
+  // seule, la RPC agrégée parcourt toute la marque (TOYOTA : ~10 s, au-delà du délai de la base) ; elle échouait, le
+  // repli lisait 10 000 observations, et la liste obtenue mélangeait les finitions de tous les modèles — inutile.
+  // Sans modèle : aucune lecture, aucune suggestion.
+  if (!mk) return [];
   // LE SEGMENT SEULEMENT (05/10, plafond « finitions.observations » touché) : l'ancienne lecture prenait les
   // observations de tout le pays (4 000 au plus) puis filtrait marque × modèle ici — des finitions manquaient.
   // La base filtre le segment (RPC mi_obs_for_segment, mêmes clés que le MI) ; la mémoire est pré-filtrée par

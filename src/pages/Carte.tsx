@@ -121,25 +121,38 @@ export function Carte() {
     setLoadError(r.error);
     setLoading(false);
   }, []);
-  useEffect(() => subscribeDealerScans(() => { scanTick((n) => n + 1); void reload(); }), [reload]);
-  // Relevé « running » en base sans suivi local : on relit toutes les 10 s jusqu'à sa fin.
+  // RELECTURES REGROUPÉES (27/11, « la carte rame un peu ») : chaque changement d'une fiche (le worker en touche une
+  // par relevé fini) et chaque événement de relevé relançaient la lecture COMPLÈTE (530 fiches, 1,2 Mo) ; pendant un
+  // relevé groupé, la page rechargeait tout en boucle. Désormais : une seule relecture, 1,5 s après le dernier
+  // événement ; et le suivi d'un relevé en cours ne relit que les relevés (quelques Ko), pas les fiches.
+  const reloadTimer = useRef<number | null>(null);
+  const scheduleReload = useCallback(() => {
+    if (reloadTimer.current != null) window.clearTimeout(reloadTimer.current);
+    reloadTimer.current = window.setTimeout(() => { reloadTimer.current = null; void reload(); }, 1500);
+  }, [reload]);
+  const refreshRuns = useCallback(async () => {
+    const [runs, running] = await Promise.all([listLatestStockRuns(), listRunningStockRuns()]);
+    setLastRuns(runs); setServerRunning(running);
+  }, []);
+  useEffect(() => subscribeDealerScans(() => { scanTick((n) => n + 1); scheduleReload(); }), [scheduleReload]);
+  // Relevé « running » en base sans suivi local : on relit les relevés toutes les 10 s jusqu'à sa fin.
   useEffect(() => {
     const pending = [...serverRunning.keys()].some((id) => !isDealerScanning(id));
     if (!pending) return;
-    const t = setInterval(() => { void reload(); }, 10_000);
+    const t = setInterval(() => { void refreshRuns(); }, 10_000);
     return () => clearInterval(t);
-  }, [serverRunning, reload]);
+  }, [serverRunning, refreshRuns]);
   const scanningIds = new Set<string>([...activeDealerScans().map((s) => s.contactId), ...serverRunning.keys()]);
   const queuedIds = new Set<string>(queuedDealerScans());
   // RELEVÉ GROUPÉ (13/10) : coche des vitrines dans la liste (filtrée par pays), un seul lancement.
   const [groupMode, setGroupMode] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
-  const togglePick = (id: string) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const togglePick = useCallback((id: string) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; }), []);
   useEffect(() => {
     void reload();
-    const off = subscribeNetwork(() => { void reload(); });
+    const off = subscribeNetwork(() => { scheduleReload(); });
     return off;
-  }, [reload]);
+  }, [reload, scheduleReload]);
   useEffect(() => {
     void import('../data/europe.json').then((m) => setGeo((m.default ?? m) as unknown as CountryGeo[]));
   }, []);
@@ -337,11 +350,16 @@ export function Carte() {
    * ligne, disparaissaient. Désormais : les marques écrites dans le nom de la fiche (« BMW / MINI (Denzel) »), plus
    * celles des lignes modèles. Comptes sous le filtre pays courant, liste alphabétique.
    */
+  // Marques d'une fiche, calculées UNE fois par objet contact (27/11) : le filtre et le compteur de marques les
+  // redemandaient pour les 500 fiches à chaque frappe ou changement de filtre.
+  const brandCache = useRef(new WeakMap<NetworkContact, string[]>());
   const brandsOfContact = useCallback((c: NetworkContact): string[] => {
+    const hit = brandCache.current.get(c);
+    if (hit) return hit;
     const out = new Set<string>();
     for (const b of nameBrands(c.name, CAR_BRANDS)) out.add(b.toUpperCase());
     for (const b of c.models.map((x) => x.brand.trim().toUpperCase()).filter(Boolean)) out.add(b);
-    return [...out];
+    const res = [...out]; brandCache.current.set(c, res); return res;
   }, []);
   const filtered = useMemo(() => contacts.filter((c) =>
     (!countryFilter || c.country === countryFilter)
@@ -427,6 +445,9 @@ export function Carte() {
     if (c.lat != null && c.lng != null) centerOn(c.lat, c.lng);
     else { const [la, ln] = COUNTRY_CENTROIDS[c.country] ?? [50, 10]; centerOn(la, ln, 3); }
   };
+  // Référence stable pour les lignes mémoïsées (selectContact change à chaque rendu).
+  const selectContactRef = useRef(selectContact); selectContactRef.current = selectContact;
+  const onRowSelect = useCallback((c: NetworkContact) => selectContactRef.current(c), []);
 
   // ── Rendu ──
   return (
@@ -647,28 +668,7 @@ export function Carte() {
             <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
               {filtered.length === 0 && !loading && <p className="text-sm text-slate-400 text-center py-10">Aucun contact ne correspond.</p>}
               {filtered.map((c) => (
-                <button key={c.id} onClick={() => (groupMode ? (c.website ? togglePick(c.id) : undefined) : selectContact(c))} className={`w-full text-left px-4 py-3 transition-colors ${groupMode && !c.website ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50'} ${groupMode && picked.has(c.id) ? 'bg-sky-50' : ''}`}>
-                  <div className="flex items-center gap-2">
-                    {groupMode && <input type="checkbox" readOnly checked={picked.has(c.id)} disabled={!c.website} aria-label={`Relever ${c.name}`} className="shrink-0" />}
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0 border border-white shadow" style={{ background: levelColor(c) }} />
-                    <span className="font-medium text-slate-900 truncate">{c.name}</span>
-                    {isAiContact(c) && <span title="Ajouté par une agente IA" className="text-[10px] font-medium rounded-full px-1.5 py-0.5 bg-violet-50 text-violet-700 border border-violet-200 shrink-0">{AI_SOURCE_LABEL[c.source as 'ada' | 'dana']}</span>}
-                    {levelOf(c) && <span title={RELATION_HELP[levelOf(c)!]} className="ml-auto text-[10px] font-semibold uppercase tracking-wide rounded-full px-1.5 py-0.5 text-white shrink-0" style={{ background: RELATION_COLOR[levelOf(c)!] ?? '#64748b' }}>{RELATION_LABEL[levelOf(c)!]}</span>}
-                  </div>
-                  <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
-                    <span>{FLAG[c.country] ?? ''} {c.city ?? <em className="text-amber-600 not-italic">à placer</em>}</span>
-                    <span>·</span><span>{KIND_LABEL[c.kind]}</span>
-                    <StockFigure c={c} run={lastRuns.get(c.id)} scanning={scanningIds.has(c.id)} />
-                    {queuedIds.has(c.id) && <><span>·</span><span className="text-slate-500" title="Dans la file du relevé groupé : part dès qu'une place se libère (deux à la fois)">en attente</span></>}
-                    {/* StockFigure rend « · n relevés le jj/mm » ou « · n déclarés », rien sans donnée. */}
-                  </div>
-                  {c.models.length > 0 && (
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {c.models.slice(0, 5).map((m) => <span key={m.id} className="text-[10px] bg-slate-100 text-slate-600 rounded px-1.5 py-0.5">{titleCase(m.brand)}{m.model ? ` ${titleCase(m.model)}` : ''}{m.qty != null ? ` · ${m.qty}` : ''}</span>)}
-                      {c.models.length > 5 && <span className="text-[10px] text-slate-400">+{c.models.length - 5}</span>}
-                    </div>
-                  )}
-                </button>
+                <ContactRow key={c.id} c={c} groupMode={groupMode} picked={groupMode && picked.has(c.id)} scanning={scanningIds.has(c.id)} queued={queuedIds.has(c.id)} run={lastRuns.get(c.id)} onSelect={onRowSelect} onToggle={togglePick} />
               ))}
             </div>
           </>
@@ -679,6 +679,37 @@ export function Carte() {
   );
 }
 
+/** LIGNE DE LA LISTE (27/11, « la carte rame un peu ») : mémoïsée — un geste sur la carte, un survol de pays ou un
+ *  relevé qui avance ne re-rend plus les 500 lignes ; seules celles dont une donnée change se redessinent. */
+const ContactRow = memo(function ContactRow({ c, groupMode, picked, scanning, queued, run, onSelect, onToggle }: {
+  c: NetworkContact; groupMode: boolean; picked: boolean; scanning: boolean; queued: boolean; run: LatestStockRun | undefined;
+  onSelect: (c: NetworkContact) => void; onToggle: (id: string) => void;
+}) {
+  return (
+            <button onClick={() => (groupMode ? (c.website ? onToggle(c.id) : undefined) : onSelect(c))} className={`w-full text-left px-4 py-3 transition-colors ${groupMode && !c.website ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50'} ${groupMode && picked ? 'bg-sky-50' : ''}`}>
+              <div className="flex items-center gap-2">
+                {groupMode && <input type="checkbox" readOnly checked={picked} disabled={!c.website} aria-label={`Relever ${c.name}`} className="shrink-0" />}
+                <span className="w-2.5 h-2.5 rounded-full shrink-0 border border-white shadow" style={{ background: levelColor(c) }} />
+                <span className="font-medium text-slate-900 truncate">{c.name}</span>
+                {isAiContact(c) && <span title="Ajouté par une agente IA" className="text-[10px] font-medium rounded-full px-1.5 py-0.5 bg-violet-50 text-violet-700 border border-violet-200 shrink-0">{AI_SOURCE_LABEL[c.source as 'ada' | 'dana']}</span>}
+                {levelOf(c) && <span title={RELATION_HELP[levelOf(c)!]} className="ml-auto text-[10px] font-semibold uppercase tracking-wide rounded-full px-1.5 py-0.5 text-white shrink-0" style={{ background: RELATION_COLOR[levelOf(c)!] ?? '#64748b' }}>{RELATION_LABEL[levelOf(c)!]}</span>}
+              </div>
+              <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                <span>{FLAG[c.country] ?? ''} {c.city ?? <em className="text-amber-600 not-italic">à placer</em>}</span>
+                <span>·</span><span>{KIND_LABEL[c.kind]}</span>
+                <StockFigure c={c} run={run} scanning={scanning} />
+                {queued && <><span>·</span><span className="text-slate-500" title="Dans la file du relevé groupé : part dès qu'une place se libère (deux à la fois)">en attente</span></>}
+                {/* StockFigure rend « · n relevés le jj/mm » ou « · n déclarés », rien sans donnée. */}
+              </div>
+              {c.models.length > 0 && (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {c.models.slice(0, 5).map((m) => <span key={m.id} className="text-[10px] bg-slate-100 text-slate-600 rounded px-1.5 py-0.5">{titleCase(m.brand)}{m.model ? ` ${titleCase(m.model)}` : ''}{m.qty != null ? ` · ${m.qty}` : ''}</span>)}
+                  {c.models.length > 5 && <span className="text-[10px] text-slate-400">+{c.models.length - 5}</span>}
+                </div>
+              )}
+            </button>
+  );
+});
 // ── Couche des pays : FIGÉE (React.memo) — ne se re-rend qu'au changement du
 // pays filtré ; survol en CSS, épaisseur de trait en pixels écran quel que
 // soit le zoom (vector-effect), plus d'ombre portée GPU sur 250 Ko de tracés.
