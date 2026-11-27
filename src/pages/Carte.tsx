@@ -14,16 +14,15 @@
  * Édition : droit « carte:edition » (Équipe) — la base refuse sans lui.
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  MapPin, Plus, Search, Pencil, Trash2, Crosshair, ExternalLink, Phone, Mail, X,
-  ZoomIn, ZoomOut, Maximize2, Move, Loader2, Check, Car, ListChecks,
-} from 'lucide-react';
+import { MapPin, Plus, Search, Pencil, Trash2, Crosshair, ExternalLink, Phone, Mail, X, ZoomIn, ZoomOut, Maximize2, Move, Loader2, Check, Car, ListChecks, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../services/auth';
 import { nameBrands, splitContactName } from '../lib/agents/campaignContacts';
 import { CAR_BRANDS } from '../lib/agents/brands';
 import { canSeeTab } from '../lib/appTabs';
 import { ShowcaseModal } from '../components/ShowcaseModal';
 import { GroupMailModal } from '../components/GroupMailModal';
+import { recipientOptions } from '../lib/network/recipients';
+import { listContactEmails } from '../services/dossierEmails';
 import { listLatestStockRuns, listRunningStockRuns, subscribeDealerScans, isDealerScanning, activeDealerScans, queueDealerScans, queuedDealerScans, cancelQueuedDealerScans, type LatestStockRun } from '../services/dealerStock';
 import {
   loadNetwork, saveContact, deleteContact, moveContact, saveContactModels, subscribeNetwork, contactMatchesQuery,
@@ -91,6 +90,8 @@ export function Carte() {
   const [kindFilter, setKindFilter] = useState<ContactKind | null>(null);
   const [brandFilter, setBrandFilter] = useState<string | null>(null);
   const [mailOpen, setMailOpen] = useState(false);
+  // E-mail depuis la fiche (27/11) : la même fenêtre, pour une seule fiche.
+  const [mailFor, setMailFor] = useState<NetworkContact | null>(null);
   const [countryFilter, setCountryFilter] = useState<string | null>(null);
   const [relationFilter, setRelationFilter] = useState<string | null>(null);
   // Contacts ajoutés par Ada et Dana (16/10) : un filtre, et un badge « IA » sur chaque ligne.
@@ -590,7 +591,7 @@ export function Carte() {
         {editing ? (
           <ContactForm value={editing} models={editModels} onChange={setEditing} onModels={setEditModels} onPlace={() => setPlacing('form')} onCancel={() => { setEditing(null); setPlacing(null); }} onSubmit={submit} busy={busy} />
         ) : selected ? (<>
-          <ContactDetail c={selected} canEdit={canEdit} busy={busy} onClose={() => setSelectedId(null)} onEdit={() => startEdit(selected)} onMove={() => setPlacing(selected.id)} onDelete={() => remove(selected)} onFilterBrand={(b) => { setQuery(b); setSelectedId(null); }} onShowcase={() => setShowcaseFor({ id: selected.id, name: selected.name, url: selected.website, url2: selected.website2 ?? null, country: selected.country, frequency: selected.stock_frequency ?? null, unreadable: selected.showcase_unreadable ?? null })} run={lastRuns.get(selected.id)} scanning={scanningIds.has(selected.id)} onPromote={(p) => void promote(selected, p)} />
+          <ContactDetail c={selected} canEdit={canEdit} busy={busy} onClose={() => setSelectedId(null)} onEdit={() => startEdit(selected)} onMove={() => setPlacing(selected.id)} onDelete={() => remove(selected)} onFilterBrand={(b) => { setQuery(b); setSelectedId(null); }} onShowcase={() => setShowcaseFor({ id: selected.id, name: selected.name, url: selected.website, url2: selected.website2 ?? null, country: selected.country, frequency: selected.stock_frequency ?? null, unreadable: selected.showcase_unreadable ?? null })} run={lastRuns.get(selected.id)} scanning={scanningIds.has(selected.id)} onPromote={(p) => void promote(selected, p)} onMail={() => setMailFor(selected)} />
           {showcaseFor && <ShowcaseModal contactId={showcaseFor.id} name={showcaseFor.name} url={showcaseFor.url} url2={showcaseFor.url2 ?? null} country={showcaseFor.country} frequency={showcaseFor.frequency} unreadable={showcaseFor.unreadable} onClose={() => { setShowcaseFor(null); void reload(); }} />}
         </>) : (
           <>
@@ -693,6 +694,7 @@ export function Carte() {
         )}
       </aside>
       {mailOpen && <GroupMailModal contacts={filtered} scope={scopeLabel} onClose={() => setMailOpen(false)} />}
+      {mailFor && <GroupMailModal contacts={[mailFor]} scope={`${mailFor.name} · ${COUNTRY_NAMES[mailFor.country] ?? mailFor.country}`} onClose={() => setMailFor(null)} />}
     </div>
   );
 }
@@ -804,8 +806,37 @@ function StockFigure({ c, run, chip, scanning }: { c: { stock_total: number | nu
   return null;
 }
 
-function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, onFilterBrand, onShowcase, run, scanning, onPromote }: {
-  run?: LatestStockRun; scanning?: boolean; onPromote: (p: NetworkContactPerson) => void;
+/** E-MAILS PARTIS DEPUIS LA CARTE VERS CETTE FICHE (27/11) : objet, statut, date — relus toutes les 10 s tant qu'un envoi est en file. */
+function SentMails({ contactId }: { contactId: string }) {
+  const [rows, setRows] = useState<Awaited<ReturnType<typeof listContactEmails>>>([]);
+  useEffect(() => {
+    let alive = true;
+    const load = () => { void listContactEmails(contactId).then((r) => { if (alive) setRows(r); }); };
+    load();
+    const t = setInterval(() => { if (rows.some((r) => r.status === 'queued' || r.status === 'sending')) load(); }, 10_000);
+    const off = subscribeNetwork(() => load());
+    return () => { alive = false; clearInterval(t); off(); };
+  }, [contactId]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (rows.length === 0) return null;
+  return (
+    <div className="border-t border-slate-100 pt-2">
+      <p className="text-[11px] font-medium text-slate-500 mb-1">E-mails envoyés depuis la Carte</p>
+      <ul className="space-y-1 text-xs">
+        {rows.map((r) => (
+          <li key={r.id} className="flex items-center gap-2">
+            {r.status === 'sent' ? <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> : r.status === 'failed' ? <AlertTriangle className="w-3.5 h-3.5 text-red-600 shrink-0" /> : <Loader2 className="w-3.5 h-3.5 text-slate-400 animate-spin shrink-0" />}
+            <span className="text-slate-500 shrink-0">{new Date(r.sent_at ?? r.created_at).toLocaleDateString('fr-FR')}</span>
+            <span className="text-slate-800 truncate" title={`${r.subject} → ${r.to_email}${r.sender_name ? ` (${r.sender_name})` : ''}`}>{r.subject}</span>
+            <span className="ml-auto text-slate-400 shrink-0 truncate max-w-[140px]">{r.status === 'failed' ? `échec : ${r.error ?? ''}` : r.to_email}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, onFilterBrand, onShowcase, run, scanning, onPromote, onMail }: {
+  run?: LatestStockRun; scanning?: boolean; onPromote: (p: NetworkContactPerson) => void; onMail: () => void;
   c: NetworkContact; canEdit: boolean; busy: boolean; onClose: () => void; onEdit: () => void; onMove: () => void; onDelete: () => void; onFilterBrand: (b: string) => void; onShowcase: () => void;
 }) {
   const rows: Array<[string, string]> = [
@@ -864,6 +895,8 @@ function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, on
                 qui a bougé depuis le dernier relevé (vélocité, propositions). */}
             {/* VITRINE (03/11, Channing) : une seule fenêtre — stock relevé, comparer, analyse, relevés, marché en direct. */}
             <button onClick={onShowcase} className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-brand-ocean bg-white hover:bg-blue-50 text-brand-ocean" title="Stock relevé, comparaison avec nos ventes et nos offres, analyse, relevés, marché en direct"><Car className="w-3.5 h-3.5" /> Vitrine</button>
+            {/* E-MAIL DEPUIS LA FICHE (27/11) : mail type, langue, thème, Dana, PDF — au décisionnaire de la fiche. */}
+            <button onClick={onMail} disabled={recipientOptions(c).length === 0} className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-brand-ocean bg-white hover:bg-blue-50 text-brand-ocean disabled:opacity-50 disabled:cursor-not-allowed" title={recipientOptions(c).length ? `Écrire à ${recipientOptions(c)[0].label}` : 'Aucune adresse e-mail sur cette fiche : ajoute-la (Modifier) ou une personne avec son adresse'}><Mail className="w-3.5 h-3.5" /> E-mail</button>
           </div>
         </div>
         {rows.length > 0 && (
@@ -892,6 +925,7 @@ function ContactDetail({ c, canEdit, busy, onClose, onEdit, onMove, onDelete, on
             </div>
           </div>
         )}
+        <SentMails contactId={c.id} />
         <p className="text-[10px] text-slate-400">Mis à jour le {new Date(c.updated_at).toLocaleDateString('fr-FR')}</p>
       </div>
       {canEdit && (

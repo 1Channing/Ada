@@ -37,7 +37,9 @@ function defaultLang(kind: ContactKind, members: NetworkContact[]): MailLang {
   return langs.size === 1 ? [...langs][0] : 'en';
 }
 
+/** 27/11 (Channing : « envoyer un mail de prospection directement depuis la fiche client ») : la même fenêtre, pour une seule fiche. */
 export function GroupMailModal({ contacts, scope, onClose }: { contacts: NetworkContact[]; scope: string; onClose: () => void }) {
+  const single = contacts.length === 1 ? contacts[0] : null;
   const { userId, email, displayName } = useAuth();
   // DESTINATAIRE = LE DÉCISIONNAIRE (27/11) : parmi l'adresse de la fiche et ses personnes, l'acheteur VO d'abord, puis le
   // responsable, puis l'interlocuteur principal ; l'adresse générale en repli ; jamais un vendeur d'office. Changeable par fiche.
@@ -137,7 +139,7 @@ export function GroupMailModal({ contacts, scope, onClose }: { contacts: Network
     if (recipients.length === 0) { setError('Aucun destinataire coché.'); return; }
     if (missing.length) { setError(`Il manque l'objet ou le texte pour : ${missing.map((k) => KIND_LABEL[k]).join(', ')}.`); return; }
     const pj = files.length ? ` avec ${files.length} PDF joint${files.length > 1 ? 's' : ''}` : '';
-    if (!confirm(`Envoyer ${recipients.length} e-mail${recipients.length > 1 ? 's' : ''} séparés, un par destinataire${pj}, depuis ${email} ?`)) return;
+    if (!confirm(single ? `Envoyer cet e-mail à ${recipientOf(single)?.email ?? ''}${pj}, depuis ${email} ?` : `Envoyer ${recipients.length} e-mail${recipients.length > 1 ? 's' : ''} séparés, un par destinataire${pj}, depuis ${email} ?`)) return;
     setSending(true); setError(null);
     const batchId = crypto.randomUUID();
     // Les PDF d'abord : un dépôt raté = rien d'envoyé (jamais un mail sans sa pièce).
@@ -170,7 +172,7 @@ export function GroupMailModal({ contacts, scope, onClose }: { contacts: Network
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between px-5 py-4 border-b border-slate-200">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2"><Mail className="w-5 h-5 text-brand-ocean" /> Relance groupée</h2>
+            <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2"><Mail className="w-5 h-5 text-brand-ocean" /> {single ? `E-mail à ${single.name}` : 'Relance groupée'}</h2>
             <p className="text-xs text-slate-500 mt-0.5">{scope} · {withMail.length} contact{withMail.length > 1 ? 's' : ''} avec une adresse{contacts.length > withMail.length ? ` (${contacts.length - withMail.length} sans adresse, hors envoi)` : ''}. <span className="font-medium text-slate-700">Un e-mail séparé par destinataire : personne ne voit les autres</span> (ni en copie, ni en Cci — chaque message n'a qu'une adresse). Expéditeur : <span className="font-medium text-slate-700">{email ?? '—'}</span> (le compte connecté, vérifié par le serveur). Ta signature (image de Mon compte, et signature Gmail) est ajoutée sous chaque e-mail.</p>
           </div>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100 text-slate-500"><X className="w-5 h-5" /></button>

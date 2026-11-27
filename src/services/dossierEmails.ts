@@ -82,6 +82,12 @@ export async function getDossierEmailStatus(id: string): Promise<{ status: strin
   return (data as { status: string; error: string | null; sent_at: string | null } | null) ?? null;
 }
 
+/** E-MAILS PARTIS VERS UNE FICHE DE LA CARTE (27/11, mail depuis la fiche) : objet, statut, date — relus sur la fiche. */
+export async function listContactEmails(contactId: string): Promise<Array<{ id: string; to_email: string; subject: string; status: string; error: string | null; sent_at: string | null; created_at: string; sender_name: string | null }>> {
+  const { data } = await untyped.from('dossier_emails').select('id, to_email, subject, status, error, sent_at, created_at, sender_name').eq('contact_id', contactId).order('created_at', { ascending: false }).limit(30);
+  return (data ?? []) as Array<{ id: string; to_email: string; subject: string; status: string; error: string | null; sent_at: string | null; created_at: string; sender_name: string | null }>;
+}
+
 /** Les envois d'une relance groupée (statut par destinataire). */
 export async function listBatchEmails(batchId: string): Promise<Array<{ id: string; to_email: string; status: string; error: string | null; sent_at: string | null }>> {
   const { data } = await untyped.from('dossier_emails').select('id, to_email, status, error, sent_at').eq('batch_id', batchId).order('created_at');
