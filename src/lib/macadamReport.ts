@@ -140,7 +140,45 @@ type L = { text: string; frags: Array<{ x: number; s: string }> };
 const asLines = (input: FycLine[]): L[] => input.map((l) => (typeof l === 'string' ? { text: l.trim(), frags: [] } : { text: l.text.trim(), frags: (l.frags ?? []).map((f) => ({ x: f.x, s: f.s.trim() })).filter((f) => f.s) })).filter((l) => l.text);
 const NOISE = /Rapport de Remarketing de MACADAM|portal\.macadam\.eu/i;
 
-export const isMacadamRemarketing = (input: FycLine[]): boolean => asLines(input).slice(0, 6).some((l) => /Rapport de Remarketing de MACADAM/i.test(l.text));
+/** Le même rapport, EXPORTÉ EN PDF IMAGE (27/11, BMW iX3 WBY41DU060SA31436 « ix3_n2.pdf ») : aucune couche texte, pas
+ *  d'en-tête « Rapport de Remarketing de MACADAM », le titre est le modèle (« BMW X ») ; le FYC passe par l'OCR et les
+ *  lignes arrivent mot à mot. On reconnaît donc la MISE EN PAGE (« Information véhicule » en tête, puis « Résumé des
+ *  dommages » / « Options selon l'inspecteur » / « Dommages » / « Pneus » / « Contrôles »), pas l'en-tête. */
+export const isMacadamRemarketing = (input: FycLine[]): boolean => {
+  const lines = asLines(input);
+  if (lines.slice(0, 6).some((l) => /Rapport de Remarketing de MACADAM/i.test(l.text))) return true;
+  const head = lines.slice(0, 12).some((l) => INFO_H.test(l.text));
+  const sections = lines.filter((l) => SUMMARY_H.test(l.text) || OPTIONS_H.test(l.text) || CONTROLS_H.test(l.text)).length;
+  return head && sections >= 2 && lines.some((l) => /^(NIV|Plaque d'immatriculation)\s*:?/i.test(l.text) || l.frags.some((f) => /^(NIV|Plaque):?$/i.test(f.s)));
+};
+
+/** L'OCR perd des accents (« Controles », « Cable de charge », « Arriére ») : chaque lettre accentuée des libellés
+ *  attendus accepte sa forme nue. */
+const tol = (s: string): string => s.replace(/[éèêë]/g, '[éèêëe]').replace(/[àâ]/g, '[àâa]').replace(/ô/g, '[ôo]').replace(/î/g, '[îi]').replace(/û/g, '[ûu]').replace(/ç/g, '[çc]');
+const H = (label: string): RegExp => new RegExp(`^${tol(label)}$`, 'i');
+const INFO_H = H('Information véhicule');
+const SUMMARY_H = new RegExp(`^(${tol('Résumé des dommages')}|Photos commerciales)$`, 'i');
+const OPTIONS_H = H("Options selon l'inspecteur");
+const CONTROLS_H = H('Contrôles');
+const TYRES_H = H('Pneus');
+const DAMAGES_H = H('Dommages');
+const FOOTER_H = new RegExp(`^${tol('Informations sur le contenu')}`, 'i');
+/** Lignes OCR issues des PHOTOS (bruit : « = = Jl à, 183 CW A », « » rr ») : moins de 60 % de lettres, ou aucun mot
+ *  de trois lettres. Les vraies lignes du rapport sont des libellés. */
+const isNoise = (t: string): boolean => {
+  const letters = (t.match(/\p{L}/gu) ?? []).length;
+  if (letters === 0) return true;
+  if (!/\p{L}{3}/u.test(t)) return true;
+  return letters / t.replace(/\s/g, '').length < 0.6;
+};
+/** Libellés de la fiche « Information véhicule » (les deux colonnes), avec ou sans deux-points, en une ou plusieurs frags. */
+const INFO_LABEL_LIST = ['Marque', 'Boîte de vitesses', 'Modèle', 'Type de carburant', 'Version', 'Kilométrage', "Plaque d'immatriculation", 'Couleur de la carrosserie', 'NIV', 'Puissance', 'Première immatriculation', 'Nombre de portes'];
+const INFO_LABELS = new RegExp(`^(${INFO_LABEL_LIST.map(tol).join('|')})\\s*:?\\s*(.*)$`, 'i');
+const canonical = (list: string[], got: string): string => list.find((l) => H(l).test(got)) ?? got;
+/** Libellés connus de la section « Contrôles » (deux colonnes, valeurs collées aux libellés en OCR). */
+const CONTROL_LABELS = ['Câble de charge', 'Catégorie', 'Certificat immatriculation \\(original\\)', 'Certificat d\'immatriculation', 'Moteur fonctionnant', 'Nbre clés total', 'Nbre clés télécommandes', 'Nombre appuis-têtes', 'Réinitialisation des paramètres d\'usine', 'Cache bagages', 'Cric', 'Carnet d\'entretien', 'Kit anti-crevaison', 'Roue de secours', 'Tapis de sol', 'Triangle', 'Gilet', 'Double des clés', 'Antenne', 'Carte SD', 'Manuel d\'utilisation', 'Plage arrière', 'Chargeur'];
+const CONTROL_RE = new RegExp(`(?:^|\\s)(${CONTROL_LABELS.map(tol).join('|')})(?=\\s|$)`, 'giu');
+const CONTROL_CANON = CONTROL_LABELS.map((l) => l.replace(/\\/g, ''));
 
 export function parseMacadamRemarketing(input: FycLine[]): FycReportFields {
   const lines = asLines(input).filter((l) => !NOISE.test(l.text) || /^\d{2}\/\d{2}\/\d{4}/.test(l.text));
@@ -152,15 +190,21 @@ export function parseMacadamRemarketing(input: FycLine[]): FycReportFields {
     for (const l of lines.slice(i + 1)) { if (until.test(l.text)) break; if (!NOISE.test(l.text)) out.push(l); }
     return out;
   };
-  // Date du rapport : l'en-tête « 24/11/2026 16:34 ».
-  const head = lines.find((l) => /^\d{2}\/\d{2}\/\d{4}/.test(l.text));
+  // Date du rapport : l'en-tête « 24/11/2026 16:34 », AVANT « Information véhicule » (en OCR, une date lue sur une photo
+  // — certificat batterie « 26/10/2026 » — n'est pas la date du rapport).
+  const infoAt = lines.findIndex((l) => INFO_H.test(l.text));
+  const head = lines.slice(0, infoAt < 0 ? 6 : infoAt).find((l) => /^\d{2}\/\d{2}\/\d{4}/.test(l.text));
   const reportDate = isoDate(head?.text ?? null);
   // Information véhicule : deux colonnes, séparées par l'abscisse du premier libellé de droite (« Plaque », « NIV »…).
-  const info = section(/^Information véhicule$/i, /^Résumé des dommages$|^Photos commerciales$/i);
-  const rightX = Math.min(...info.flatMap((l) => l.frags.filter((f) => /^(Plaque|Couleur|NIV|Puissance|Première immatriculation|Nombre de portes)/i.test(f.s)).map((f) => f.x)), Infinity);
+  const info = section(INFO_H, SUMMARY_H);
+  const rightX = Math.min(...info.flatMap((l) => l.frags.filter((f) => /^(Plaque|Couleur|NIV|Puissance|Première|Nombre)/i.test(f.s)).map((f) => f.x)), Infinity);
+  // Un libellé peut arriver en une frag (« Type de carburant: », pdf.js) ou mot à mot (OCR) : on lit le texte joint du côté.
   const pair = (frags: Array<{ x: number; s: string }>) => {
-    const f = frags.filter((x) => x.s !== ':');
+    // « : » seul, et les signes sans lettre ni chiffre lus sur les filets du tableau (« = », « | », « — ») : écartés.
+    const f = frags.filter((x) => x.s !== ':' && /[\p{L}\p{N}]/u.test(x.s));
     if (!f.length) return null;
+    const m = f.map((x) => x.s).join(' ').match(INFO_LABELS);
+    if (m) return { label: canonical(INFO_LABEL_LIST, m[1]), value: dash(m[2]) };
     return { label: f[0].s.replace(/\s*:$/, ''), value: dash(f.slice(1).map((x) => x.s).join(' ')) };
   };
   for (const l of info) {
@@ -180,13 +224,28 @@ export function parseMacadamRemarketing(input: FycLine[]): FycReportFields {
   }
   const firstReg = isoDate(get(/^Première immatriculation$/i));
   // Dommages : pièce, nature, action, zone — « Acceptable » = trace d'usage, le reste dévalue.
-  const dmg = section(/^Dommages$/i, /^Pneus$|^Contrôles$/i).map((l) => l.text);
+  // En OCR, les photos de dommages laissent des lignes de bruit entre les groupes : écartées ; un groupe sans zone
+  // dans les quatre lignes suivantes est sauté (pas abandonné, comme avant).
+  // En OCR, la photo d'un dommage est sur la même ligne que son libellé (« Moulure d'aile AVD »£, wv To WoT ») : seule la
+  // colonne de gauche (le quart gauche de la page) est du texte du rapport. Les lignes pdf.js (une frag par libellé) sont inchangées.
+  const pageW = Math.max(...lines.flatMap((l) => l.frags.map((f) => f.x)), 0);
+  const dmgLines = section(DAMAGES_H, new RegExp(`${TYRES_H.source}|${CONTROLS_H.source}`, 'i'));
+  const margin = Math.min(...dmgLines.flatMap((l) => l.frags.length ? [l.frags[0].x] : []), Infinity);
+  const leftText = (l: L): string => {
+    if (!l.frags.length || !pageW || !Number.isFinite(margin)) return l.text;
+    // Une ligne qui ne part pas de la marge du texte est une lecture de photo (« Coa À 4 MAC M2 » sous une photo) : écartée.
+    if (l.frags[0].x > margin + pageW * 0.03) return '';
+    // La colonne de texte fait 13 % de la page (photos à partir de 20 %) ; « & » et « - » font partie des libellés
+    // (« Toit & autres », « E - Remplacer »), les autres signes seuls viennent des filets ou des photos.
+    return l.frags.filter((f) => f.x < margin + pageW * 0.13 && (/[\p{L}\p{N}]/u.test(f.s) || /^[&-]$/.test(f.s))).map((f) => f.s).join(' ').trim();
+  };
+  const dmg = dmgLines.map(leftText).filter((t) => t && !isNoise(t));
   const devaluation: FycDamage[] = [];
   const usage: FycDamage[] = [];
-  const ZONES = /^(Arrière|Avant|Droite|Gauche|Roues|Toit & autres|Intérieur|Mécanique)$/i;
-  for (let i = 0; i + 3 < dmg.length + 1; ) {
+  const ZONES = new RegExp(`^(${tol('Arrière')}|Avant|Droite|Gauche|Roues|Toit & autres|${tol('Intérieur')}|${tol('Mécanique')})$`, 'i');
+  for (let i = 0; i < dmg.length; ) {
     const zi = dmg.slice(i + 1, i + 5).findIndex((t) => ZONES.test(t));
-    if (zi < 0) break;
+    if (zi < 0) { i++; continue; }
     const g = dmg.slice(i, i + 2 + zi);
     const [part, kind, ...rest] = g;
     const zone = rest.pop() ?? '';
@@ -196,23 +255,34 @@ export function parseMacadamRemarketing(input: FycLine[]): FycReportFields {
     i += g.length;
   }
   // Pneus : position, saison, jante, dimension, marque, gomme.
-  const ty = section(/^Pneus$/i, /^Contrôles$|^Informations sur le contenu/i).map((l) => l.text);
+  const ty = section(TYRES_H, new RegExp(`${CONTROLS_H.source}|${FOOTER_H.source}`, 'i')).map((l) => l.text);
   const tyres: string[] = [];
   for (let i = 0; i < ty.length; i++) {
-    if (!/^(Avant|Arrière)\s+(Gauche|Droite?)$/i.test(ty[i])) continue;
+    if (!/^(Avant|Arri[èeé]re)\s+(Gauche|Droite?)$/i.test(ty[i])) continue;
     const g = ty.slice(i + 1, i + 6);
     const size = g.find((t) => /^\d{3}\/\d{2}\/\d{2}/.test(t)) ?? '';
     const depth = g.find((t) => /^\d+([.,]\d)?\s*mm$/i.test(t)) ?? '';
-    const brandT = g.find((t) => t !== size && t !== depth && !/^(4 Saisons|Été|Hiver|Aluminium|Acier|Tôle)$/i.test(t)) ?? '';
-    const season = g.find((t) => /^(4 Saisons|Été|Hiver)$/i.test(t)) ?? '';
-    tyres.push([ty[i], brandT, season, size.replace(/^(\d{3})\/(\d{2})\/(\d{2})\/?(\d+)?\/?([A-Z])?$/, (_m, w, h, r, li, sp) => `${w}/${h} R ${r}${li ? ` ${li}` : ''}${sp ? ` ${sp}` : ''}`), depth].filter(Boolean).join(' '));
+    const brandT = g.find((t) => t !== size && t !== depth && !/^(4 Saisons|[ÉE]té|Hiver|Aluminium|Acier|Tôle)$/i.test(t) && !isNoise(t)) ?? '';
+    const season = (g.find((t) => /^(4 Saisons|[ÉE]té|Hiver)$/i.test(t)) ?? '').replace(/^Eté$/, 'Été');
+    tyres.push([ty[i].replace(/Arri[eé]re/, 'Arrière'), brandT, season, size.replace(/^(\d{3})\/(\d{2})\/(\d{2})\/?(\d+)?\/?([A-Z])?$/, (_m, w, h, r, li, sp) => `${w}/${h} R ${r}${li ? ` ${li}` : ''}${sp ? ` ${sp}` : ''}`), depth].filter(Boolean).join(' '));
   }
   // Contrôles : libellé / valeur, deux colonnes ; la ligne qui suit sans libellé prolonge la valeur de gauche.
-  const ctrl = section(/^Contrôles$/i, /^Informations sur le contenu/i);
+  const ctrl = section(CONTROLS_H, FOOTER_H).filter((l) => !isNoise(l.text));
   const cx = Math.min(...ctrl.flatMap((l) => l.frags.length >= 3 ? [l.frags[Math.floor(l.frags.length / 2)].x] : []), Infinity);
   let lastLeft: string | null = null;
   for (const l of ctrl) {
-    if (l.frags.length <= 1) { if (lastLeft && /^(Oui|Non)/i.test(l.text)) raw[lastLeft] = l.text; continue; }
+    // Libellés connus dans le texte joint (OCR mot à mot : les abscisses ne séparent plus les colonnes) ; valeur = ce
+    // qui suit jusqu'au libellé suivant. Sinon, les deux colonnes par abscisse comme avant.
+    const hits = [...l.text.matchAll(CONTROL_RE)].map((m) => ({ label: m[1], at: (m.index ?? 0) + m[0].indexOf(m[1]), end: (m.index ?? 0) + m[0].length }));
+    if (hits.length) {
+      hits.forEach((h, k) => {
+        const value = l.text.slice(h.end, k + 1 < hits.length ? hits[k + 1].at : undefined).trim();
+        const label = canonical(CONTROL_CANON, h.label);
+        if (value) raw[label] = value; else lastLeft = label;
+      });
+      continue;
+    }
+    if (l.frags.length <= 1 || l.frags.every((f) => !/\s/.test(f.s))) { if (lastLeft && /^(Oui|Non)/i.test(l.text)) raw[lastLeft] = l.text; continue; }
     const left = l.frags.filter((f) => f.x < cx), right = l.frags.filter((f) => f.x >= cx);
     for (const side of [left, right]) {
       if (!side.length) continue;
@@ -220,7 +290,8 @@ export function parseMacadamRemarketing(input: FycLine[]): FycReportFields {
       if (value) raw[label] = value; else if (side === left) lastLeft = label;
     }
   }
-  const options = section(/^Options selon l'inspecteur$/i, /^Dommages$/i).map((l) => l.text).filter((t) => !/^Aucune Information/i.test(t));
+  const options = section(OPTIONS_H, DAMAGES_H).map((l) => l.text).filter((t) => !/^Aucune Information/i.test(t) && !isNoise(t))
+    .flatMap((t) => { const pairs = [...t.matchAll(/(.+?)\s+(Oui|Non)(?=\s|$)/giu)].map((m) => `${m[1].trim()} : ${m[2]}`); return pairs.length ? pairs : [t]; });
   const keys = num(get(/^Nbre clés total$/i));
   if (keys != null) raw['Clés'] = String(keys);
   if (reportDate) raw['Date du rapport'] = reportDate;
