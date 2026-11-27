@@ -32,8 +32,8 @@ import { getFxRates } from './fx';
 import { powerFromText } from '../src/lib/powerText';
 import { fuelFamily, gearboxFamily } from '../src/lib/vehicleFamilies';
 
-export type DealerProvider = 'estorik' | 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused' | 'kiaosp' | 'pappas' | 'jpauto' | 'fwcars' | 'mbmauto' | 'dunaauto' | 'schiller' | 'petranyi' | 'leierauto' | 'skodastock' | 'kiaihned' | 'autobazareu' | 'hedin' | 'kiaused' | 'todosjazdene' | 'cardveicolo' | 'youcan' | 'ibilista' | 'nuxtvehicles' | 'autoit' | 'occasionload' | 'easysite' | 'productfilter' | 'carsgrid' | 'nextcars' | 'carclicked' | 'sucars' | 'bilinfo' | 'attityde' | 'fluidcards' | 'datavehicle' | 'jetbrugte' | 'bilinfolist' | 'caritem';
-const PROVIDERS_KNOWN: DealerProvider[] = ['estorik', 'dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused', 'kiaosp', 'pappas', 'jpauto', 'fwcars', 'mbmauto', 'dunaauto', 'schiller', 'petranyi', 'leierauto', 'skodastock', 'kiaihned', 'autobazareu', 'hedin', 'kiaused', 'todosjazdene', 'cardveicolo', 'youcan', 'ibilista', 'nuxtvehicles', 'autoit', 'occasionload', 'easysite', 'productfilter', 'carsgrid', 'nextcars', 'carclicked', 'sucars', 'bilinfo', 'attityde', 'fluidcards', 'datavehicle', 'jetbrugte', 'bilinfolist', 'caritem'];
+export type DealerProvider = 'estorik' | 'dvnl' | 'dvapi' | 'datamotive' | 'dmapi' | 'autodata' | 'listerpage' | 'cmsms' | 'cartelcaw' | 'dtcvm' | 'carcards' | 'autrado' | 'carzilla' | 'hexon' | 'kamux' | 'openflex' | 'autopolis' | 'webspark' | 'catalogpager' | 'flexicar' | 'interstrip' | 'shopware' | 'wpcarsync' | 'divivoertuig' | 'carwp' | 'regeljelease' | 'vgrf' | 'yooflex' | 'dutchvans' | 'vehiclelistapi' | 'rswusato' | 'eveho' | 'jetlisting' | 'gatsbyvehicles' | 'autopalace' | 'autosphere' | 'carsearchwp' | 'stocklisting' | 'sfxlisting' | 'infinit' | 'acaicms' | 'carmarketb2c' | 'audaris' | 'kleynvans' | 'ocasionplus' | 'autralis' | 'carlution' | 'cfdnext' | 'dasweltauto' | 'pewneauto' | 'vwgmarket' | 'bmwused' | 'kiaosp' | 'pappas' | 'jpauto' | 'fwcars' | 'mbmauto' | 'dunaauto' | 'schiller' | 'petranyi' | 'leierauto' | 'skodastock' | 'kiaihned' | 'autobazareu' | 'hedin' | 'kiaused' | 'todosjazdene' | 'cardveicolo' | 'youcan' | 'ibilista' | 'nuxtvehicles' | 'autoit' | 'occasionload' | 'easysite' | 'productfilter' | 'carsgrid' | 'nextcars' | 'carclicked' | 'sucars' | 'bilinfo' | 'attityde' | 'fluidcards' | 'datavehicle' | 'jetbrugte' | 'bilinfolist' | 'caritem' | 'suzukinl';
+const PROVIDERS_KNOWN: DealerProvider[] = ['estorik', 'dvnl', 'dvapi', 'datamotive', 'dmapi', 'autodata', 'listerpage', 'cmsms', 'cartelcaw', 'dtcvm', 'carcards', 'autrado', 'carzilla', 'hexon', 'kamux', 'openflex', 'autopolis', 'webspark', 'catalogpager', 'flexicar', 'interstrip', 'shopware', 'wpcarsync', 'divivoertuig', 'carwp', 'regeljelease', 'vgrf', 'yooflex', 'dutchvans', 'vehiclelistapi', 'rswusato', 'eveho', 'jetlisting', 'gatsbyvehicles', 'autopalace', 'autosphere', 'carsearchwp', 'stocklisting', 'sfxlisting', 'infinit', 'acaicms', 'carmarketb2c', 'audaris', 'kleynvans', 'ocasionplus', 'autralis', 'carlution', 'cfdnext', 'dasweltauto', 'pewneauto', 'vwgmarket', 'bmwused', 'kiaosp', 'pappas', 'jpauto', 'fwcars', 'mbmauto', 'dunaauto', 'schiller', 'petranyi', 'leierauto', 'skodastock', 'kiaihned', 'autobazareu', 'hedin', 'kiaused', 'todosjazdene', 'cardveicolo', 'youcan', 'ibilista', 'nuxtvehicles', 'autoit', 'occasionload', 'easysite', 'productfilter', 'carsgrid', 'nextcars', 'carclicked', 'sucars', 'bilinfo', 'attityde', 'fluidcards', 'datavehicle', 'jetbrugte', 'bilinfolist', 'caritem', 'suzukinl'];
 
 /**
  * BOÎTE À APPRENDRE (01/10, demande Channing) : une vitrine inconnue n'est
@@ -385,6 +385,8 @@ export function detectDealerProvider(html: string): DealerProvider | null {
   if (/pb-elementor-widgets\/partials\/car-list\/js\/app\./.test(html) && /<div id="app"><\/div>/.test(html)) return 'bilinfolist';
   // caritem (Hyrup & Nielsen, DK, 26/11) : cartes « carItemCarPage » (Årgang, Kilometer, Brændstof, « kr. … ,- »).
   if (/<div class="carItemCarPage">/.test(html) && /<div class="fakeLink">/.test(html)) return 'caritem';
+  // suzukinl (concessions Suzuki NL, 27/11) : page « occasions » d'une concession sur suzuki.nl (composant « Occasion », API publique).
+  if (/data-component="Occasion"/.test(html) && /data-prop-occasion-api-url="https:\/\/api\.prd\.suzuki\.nl\//.test(html) && /data-prop-dealer="\d+"/.test(html)) return 'suzukinl';
   // sucars (Kallenhard, NL, 25/11) : WordPress « su-cars », tout le stock dans un fichier JSON public (data-json-url).
   if (/data-json-url="[^"]*\/app-vehicles-[a-z]{2}\.json/.test(html)) return 'sucars';
   // nextcars (Jan Nygaard, DK, 25/11) : Next.js à composants serveur, stock dans les props de « UsedCarOverview » (« cars »).
@@ -4347,6 +4349,55 @@ async function scrapeCarItem(url: string, firstHtml: string): Promise<DealerStoc
   if (lease) warnings.push(`${lease} voiture(s) proposée(s) en leasing seulement (mensualité affichée) : sans prix de vente`);
   return { provider: 'caritem', total: vehicles.length, declared: null, vehicles, pages: 1, warnings };
 }
+// ── suzukinl (concessions Suzuki des Pays-Bas, 27/11) : la page « occasions » d'une concession sur suzuki.nl
+//    (« /auto/dealers/<n°>/<nom>/occasions/ ») porte un composant « Occasion » avec l'adresse de l'API publique de Suzuki
+//    (data-prop-occasion-api-url, POST JSON sans clé ni jeton) et le n° de la concession (data-prop-dealer). Corps :
+//    { facets: { ClientId: { values: [n°] } }, limit, sort, start } → { count, items[] } ; chaque voiture : id.carId, brand,
+//    model, type (version), fuelTypeName, transmissionName, mileage, year, priceOnline, taxDeductible, licensePlate, vin,
+//    specifications.powerHp, isSold, isNew, createdDate. Fiche : « /auto/occasions/<carId>/ » (lien des cartes de la page).
+//    Un seul lecteur pour toutes les concessions Suzuki néerlandaises dont le site propre n'est pas lisible.
+export function suzukiNlVehicle(it: Record<string, any>): DealerVehicle | null { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const id = String(it?.id?.carId ?? '').trim();
+  if (!id) return null;
+  const str = (v: unknown) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '');
+  const base = [str(it.brand), str(it.model), str(it.type)].filter(Boolean).join(' ');
+  const price = priceOrNull(it.priceOnline) ?? priceOrNull(it.price);
+  return {
+    external_id: id, url: `https://www.suzuki.nl/auto/occasions/${id}/`, title: `${base}${it.taxDeductible === true ? ' · TVA récupérable' : ''}`,
+    brand: str(it.brand) || null, model: str(it.model) || null, price, currency: 'EUR',
+    km: num(it.mileage), year: num(it.year), fuel: str(it.fuelTypeName) || null, gearbox: gearboxOf(str(it.transmissionName) || null),
+    plate: str(it.licensePlate) || null, vin: str(it.vin) || null, body: it.isNew === true ? 'neuve' : null,
+    image: Array.isArray(it.imageUrls) && typeof it.imageUrls[0] === 'string' ? it.imageUrls[0] : null,
+    listed_at: str(it.createdDate) ? new Date(str(it.createdDate)).toISOString() : null,
+    status: it.isSold === true ? 'sold' : it.isReserved === true ? 'reserved' : price == null ? 'price_on_request' : null,
+    power_ch: num(it?.specifications?.powerHp) ?? powerFromText(str(it.type)),
+  };
+}
+async function scrapeSuzukiNl(url: string, firstHtml: string): Promise<DealerStockResult> {
+  const dealer = firstHtml.match(/data-prop-dealer="(\d+)"/)?.[1];
+  const api = unesc(firstHtml.match(/data-prop-occasion-api-url="([^"]+)"/)?.[1] ?? '');
+  if (!dealer || !/^https:\/\/api\.prd\.suzuki\.nl\//.test(api)) return { provider: 'suzukinl', total: null, declared: null, vehicles: [], pages: 1, warnings: ['n° de concession ou adresse de l\'API absents de la page'] };
+  const out: DealerVehicle[] = [];
+  const seen = new Set<string>();
+  const warnings: string[] = [];
+  let declared: number | null = null;
+  let pages = 1;
+  const LIMIT = 100;
+  for (let start = 0; start < 5000; start += LIMIT) {
+    const body = JSON.stringify({ facets: { ClientId: { values: [dealer] } }, limit: LIMIT, sort: 'price-asc', start });
+    const r = await getTextPatient(api, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json', referer: url }, body });
+    pages++;
+    if (r.status !== 200) { warnings.push(`API Suzuki : HTTP ${r.status}`); break; }
+    let d: { count?: number; items?: Array<Record<string, unknown>> };
+    try { d = JSON.parse(r.text); } catch { warnings.push('API Suzuki : réponse illisible'); break; }
+    if (declared == null) declared = num(d.count);
+    const items = Array.isArray(d.items) ? d.items : [];
+    for (const it of items) { const v = suzukiNlVehicle(it); if (v && !seen.has(v.external_id)) { seen.add(v.external_id); out.push(v); } }
+    if (items.length < LIMIT || (declared != null && out.length >= declared)) break;
+  }
+  if (declared != null && out.length < declared) warnings.push(`${out.length} véhicule(s) lu(s) pour ${declared} annoncé(s)`);
+  return { provider: 'suzukinl', total: declared ?? out.length, declared, vehicles: out, pages, warnings };
+}
 // ── bilinfo (Danemark, 25/11 : Meiniche, Holstebro, et Procar, Køge — partenaires BMW) : stock au format Bilinfo (la base
 //    des annonces danoises), soit dans le module « Brugtbilsmodulet » (la page de la vitrine charge « /bbm/<guid>.js », puis
 //    « /bbm/bbm.app.js?guid=<guid> », qui porte « $scope.data = {"ApiVersion":"3","Vehicles":[…]} »), soit écrit dans la
@@ -8237,6 +8288,7 @@ export async function fetchDealerStock(url: string, onProgress?: StockProgress):
   if (provider === 'jetbrugte') return scrapeJetBrugte(url, first.text);
   if (provider === 'bilinfolist') return scrapeBilinfoList(url);
   if (provider === 'caritem') return scrapeCarItem(url, first.text);
+  if (provider === 'suzukinl') return scrapeSuzukiNl(url, first.text);
   if (provider === 'nextcars') return scrapeNextCars(url, first.text);
   if (provider === 'eveho') return scrapeEveho(url, first.text);
   if (provider === 'autopalace') return scrapeAutopalace(url, first.text);

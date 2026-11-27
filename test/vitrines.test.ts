@@ -1230,5 +1230,42 @@ console.log('\n=== BMW PAYS-BAS (25/11) : FILTRE DE LIEU DES VITRINES dvapi (PAL
     'Kallenhard : prix affiché gardé, prix export et TVA récupérable (« BTW ») dans le titre, marge sans mention, « verkocht » = vendue, date de mise en ligne', [x3, b1]);
 }
 
+console.log('\n=== SUZUKI PAYS-BAS (27/11) : PAGE « OCCASIONS » D\'UNE CONCESSION SUR SUZUKI.NL (suzukinl) ===\n');
+{
+  const dsn = await import('../worker/dealerStock');
+  // Page réelle (ADG Hoogeveen, 27/11) réduite au composant : n° de concession et adresse de l'API publique (POST JSON, sans clé).
+  const api = 'https://api.prd.suzuki.nl/v1/occasions/get_occasions/?brand=SUZUKI';
+  const page = (dealer: string) => `<div data-component="Occasion" data-prop-occasion-api-url="${api}" data-prop-dealer-api-url="https://api.prd.suzuki.nl/v1/dealers/" data-prop-dealer="${dealer}" data-prop-root-url="/auto/occasions/"></div>`;
+  const q = (dealer: string, start: number) => `${api} ${JSON.stringify({ facets: { ClientId: { values: [dealer] } }, limit: 100, sort: 'price-asc', start })}`;
+  // Voiture telle que l'API la rend (Pijnappel, 27/11 : Wagon R+ de 2003, 4 950 €).
+  const sz = (carId: number, o: Record<string, unknown> = {}) => ({ id: { carId, ownerId: 'suzuki' }, clientId: '619300', vin: '', licensePlate: '49-NH-RF', brand: 'Suzuki', model: 'Wagon R+',
+    type: '1.3 Automaat 5-Deurs Airco', fuelTypeName: 'Benzine', transmissionName: 'Automaat', mileage: 134528, year: 2003, price: 4950, priceOnline: 4950, taxDeductible: false, isNew: false,
+    imageUrls: [`https://images.louwmanautos.nl/images/${carId}/image1.jpg`], specifications: { powerHp: 76 }, isSold: false, createdDate: '2026-11-07T10:22:27.183Z', ...o });
+  const url = 'https://www.suzuki.nl/auto/dealers/619300/adg-hoogeveen-bv/occasions/';
+  pages[url] = page('619300');
+  // 101 voitures : 100 sur la première réponse, la 101e sur la seconde (« start » = 100).
+  pages[q('619300', 0)] = JSON.stringify({ count: 101, items: Array.from({ length: 100 }, (_, i) => sz(977600000 + i, i === 0
+    ? { brand: 'Toyota', model: 'Yaris', type: '1.5 Hybrid Dynamic', fuelTypeName: 'Hybride', price: 21950, priceOnline: 20950, taxDeductible: true, vin: 'VNKKBAD300A123456', licensePlate: 'T-123-XX', specifications: { powerHp: 116 } }
+    : i === 1 ? { transmissionName: 'Handgeschakeld', price: 0, priceOnline: 0 } : i === 2 ? { isReserved: true } : {})) });
+  pages[q('619300', 100)] = JSON.stringify({ count: 101, items: [sz(977699999, { isSold: true, isNew: true })] });
+  ok(dsn.detectDealerProvider(pages[url]) === 'suzukinl', 'Suzuki NL : composant « Occasion » de suzuki.nl avec n° de concession et API publique reconnu (suzukinl)');
+  ok(dsn.detectDealerProvider(page('619300').replace('api.prd.suzuki.nl/v1/occasions', 'api.example.test/v1/occasions')) !== 'suzukinl', 'Suzuki NL : une API ailleurs que chez api.prd.suzuki.nl n\'est pas reconnue (rien d\'autre n\'est appelé)');
+  const r = await dsn.fetchDealerStock(url);
+  const y = r.vehicles.find((v) => v.external_id === '977600000'), m = r.vehicles.find((v) => v.external_id === '977600001');
+  const rs = r.vehicles.find((v) => v.external_id === '977600002'), sold = r.vehicles.find((v) => v.external_id === '977699999');
+  ok(r.provider === 'suzukinl' && r.vehicles.length === 101 && r.declared === 101 && r.warnings.length === 0, 'Suzuki NL : 101 voitures lues pour 101 annoncées, en deux appels (« start » 0 puis 100)', [r.vehicles.length, r.declared, r.warnings]);
+  ok(y?.url === 'https://www.suzuki.nl/auto/occasions/977600000/' && y?.title === 'Toyota Yaris 1.5 Hybrid Dynamic · TVA récupérable' && y?.brand === 'Toyota' && y?.model === 'Yaris'
+    && y?.price === 20950 && y?.currency === 'EUR' && y?.km === 134528 && y?.year === 2003 && y?.fuel === 'Hybride' && y?.gearbox === 'Automatique' && y?.plate === 'T-123-XX'
+    && y?.vin === 'VNKKBAD300A123456' && y?.power_ch === 116 && y?.listed_at === '2026-11-07T10:22:27.183Z' && y?.image === 'https://images.louwmanautos.nl/images/977600000/image1.jpg' && y?.status == null,
+    'Suzuki NL : prix en ligne, TVA récupérable dans le titre, autres marques gardées, fiche « /auto/occasions/<n°>/ », puissance, date de mise en ligne', y);
+  ok(m?.price == null && m?.status === 'price_on_request' && m?.gearbox === 'Manuelle' && m?.vin == null, 'Suzuki NL : prix 0 = prix sur demande (pas de faux 0 €), VIN vide = inconnu', m);
+  ok(rs?.status === 'reserved' && sold?.status === 'sold' && sold?.body === 'neuve', 'Suzuki NL : « isReserved » = réservée, « isSold » = vendue, « isNew » = neuve', [rs?.status, sold]);
+  // Page sans n° de concession : pas reconnue (relevé en échec, visible), aucun appel à l'API — jamais tout le réseau Suzuki.
+  pages['https://www.suzuki.nl/auto/dealers/000000/x/occasions/'] = page('619300').replace(/ data-prop-dealer="\d+"/, '');
+  const before = fetched.filter((u) => u.startsWith(api)).length;
+  const none = await dsn.fetchDealerStock('https://www.suzuki.nl/auto/dealers/000000/x/occasions/').then(() => 'lu', (e: unknown) => (e instanceof dsn.UnknownDealerSiteError ? 'non reconnue' : String(e)));
+  ok(none === 'non reconnue' && fetched.filter((u) => u.startsWith(api)).length === before, 'Suzuki NL : sans n° de concession, page non reconnue et pas d\'appel à l\'API (jamais tout le réseau)', none);
+}
+
 console.log(`\n${fails === 0 ? 'Tout est bon.' : `${fails} échec(s).`}`);
 if (fails) process.exit(1);
